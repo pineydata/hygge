@@ -1,0 +1,26 @@
+# Core data processing
+polars>=1.21.0
+pyarrow>=18.0.0
+
+# Database connectivity
+pyodbc>=5.1.0
+
+# Testing and linting
+pytest>=8.3.3
+pytest-asyncio>=0.24.0
+pytest-cov>=4.0.0
+ruff>=0.2.1
+
+# Utility packages
+pyyaml>=6.0.2
+
+# Azure dependencies
+azure-identity>=1.19.0
+azure-storage-blob>=12.24.0
+azure-storage-file-datalake>=12.18.0
+azure-core>=1.32.0
+
+# Other utilities
+colorama>=0.4.6
+tenacity>=9.0.0
+pydantic>=2.6.1  # For data validation and settings management
