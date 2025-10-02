@@ -78,7 +78,9 @@ class Store:
         self.transfers = []
 
     # Public Interface
-    async def write(self, df: pl.DataFrame, is_recursive: bool = False) -> Optional[str]:
+    async def write(
+        self, df: pl.DataFrame, is_recursive: bool = False
+    ) -> Optional[str]:
         """Write data to the store."""
         if df is None:
             raise StoreError("Cannot write None data")

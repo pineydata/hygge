@@ -1,0 +1,44 @@
+# Multiple flows in one configuration
+# Run multiple data movements in parallel
+
+flows:
+  users_flow:
+    home: data/users.parquet
+    store: data/lake/users
+    # Uses smart defaults
+
+  orders_flow:
+    home: data/orders.parquet
+    store: data/lake/orders
+    options:
+      # Override defaults for this flow
+      queue_size: 8
+    store:
+      options:
+        compression: gzip
+
+  products_flow:
+    home: data/products.parquet
+    store: data/lake/products
+    options:
+      queue_size: 3
+    store:
+      options:
+        compression: lz4
+
+  # Example using full home/store configuration
+  analytics_flow:
+    home:
+      type: parquet
+      path: data/analytics.parquet
+      options:
+        batch_size: 15000  # Larger batch for reading
+    store:
+      type: parquet
+      path: data/lake/analytics
+      options:
+        batch_size: 50000   # Smaller batch for writing
+        compression: zstd   # Better compression
+        file_pattern: "analytics_{flow_name}_{sequence:020d}.parquet"
+    options:
+      queue_size: 5

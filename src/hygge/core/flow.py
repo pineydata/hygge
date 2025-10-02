@@ -6,12 +6,18 @@ from a source (Home) to a destination (Store), with proper error handling,
 retries, and state management.
 """
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from hygge.utility.exceptions import FlowError
 from hygge.utility.logger import get_logger
+
+from .configs import FlowDefaults
 from .home import Home
+from .homes import ParquetHome, SQLHome
+from .homes.configs import ParquetHomeConfig, SQLHomeConfig
 from .store import Store
+from .stores import ParquetStore
+from .stores.configs import ParquetStoreConfig
 
 
 class Flow:
@@ -37,38 +43,53 @@ class Flow:
             - timeout (int): Operation timeout in seconds (default: 300)
     """
 
+
     def __init__(
         self,
         name: str,
         home: Optional[Home] = None,
         store: Optional[Store] = None,
-        home_class: Optional[type] = None,
-        home_config: Optional[Dict[str, Any]] = None,
-        store_class: Optional[type] = None,
-        store_config: Optional[Dict[str, Any]] = None,
+        home_config: Optional[
+            Union[Dict[str, Any], ParquetHomeConfig, SQLHomeConfig]
+        ] = None,
+        store_config: Optional[
+            Union[Dict[str, Any], ParquetStoreConfig]
+        ] = None,
         options: Optional[Dict[str, Any]] = None
     ):
         self.name = name
         self.options = options or {}
 
-        # Instantiate Home and Store if classes and configs are provided
-        if home_class and home_config:
-            self.home = home_class(**home_config)
-        elif home:
+        # Home and Store type mappings
+        self.HOME_TYPES = {
+            'sql': SQLHome,
+            'parquet': ParquetHome
+        }
+
+        self.STORE_TYPES = {
+            'parquet': ParquetStore
+        }
+
+        # Instantiate Home
+        if home:
             self.home = home
+        elif home_config:
+            self.home = self._create_home(home_config)
         else:
-            raise ValueError("Either 'home' or both 'home_class' and 'home_config' must be provided")
+            raise ValueError("Either 'home' or 'home_config' must be provided")
 
-        if store_class and store_config:
-            self.store = store_class(**store_config)
-        elif store:
+        # Instantiate Store
+        if store:
             self.store = store
+        elif store_config:
+            self.store = self._create_store(store_config)
         else:
-            raise ValueError("Either 'store' or both 'store_class' and 'store_config' must be provided")
+            raise ValueError("Either 'store' or 'store_config' must be provided")
 
-        # Settings
-        self.queue_size = self.options.get('queue_size', 10)
-        self.timeout = self.options.get('timeout', 300)
+        # Settings with defaults using FlowDefaults
+        defaults = FlowDefaults()
+        self.queue_size = self.options.get('queue_size', defaults.queue_size)
+        self.timeout = self.options.get('timeout', defaults.timeout)
 
         # State tracking
         self.total_rows = 0
@@ -76,6 +97,93 @@ class Flow:
         self.start_time = None
 
         self.logger = get_logger(f"hygge.flow.{name}")
+
+    def _create_home(
+        self, config: Union[Dict[str, Any], ParquetHomeConfig, SQLHomeConfig]
+    ) -> Home:
+        """Create a home instance from configuration."""
+        # Handle Pydantic config objects
+        if isinstance(config, (ParquetHomeConfig, SQLHomeConfig)):
+            home_class = self.HOME_TYPES.get(config.type)
+            if not home_class:
+                raise ValueError(f"Unknown home type: {config.type}")
+
+            return home_class(name=self.name, config=config)
+
+        # Handle dictionary configs (legacy support)
+        home_type = config.get('type')
+        if not home_type:
+            raise ValueError("Home configuration missing 'type'")
+
+        home_class = self.HOME_TYPES.get(home_type)
+        if not home_class:
+            raise ValueError(f"Unknown home type: {home_type}")
+
+        # Extract name and options
+        name = config.get('name', self.name)
+        options = config.get('options', {})
+
+        # Create home based on type using new config system
+        if home_type == 'sql':
+            if 'connection' not in config:
+                raise ValueError("SQL home missing 'connection'")
+            if 'query' not in config:
+                raise ValueError("SQL home missing 'query'")
+
+            sql_config = SQLHomeConfig(
+                connection=config['connection'],
+                query=config['query'],
+                options=options
+            )
+            return home_class(name=name, config=sql_config)
+
+        elif home_type == 'parquet':
+            if 'path' not in config:
+                raise ValueError("Parquet home missing 'path'")
+
+            parquet_config = ParquetHomeConfig(
+                path=config['path'],
+                options=options
+            )
+            return home_class(name=name, config=parquet_config)
+        else:
+            raise ValueError(f"Unsupported home type: {home_type}")
+
+    def _create_store(self, config: Union[Dict[str, Any], ParquetStoreConfig]) -> Store:
+        """Create a store instance from configuration."""
+        # Handle Pydantic config objects
+        if isinstance(config, ParquetStoreConfig):
+            store_class = self.STORE_TYPES.get(config.type)
+            if not store_class:
+                raise ValueError(f"Unknown store type: {config.type}")
+
+            return store_class(name=self.name, config=config, flow_name=self.name)
+
+        # Handle dictionary configs (legacy support)
+        store_type = config.get('type')
+        if not store_type:
+            raise ValueError("Store configuration missing 'type'")
+
+        store_class = self.STORE_TYPES.get(store_type)
+        if not store_class:
+            raise ValueError(f"Unknown store type: {store_type}")
+
+        # Extract name and options
+        name = config.get('name', self.name)
+        options = config.get('options', {})
+
+        # Create store based on type using new config system
+        if store_type == 'parquet':
+            if 'path' not in config:
+                raise ValueError("Parquet store missing 'path'")
+
+            parquet_config = ParquetStoreConfig(
+                path=config['path'],
+                options=options
+            )
+            return store_class(name=name, config=parquet_config, flow_name=self.name)
+        else:
+            raise ValueError(f"Unsupported store type: {store_type}")
 
     async def start(self) -> None:
         """Start the flow from Home to Store."""
@@ -141,7 +249,9 @@ class Flow:
 
             raise FlowError(f"Flow failed: {str(e)}")
 
-    async def _producer(self, queue: asyncio.Queue, producer_done: asyncio.Event) -> None:
+    async def _producer(
+        self, queue: asyncio.Queue, producer_done: asyncio.Event
+    ) -> None:
         """Read batches from Home and put them in queue."""
         try:
             self.logger.debug(f"Starting producer for {self.name}")
@@ -164,7 +274,9 @@ class Flow:
             producer_done.set()  # Signal done even on error
             raise FlowError(f"Producer failed: {str(e)}")
 
-    async def _consumer(self, queue: asyncio.Queue, producer_done: asyncio.Event) -> None:
+    async def _consumer(
+        self, queue: asyncio.Queue, producer_done: asyncio.Event
+    ) -> None:
         """Process batches from queue and write to Store."""
         try:
             self.logger.debug(f"Starting consumer for {self.name}")
@@ -178,7 +290,7 @@ class Flow:
 
                 try:
                     # Write to store
-                    staged_path = await self.store.write(batch)
+                    await self.store.write(batch)
 
                     # Update metrics
                     self.total_rows += len(batch)
@@ -199,7 +311,7 @@ class Flow:
                     # Signal producer to stop by putting None in queue
                     try:
                         await queue.put(None)
-                    except:
+                    except Exception:
                         pass
                     raise FlowError(f"Batch processing failed: {str(e)}")
 

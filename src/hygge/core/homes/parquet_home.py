@@ -2,12 +2,14 @@
 Parquet file home implementation.
 """
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import AsyncIterator
 
 import polars as pl
 
 from hygge.core.home import Home
 from hygge.utility.exceptions import HomeError
+
+from .configs import ParquetHomeConfig
 
 
 class ParquetHome(Home):
@@ -17,27 +19,29 @@ class ParquetHome(Home):
     Features:
     - Efficient batch reading with polars
     - Progress tracking
+    - Uses centralized configuration system
 
     Example:
         ```python
-        home = ParquetHome(
-            "users",
+        config = ParquetHomeConfig(
             path="data/users.parquet",
-            options={
-                'batch_size': 10_000
-            }
+            options={'batch_size': 10_000}
         )
+        home = ParquetHome("users", config)
         ```
     """
 
     def __init__(
         self,
         name: str,
-        path: str,
-        options: Optional[Dict[str, Any]] = None
+        config: ParquetHomeConfig
     ):
-        super().__init__(name, options)
-        self.data_path = Path(path)
+        # Get merged options from config
+        merged_options = config.get_merged_options()
+
+        super().__init__(name, merged_options)
+        self.config = config
+        self.data_path = Path(config.path)
 
     def get_data_path(self) -> Path:
         """Get the primary data path for this parquet home."""

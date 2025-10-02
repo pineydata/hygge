@@ -1,0 +1,23 @@
+<!-- Option 1: Cozy Home + Data Stacks (Wordmark) -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" width="420" height="120" role="img" aria-label="hygge logo">
+  <defs>
+    <style>
+      .word { font-family: "Inter", "Segoe UI", Roboto, system-ui, -apple-system, Arial; font-weight: 600; font-size:48px; }
+    </style>
+  </defs>
+
+  <!-- icon group -->
+  <g transform="translate(20,10)">
+    <!-- house body -->
+    <rect x="0" y="24" rx="12" ry="12" width="64" height="56" fill="#C67C4E"/>
+    <!-- roof -->
+    <polygon points="0,24 32,-6 64,24" fill="#C67C4E"/>
+    <!-- internal stacked bars (data rows) -->
+    <rect x="10" y="36" width="44" height="8" rx="4" fill="#F6EFE6"/>
+    <rect x="10" y="50" width="44" height="8" rx="4" fill="#F6EFE6"/>
+    <rect x="10" y="64" width="44" height="8" rx="4" fill="#F6EFE6"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="110" y="72" class="word" fill="#3A5A40">hygge</text>
+</svg>

@@ -1,14 +1,15 @@
 """
 Parquet store implementation.
 """
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import polars as pl
 
 from hygge.core.store import Store
 from hygge.utility.exceptions import StoreError
+
+from .configs import ParquetStoreConfig
 
 
 class ParquetStore(Store):
@@ -20,34 +21,36 @@ class ParquetStore(Store):
     - Data buffering and accumulation
     - Atomic writes with temp files
     - Progress tracking
+    - Uses centralized configuration system
 
     Example:
         ```python
-        store = ParquetStore(
-            "users",
+        config = ParquetStoreConfig(
             path="data/users",
             options={
                 'file_pattern': "{name}_{timestamp}.parquet",
                 'compression': 'snappy'
             }
         )
+        store = ParquetStore("users", config)
         ```
     """
 
     def __init__(
         self,
         name: str,
-        path: str,
-        options: Optional[Dict[str, Any]] = None
+        config: ParquetStoreConfig,
+        flow_name: Optional[str] = None
     ):
-        super().__init__(name, options)
-        self.base_path = Path(path)
+        # Get merged options from config (with flow_name for file_pattern)
+        merged_options = config.get_merged_options(flow_name or name)
 
-        self.file_pattern = self.options.get(
-            'file_pattern',
-            "{sequence:020d}.parquet"
-        )
-        self.compression = self.options.get('compression', 'snappy')
+        super().__init__(name, merged_options)
+        self.config = config
+        self.base_path = Path(config.path)
+
+        self.file_pattern = self.options.get('file_pattern')
+        self.compression = self.options.get('compression')
         self.sequence_counter = 0
 
         # Ensure directories exist
@@ -87,7 +90,9 @@ class ParquetStore(Store):
                 raise StoreError(f"File was not created after write: {staging_path}")
 
             file_size = staging_path.stat().st_size
-            self.logger.success(f"Wrote {len(df):,} rows to {staging_path.name} ({file_size:,} bytes)")
+            self.logger.success(
+                f"Wrote {len(df):,} rows to {staging_path.name} ({file_size:,} bytes)"
+            )
 
         except Exception as e:
             self.logger.error(f"Failed to write parquet to {staging_path}: {str(e)}")

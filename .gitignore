@@ -3,7 +3,7 @@
 .ruff_cache
 elk/
 config/
-starLake/
+starLake/*
 utils/
 logs/
 data/
