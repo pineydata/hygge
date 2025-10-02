@@ -2,6 +2,7 @@
 Home provides a comfortable place for data to start its journey.
 """
 import asyncio
+from pathlib import Path
 from typing import Any, AsyncIterator, Dict, Optional
 
 import polars as pl
@@ -90,3 +91,21 @@ class Home:
     async def close(self) -> None:
         """Clean up when done."""
         pass
+
+    # Path Management
+    def get_data_path(self) -> Path:
+        """
+        Get the primary data path for this home.
+
+        Each home type implements its own path resolution logic.
+        This could be a single file, directory, or connection string.
+
+        Returns:
+            Path: The primary data location
+
+        Raises:
+            NotImplementedError: If not implemented by subclass
+        """
+        raise NotImplementedError(
+            f"get_data_path() must be implemented in {self.__class__.__name__}"
+        )

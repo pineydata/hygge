@@ -112,9 +112,10 @@ class Flow:
             await self.store.finish()
 
             duration = asyncio.get_event_loop().time() - self.start_time
-            self.logger.info(
-                f"Flow completed: {self.name}, "
-                f"processed {self.total_rows:,} rows in {duration:.1f}s"
+            rate = self.total_rows / duration if duration > 0 else 0
+            self.logger.success(
+                f"Flow {self.name} completed: "
+                f"{self.total_rows:,} rows in {duration:.1f}s ({rate:.0f} rows/s)"
             )
 
         except Exception as e:
@@ -176,17 +177,8 @@ class Flow:
                     break
 
                 try:
-                    # Write to store, indicating if this might be the last batch
-                    # Check if producer is done and queue is empty
-                    is_last_batch = queue.empty() and producer_done.is_set()
-                    self.logger.debug(f"Processing batch: {len(batch)} rows, is_last_batch={is_last_batch}, queue_empty={queue.empty()}, producer_done={producer_done.is_set()}")
-                    staged_path = await self.store.write(
-                        batch,
-                        is_last_batch=is_last_batch
-                    )
-
-                    if staged_path:
-                        self.logger.debug(f"Batch staged at: {staged_path}")
+                    # Write to store
+                    staged_path = await self.store.write(batch)
 
                     # Update metrics
                     self.total_rows += len(batch)
@@ -197,9 +189,9 @@ class Flow:
                         duration = asyncio.get_event_loop().time() - self.start_time
                         rate = self.total_rows / duration if duration > 0 else 0
                         self.logger.info(
-                            f"Progress: {self.total_rows:,} rows, "
-                            f"{self.batches_processed} batches, "
-                            f"{rate:.0f} rows/s"
+                            self.logger.EXTRACT_TEMPLATE.format(
+                                self.total_rows, duration, rate
+                            )
                         )
 
                 except Exception as e:

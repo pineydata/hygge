@@ -2,14 +2,15 @@
 Store provides a comfortable place for data to rest.
 """
 import asyncio
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import polars as pl
 
-from hygge.utility.settings import Settings, settings as default_settings
 from hygge.utility.exceptions import StoreError
 from hygge.utility.logger import get_logger
 from hygge.utility.retry import with_retry
+from hygge.utility.settings import Settings, settings as default_settings
 
 
 class Store:
@@ -77,147 +78,59 @@ class Store:
         self.transfers = []
 
     # Public Interface
-    async def write(
-        self, df: pl.DataFrame, is_last_batch: bool = False
-    ) -> Optional[str]:
-        """Write data to the store.
-
-        Args:
-            df (pl.DataFrame): Data to write
-            is_last_batch (bool): Whether this is the final batch from Flow
-
-        Awaits:
-            str or None: Location of staged data, or None if still collecting
-
-        Raises:
-            StoreError: If writing fails, with details about what was written
-        """
+    async def write(self, df: pl.DataFrame, is_recursive: bool = False) -> Optional[str]:
+        """Write data to the store."""
         if df is None:
             raise StoreError("Cannot write None data")
 
-        # Save original state for rollback
-        original_df = self.current_df
-        original_rows = self.total_rows
-        staged_path = None
+        if self.start_time is None:
+            self.start_time = asyncio.get_event_loop().time()
 
-        try:
-            # Initialize timing on first write
-            if self.start_time is None:
-                self.start_time = asyncio.get_event_loop().time()
-
+        # Only count rows at the top level, not in recursive calls
+        if not is_recursive:
             self.total_rows += len(df)
             self._log_progress(self.total_rows)
 
-            # Handle explicit case first: df fits in a batch
-            if len(df) <= self.batch_size:
-                if self.current_df is not None:
-                    self.logger.debug(f"Accumulating: current={len(self.current_df)}, new={len(df)}, total={len(self.current_df) + len(df)}, batch_size={self.batch_size}")
-                    if len(self.current_df) + len(df) > self.batch_size:
-                        try:
-                            staged_path = await self._stage()
-                            self.current_df = df
-                            return staged_path
-                        except Exception as e:
-                            # Stage failed but current_df was valid
-                            self.logger.error(
-                                f"Failed to stage data. Current buffer preserved. Error: {str(e)}"
-                            )
-                            raise StoreError(
-                                "Failed to stage current buffer",
-                                last_staged=self.transfers[-1] if self.transfers else None,
-                                current_buffer_size=len(self.current_df)
-                            ) from e
-                    else:
-                        try:
-                            self.current_df = pl.concat([self.current_df, df])
-                        except Exception as e:
-                            # Concat failed, restore original
-                            self.current_df = original_df
-                            self.total_rows = original_rows
-                            raise StoreError(
-                                "Failed to concatenate data",
-                                last_staged=self.transfers[-1] if self.transfers else None,
-                                current_buffer_size=len(original_df) if original_df is not None else 0
-                            ) from e
-                else:
-                    self.current_df = df
-
-                # Stage if this is the last batch
-                if is_last_batch:
-                    self.logger.debug(f"Last batch detected, staging {len(self.current_df)} rows")
-                    try:
-                        return await self._stage()
-                    except Exception as e:
-                        raise StoreError(
-                            "Failed to stage final batch",
-                            last_staged=self.transfers[-1] if self.transfers else None,
-                            current_buffer_size=len(self.current_df)
-                        ) from e
-                self.logger.debug(f"Not last batch, accumulating {len(self.current_df)} rows")
-                return None
-
-            # Handle overflow: slice and recurse
+        if len(df) <= self.batch_size:
+            # Accumulate data
+            if self.current_df is not None:
+                self.current_df = pl.concat([self.current_df, df])
+            else:
+                self.current_df = df
+            return None
+        else:
+            # Slice and stage
             batch = df.slice(0, self.batch_size)
             remainder = df.slice(self.batch_size, len(df))
 
-            try:
-                self.current_df = batch
-                staged_path = await self._stage()
+            self.current_df = batch
+            staged_path = await self._stage()
 
-                # Only continue to remainder if batch was successful
-                return await self.write(remainder, is_last_batch)
-            except Exception as e:
-                # If staging failed, we can retry with the same batch
-                raise StoreError(
-                    "Failed to process oversized batch",
-                    last_staged=self.transfers[-1] if self.transfers else None,
-                    failed_batch_size=len(batch),
-                    remaining_size=len(remainder)
-                ) from e
-
-        except Exception as e:
-            if not isinstance(e, StoreError):
-                # Wrap unknown errors with context
-                raise StoreError(
-                    f"Unexpected error in write: {str(e)}",
-                    last_staged=self.transfers[-1] if self.transfers else None,
-                    current_buffer_size=len(self.current_df) if self.current_df is not None else 0
-                ) from e
-            raise
-
-        except Exception as e:
-            raise StoreError(f"Failed to write to {self.name}: {str(e)}")
+            # Recurse on complement of slice
+            if len(remainder) > 0:
+                return await self.write(remainder, is_recursive=True)
+            return staged_path
 
     async def finish(self) -> None:
         """Complete the storage process.
 
         Stages any remaining data, moves all staged files to their final
         locations, and resets the store state.
-
-        Awaits:
-            None
-
-        Raises:
-            StoreError: If moving files or cleanup fails
         """
-        try:
-            # Write any remaining data
-            if self.current_df is not None and len(self.current_df) > 0:
-                await self._stage()
+        # Stage any remaining data
+        if self.current_df is not None and len(self.current_df) > 0:
+            self.logger.info(f"Staging final batch of {len(self.current_df):,} rows")
+            await self._stage()
 
-            # Move all files to final location
-            for temp_path in self.transfers:
-                final_path = self._get_final_path(temp_path)
-                await self._move_to_final(temp_path, final_path)
-
-            # Reset state
-            self.current_df = None
-            self.transfers = []
-            self.total_rows = 0
-            self.start_time = None
-
-        except Exception as e:
-            raise StoreError(f"Failed to finish {self.name}: {str(e)}")
+        # Move all staged files to final location
+        if self.transfers:
+            self.logger.start(f"Moving {len(self.transfers)} files to final location")
+            for staging_path_str in self.transfers:
+                staging_path = Path(staging_path_str)
+                filename = staging_path.name
+                final_path = self.get_final_path(filename)
+                await self._move_to_final(staging_path, final_path)
+            self.logger.success(f"Completed storage of {len(self.transfers)} files")
 
     # Core Storage Operations
     async def _stage(self) -> Optional[str]:
@@ -235,24 +148,24 @@ class Store:
 
         try:
             # Get path for this batch
-            file_name = await self._get_next_filename()
-            temp_path = self._get_temp_path(file_name)
+            filename = await self.get_next_filename()
+            staging_path = self.get_staging_path(filename)
 
             # Write the data
-            await self._save(self.current_df, temp_path)
+            await self._save(self.current_df, staging_path)
 
             # Add write to journal
-            await self._add_to_journal(temp_path)
+            await self._add_to_journal(staging_path)
 
             # Reset buffer
             self.current_df = None
 
-            return temp_path
+            return str(staging_path)
 
         except Exception as e:
             self.logger.error(f"Failed to write batch: {str(e)}")
-            if temp_path:
-                await self._cleanup_temp(temp_path)
+            if 'staging_path' in locals():
+                await self._cleanup_temp(staging_path)
             raise
 
     @with_retry(
@@ -284,48 +197,133 @@ class Store:
         raise NotImplementedError("Each store type must implement _save()")
 
     # Path Management
-    def _get_table_name(self, schema: str, table_name: str) -> str:
+    def get_staging_directory(self) -> Path:
         """
-        Get standardized table name format.
+        Get the staging directory for temporary storage.
 
-        This should be implemented by specific store types.
+        This is where data is written before being moved to final location.
+        Each store type implements its own staging directory logic.
+
+        Returns:
+            Path: The staging directory path
+
+        Raises:
+            NotImplementedError: If not implemented by subclass
         """
-        msg = "Each store type must implement _get_table_name()"
-        raise NotImplementedError(msg)
+        raise NotImplementedError(
+            f"get_staging_directory() must be implemented in {self.__class__.__name__}"
+        )
 
-    def _get_temp_directory(self, schema: str, table_name: str) -> str:
+    def get_final_directory(self) -> Path:
         """
-        Get standardized temp directory.
+        Get the final directory for permanent storage.
 
-        This should be implemented by specific store types.
+        This is where data is moved after successful staging.
+        Each store type implements its own final directory logic.
+
+        Returns:
+            Path: The final directory path
+
+        Raises:
+            NotImplementedError: If not implemented by subclass
         """
-        msg = "Each store type must implement _get_temp_directory()"
-        raise NotImplementedError(msg)
+        raise NotImplementedError(
+            f"get_final_directory() must be implemented in {self.__class__.__name__}"
+        )
 
-    def _get_final_directory(self, schema: str, table_name: str) -> str:
+    def get_staging_path(self, filename: str) -> Path:
         """
-        Get standardized final directory.
+        Get the full staging path for a filename.
 
-        This should be implemented by specific store types.
+        Args:
+            filename (str): The filename to stage
+
+        Returns:
+            Path: Full staging path including directory and filename
         """
-        msg = "Each store type must implement _get_final_directory()"
-        raise NotImplementedError(msg)
+        return self.get_staging_directory() / filename
 
-    def _get_temp_path(self, filename: str) -> str:
-        """Get path for temporary storage using configured pattern."""
-        return self.temp_pattern.format(name=self.name, filename=filename)
-
-    def _get_final_path(self, filename: str) -> str:
-        """Get path for final storage using configured pattern."""
-        return self.final_pattern.format(name=self.name, filename=filename)
-
-    async def _get_next_filename(self) -> str:
+    def get_final_path(self, filename: str) -> Path:
         """
-        Get next filename for batch.
+        Get the full final path for a filename.
 
-        This should be implemented by specific store types.
+        Args:
+            filename (str): The filename for final storage
+
+        Returns:
+            Path: Full final path including directory and filename
         """
-        raise NotImplementedError("Each store type must implement _get_next_filename()")
+        return self.get_final_directory() / filename
+
+    async def get_next_filename(self) -> str:
+        """
+        Generate the next filename for a batch.
+
+        Each store type implements its own filename generation logic.
+        This should include appropriate naming conventions and uniqueness.
+
+        Returns:
+            str: The next filename to use
+
+        Raises:
+            NotImplementedError: If not implemented by subclass
+        """
+        raise NotImplementedError(
+            f"get_next_filename() must be implemented in {self.__class__.__name__}"
+        )
+
+    def ensure_directories_exist(self) -> None:
+        """
+        Ensure that both staging and final directories exist.
+
+        Creates directories if they don't exist, with proper error handling.
+
+        Raises:
+            StoreError: If directory creation fails
+        """
+        try:
+            staging_dir = self.get_staging_directory()
+            final_dir = self.get_final_directory()
+
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            final_dir.mkdir(parents=True, exist_ok=True)
+
+            self.logger.debug(
+                f"Ensured directories exist: staging={staging_dir}, final={final_dir}"
+            )
+
+        except Exception as e:
+            raise StoreError(f"Failed to create directories: {str(e)}")
+
+    def validate_paths(self) -> None:
+        """
+        Validate that staging and final directories are accessible.
+
+        Checks that directories exist and are writable.
+
+        Raises:
+            StoreError: If paths are invalid or inaccessible
+        """
+        try:
+            staging_dir = self.get_staging_directory()
+            final_dir = self.get_final_directory()
+
+            # Check staging directory
+            if not staging_dir.exists():
+                raise StoreError(f"Staging directory does not exist: {staging_dir}")
+            if not staging_dir.is_dir():
+                raise StoreError(f"Staging path is not a directory: {staging_dir}")
+
+            # Check final directory
+            if not final_dir.exists():
+                raise StoreError(f"Final directory does not exist: {final_dir}")
+            if not final_dir.is_dir():
+                raise StoreError(f"Final path is not a directory: {final_dir}")
+
+        except Exception as e:
+            if isinstance(e, StoreError):
+                raise
+            raise StoreError(f"Failed to validate paths: {str(e)}")
 
     # File Operations
     @with_retry(
@@ -335,7 +333,7 @@ class Store:
         exceptions=(StoreError, IOError, OSError),
         logger_name="hygge.store.move"
     )
-    async def _move_to_final(self, temp_path: str, final_path: str) -> None:
+    async def _move_to_final(self, staging_path: Path, final_path: Path) -> None:
         """
         Move file from temp to final location.
 
@@ -358,7 +356,7 @@ class Store:
         exceptions=(StoreError, IOError, OSError),
         logger_name="hygge.store.cleanup"
     )
-    async def _cleanup_temp(self, path: str) -> None:
+    async def _cleanup_temp(self, path: Path) -> None:
         """
         Clean up temporary data.
 
@@ -374,10 +372,10 @@ class Store:
         raise NotImplementedError("Each store type must implement _cleanup_temp()")
 
     # Tracking and Logging
-    async def _add_to_journal(self, temp_path: str) -> None:
+    async def _add_to_journal(self, staging_path: Path) -> None:
         """Add the write operation to the journal for tracking and recovery."""
-        self.transfers.append(temp_path)
-        self.logger.debug(f"Journal: transfer: {temp_path}")
+        self.transfers.append(str(staging_path))
+        self.logger.debug(f"Journal: transfer: {staging_path}")
 
     def _log_progress(self, total_rows: int) -> None:
         """Log progress at regular intervals."""
@@ -385,5 +383,5 @@ class Store:
             elapsed = asyncio.get_event_loop().time() - self.start_time
             rate = total_rows / elapsed if elapsed > 0 else 0
             self.logger.info(
-                f"Wrote {total_rows:,} rows in {elapsed:.1f}s ({rate:.0f} rows/s)"
+                self.logger.WRITE_TEMPLATE.format(total_rows, elapsed, rate)
             )

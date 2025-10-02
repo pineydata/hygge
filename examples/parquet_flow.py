@@ -2,13 +2,14 @@
 Example of Parquet to Parquet flow.
 """
 import asyncio
-import polars as pl
 from pathlib import Path
+
+import polars as pl
 
 from hygge import Flow, ParquetHome, ParquetStore
 
 
-async def setup_test_data(path: str, rows: int = 1000) -> None:
+async def setup_test_data(path: str, rows: int = 10_000_000) -> None:
     """Create test parquet file."""
     df = pl.DataFrame({
         'id': range(rows),
@@ -31,6 +32,14 @@ async def main():
     # Store structure: data/store/
     store_dir = base_dir / 'store'
 
+    # Clean up existing store data
+    if store_dir.exists():
+        import shutil
+        shutil.rmtree(store_dir)
+        print(f"Cleaned up existing store directory: {store_dir}")
+
+    store_dir.mkdir(exist_ok=True)
+
     # Create test data
     await setup_test_data(source_file)
     print(f"Created test data at {source_file}")
@@ -51,8 +60,8 @@ async def main():
             'name': 'numbers',
             'path': str(store_dir),
             'options': {
-                'batch_size': 250,  # Different batch size to test accumulation
-                'file_pattern': "{timestamp}.parquet",
+                'batch_size': 500000,  # Different batch size to test accumulation
+                'file_pattern': "{sequence:020d}.parquet",
                 'compression': 'snappy'
             }
         },
@@ -66,8 +75,8 @@ async def main():
     print("Flow completed")
 
     # Verify results
-    result_files = list((store_dir / 'table').glob('*.parquet'))
-    print(f"\nResults in {store_dir / 'table'}:")
+    result_files = list((store_dir / 'numbers').glob('*.parquet'))
+    print(f"\nResults in {store_dir / 'numbers'}:")
     total_rows = 0
     for file in result_files:
         df = pl.read_parquet(file)

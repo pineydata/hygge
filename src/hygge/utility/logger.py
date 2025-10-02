@@ -52,6 +52,10 @@ class HyggeLogger:
         RED = colorama.Fore.RED
         RESET = colorama.Style.RESET_ALL
 
+    # Logging templates for consistent formatting
+    EXTRACT_TEMPLATE = "Extracted {:,} rows in {:.1f}s ({:,.0f} rows/s)"
+    LOAD_TEMPLATE = "Loaded {:,} rows in {:.1f}s ({:,.0f} rows/s)"
+    WRITE_TEMPLATE = "Processed {:,} rows in {:.1f}s ({:,.0f} rows/s)"
     BATCH_TEMPLATE = "Processed {:,} rows in {:.1f}s ({:,.0f} rows/s)"
 
     def __init__(self, name: str):
@@ -97,6 +101,10 @@ class HyggeLogger:
         """Log info message with optional color prefix"""
         extra = {"color_prefix": color_prefix} if color_prefix else None
         self.logger.info(msg, extra=extra)
+
+    def status(self, message: str) -> None:
+        """Log a status message"""
+        self.logger.info(f"STATUS: {message}")
 
     def start(self, msg: str) -> None:
         """Log start message in cyan"""
