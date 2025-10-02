@@ -4,7 +4,7 @@ Retry decorator with exponential backoff and timeout for async functions.
 import asyncio
 import logging
 from functools import wraps
-from typing import Type, Union, Tuple
+from typing import Type, Tuple, Union
 
 from tenacity import (
     before_sleep_log,
@@ -14,13 +14,12 @@ from tenacity import (
     wait_exponential,
 )
 
-from .settings import settings
 from .exceptions import FlowError, HomeError, StoreError
 from .logger import get_logger
 
 
 def with_retry(
-    timeout: int = settings.timeouts.general,
+    timeout: int = 300,  # 5 minutes default
     retries: int = 3,
     delay: int = 2,
     exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]] = (

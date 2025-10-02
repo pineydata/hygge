@@ -17,7 +17,9 @@ import yaml
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 
-from .configs import FlowDefaults, HyggeConfig
+from .configs import HyggeConfig
+from .configs.settings import settings
+from .factory import HyggeFactory
 from .flow import Flow
 
 
@@ -39,35 +41,28 @@ def validate_config(config: Dict[str, Any]) -> List[str]:
             return [str(e)]
 
 
-def _apply_config_defaults(
-    flow_name: str, flow_config: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Apply configuration defaults using Pydantic models."""
-    # Parse the flow configuration
-    flow = HyggeConfig.from_dict({'flows': {flow_name: flow_config}}).flows[flow_name]
+def _apply_flow_settings(flow_config: Dict[str, Any]) -> Dict[str, Any]:
+    """Apply flow-level settings to configuration."""
+    # Get existing options or start with empty dict
+    existing_options = flow_config.get('options', {})
 
-    # Get home and store configurations with defaults applied
-    home_config = flow.get_home_config(flow_name)
-    store_config = flow.get_store_config(flow_name)
+    # Apply centralized settings
+    flow_options = settings.apply_flow_settings(existing_options)
 
-    # Apply flow defaults
-    flow_defaults = FlowDefaults()
-    flow_options = flow_defaults.dict()
-    flow_options.update(flow.options)
+    # Return updated config with settings applied
+    config_with_settings = flow_config.copy()
+    config_with_settings['options'] = flow_options
+    return config_with_settings
 
-    return {
-        'home': home_config.dict(),
-        'store': store_config.dict(),
-        'options': flow_options
-    }
+
 
 
 class Coordinator:
     """
     Coordinates multiple flows based on template configuration.
 
-    The coordinator reads configuration and creates flows, delegating
-    home/store instantiation to the Flow class.
+    The coordinator reads configuration and creates flows, using the
+    HyggeFactory to instantiate Home and Store instances.
 
     Example config:
     ```yaml
@@ -130,15 +125,24 @@ class Coordinator:
         for name, config in flows_config.items():
             self.logger.info(f"Setting up flow: {name}")
 
-            # Apply configuration defaults
-            full_config = _apply_config_defaults(name, config)
+            # Apply flow-level settings (home/store settings handled by Pydantic)
+            config_with_settings = _apply_flow_settings(config)
 
-            # Create flow with configuration - Flow will handle instantiation
+            # Parse the flow configuration using Pydantic - applies all smart settings
+            flow_config = HyggeConfig.from_dict(
+                {'flows': {name: config_with_settings}}
+            ).flows[name]
+
+            # Create Home and Store instances using factory
+            home = HyggeFactory.create_home(name, flow_config.home_config)
+            store = HyggeFactory.create_store(name, name, flow_config.store_config)
+
+            # Create flow with Home and Store instances
             flow = Flow(
                 name=name,
-                home_config=full_config['home'],
-                store_config=full_config['store'],
-                options=full_config['options']
+                home=home,
+                store=store,
+                options=flow_config.options
             )
             self.flows.append(flow)
 
@@ -154,10 +158,12 @@ class Coordinator:
             for flow in self.flows:
                 # Respect concurrency limits
                 while len(running) >= max_concurrent:
-                    done, running = await asyncio.wait(
+                    done, still_running = await asyncio.wait(
                         running,
                         return_when=asyncio.FIRST_COMPLETED
                     )
+                    # Update running list to still running tasks
+                    running = list(still_running)
                     # Handle any completed tasks
                     for task in done:
                         await task

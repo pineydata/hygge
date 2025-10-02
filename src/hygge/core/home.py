@@ -1,5 +1,9 @@
 """
-Home provides a comfortable place for data to start its journey.
+A home is where data lives before starting its journey. Each home provides
+a comfortable way to read data with built-in conveniences like:
+- Batch reading for memory efficiency
+- Progress tracking
+- Error handling
 """
 import asyncio
 from pathlib import Path

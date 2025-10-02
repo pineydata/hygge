@@ -89,8 +89,8 @@ hygge uses YAML configuration files to define data flows:
 ```yaml
 flows:
   users_to_parquet:
-    from: data/users.parquet
-    to: data/lake/users
+    home: data/users.parquet
+    store: data/lake/users
     # That's it! Everything else uses smart defaults
 ```
 

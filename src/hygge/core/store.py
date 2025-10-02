@@ -1,5 +1,10 @@
 """
-Store provides a comfortable place for data to rest.
+A store collects data and manages its journey to final storage. It handles:
+- Collecting data until ready to stage
+- Staging data safely before saving
+- Moving data to its final location
+- Tracking progress and handling errors
+
 """
 import asyncio
 from pathlib import Path
@@ -10,7 +15,6 @@ import polars as pl
 from hygge.utility.exceptions import StoreError
 from hygge.utility.logger import get_logger
 from hygge.utility.retry import with_retry
-from hygge.utility.settings import Settings, settings as default_settings
 
 
 class Store:
@@ -40,35 +44,13 @@ class Store:
         self.name = name
         self.options = options or {}
 
-        # Create settings with defaults and any overrides
-        self.settings = Settings(
-            **{
-                'paths': {
-                    'temp': self.options.get(
-                        'temp_pattern', default_settings.paths.temp
-                    ),
-                    'final': self.options.get(
-                        'final_pattern', default_settings.paths.final
-                    )
-                },
-                'batching': {
-                    'size': self.options.get(
-                        'batch_size', default_settings.batching.size
-                    ),
-                    'row_multiplier': self.options.get(
-                        'row_multiplier', default_settings.batching.row_multiplier
-                    )
-                }
-            }
-        )
+        # Core settings from options
+        self.batch_size = self.options.get('batch_size', 100_000)
+        self.row_multiplier = self.options.get('row_multiplier', 300_000)
 
-        # Core settings
-        self.batch_size = self.settings.batching.size
-        self.row_multiplier = self.settings.batching.row_multiplier
-
-        # Path patterns
-        self.temp_pattern = self.settings.paths.temp
-        self.final_pattern = self.settings.paths.final
+        # Path patterns from options
+        self.temp_pattern = self.options.get('temp_pattern', "tmp/{name}/{filename}")
+        self.final_pattern = self.options.get('final_pattern', "data/{name}/{filename}")
         self.start_time = None
         self.logger = get_logger(f"hygge.store.{self.__class__.__name__}")
 

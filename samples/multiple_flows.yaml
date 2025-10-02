@@ -9,22 +9,22 @@ flows:
 
   orders_flow:
     home: data/orders.parquet
-    store: data/lake/orders
+    store:
+      path: data/lake/orders
+      options:
+        compression: gzip
     options:
       # Override defaults for this flow
       queue_size: 8
-    store:
-      options:
-        compression: gzip
 
   products_flow:
     home: data/products.parquet
-    store: data/lake/products
-    options:
-      queue_size: 3
     store:
+      path: data/lake/products
       options:
         compression: lz4
+    options:
+      queue_size: 3
 
   # Example using full home/store configuration
   analytics_flow:
