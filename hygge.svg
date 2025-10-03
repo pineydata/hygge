@@ -2,7 +2,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" width="420" height="120" role="img" aria-label="hygge logo">
   <defs>
     <style>
-      .word { font-family: "Inter", "Segoe UI", Roboto, system-ui, -apple-system, Arial; font-weight: 600; font-size:48px; }
+      .word { font-family: "Poppins", "Segoe UI", Roboto, system-ui, -apple-system, Arial; font-weight: 600; font-size:48px; }
     </style>
   </defs>
 

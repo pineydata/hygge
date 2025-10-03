@@ -10,9 +10,9 @@ Following hygge's "Convention over Configuration" philosophy:
 import pytest
 from pydantic import ValidationError
 
-from hygge.core.configs.flow_config import FlowConfig, FlowDefaults
-from hygge.core.configs.home_config import HomeConfig
-from hygge.core.configs.store_config import StoreConfig
+from hygge.core.flow import FlowConfig
+from hygge.core.home import HomeConfig
+from hygge.core.store import StoreConfig
 
 
 class TestFlowConfig:
@@ -296,59 +296,17 @@ class TestFlowConfig:
         assert config.options["batch_settings"]["size"] == 1000
         assert len(config.options["paths"]) == 2
 
-
-class TestFlowDefaults:
-    """Test suite for FlowDefaults class."""
-
-    def test_default_values(self):
-        """Test FlowDefaults provides reasonable defaults."""
-        defaults = FlowDefaults()
-
-        # Should have defaults from settings
-        assert defaults.queue_size == 10  # From settings
-        assert defaults.timeout == 300  # From settings
-
-    def test_custom_values(self):
-        """Test FlowDefaults accepts custom values."""
-        defaults = FlowDefaults(
-            queue_size=5,
-            timeout=180
+    def test_flow_config_defaults(self):
+        """Test FlowConfig provides reasonable defaults."""
+        config = FlowConfig(
+            home="data/users.parquet",
+            store="data/output"
         )
 
-        assert defaults.queue_size == 5
-        assert defaults.timeout == 180
+        # Should have defaults
+        assert config.queue_size == 10  # Default from FlowConfig
+        assert config.timeout == 300  # Default from FlowConfig
 
-    def test_invalid_queue_size(self):
-        """Test FlowDefaults validates queue size range."""
-        # Test minimum value
-        with pytest.raises(ValidationError) as exc_info:
-            FlowDefaults(queue_size=0)
-
-        error = exc_info.value.errors()[0]
-        assert error['type'] == 'greater_than_equal'
-
-        # Test maximum value
-        with pytest.raises(ValidationError) as exc_info:
-            FlowDefaults(queue_size=101)
-
-        error = exc_info.value.errors()[0]
-        assert error['type'] == 'less_than_equal'
-
-    def test_invalid_timeout(self):
-        """Test FlowDefaults validates timeout minimum."""
-        with pytest.raises(ValidationError) as exc_info:
-            FlowDefaults(timeout=0)
-
-        error = exc_info.value.errors()[0]
-        assert error['type'] == 'greater_than_equal'
-
-    def test_none_values(self):
-        """Test FlowDefaults handles None values correctly."""
-        with pytest.raises(ValidationError):
-            FlowDefaults(queue_size=None)
-
-        with pytest.raises(ValidationError):
-            FlowDefaults(timeout=None)
 
 
 class TestConfigurationPropertyAccess:

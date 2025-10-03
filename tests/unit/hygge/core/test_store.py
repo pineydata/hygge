@@ -11,7 +11,7 @@ import pytest
 import asyncio
 import polars as pl
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock
 
 from hygge.core.store import Store
 from hygge.utility.exceptions import StoreError
@@ -226,6 +226,9 @@ class TestStoreDataCollection:
     @pytest.mark.asyncio
     async def test_store_triggers_staging_on_batch_size(self, path_store, large_data):
         """Test Store triggers staging when batch size exceeded."""
+        # Set batch size to ensure remaining data after staging
+        path_store.batch_size = 150000  # 500000 / 150000 = 3 batches + 50000 remainder
+
         # Given large data exceeding batch size
         assert len(large_data) > path_store.batch_size
 
@@ -234,7 +237,7 @@ class TestStoreDataCollection:
 
         # Then should stage data
         assert len(path_store.saved_paths) > 0  # Staging occurred
-        assert path_store.current_df is not None  # May still have buffered data
+        assert path_store.current_df is not None  # Should have remaining data
 
     @pytest.mark.asyncio
     async def test_store_handles_multiple_writes(self, simple_store, sample_data):

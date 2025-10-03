@@ -6,14 +6,15 @@ from a source (Home) to a destination (Store), with proper error handling,
 retries, and state management.
 """
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from hygge.utility.exceptions import FlowError
 from hygge.utility.logger import get_logger
 
-from .configs import FlowDefaults
-from .home import Home
-from .store import Store
+from pydantic import BaseModel, Field, field_validator
+
+from .home import Home, HomeConfig
+from .store import Store, StoreConfig
 
 
 class Flow:
@@ -47,10 +48,9 @@ class Flow:
         self.store = store
         self.options = options or {}
 
-        # Settings with defaults using FlowDefaults
-        defaults = FlowDefaults()
-        self.queue_size = self.options.get('queue_size', defaults.queue_size)
-        self.timeout = self.options.get('timeout', defaults.timeout)
+        # Default settings
+        self.queue_size = self.options.get('queue_size', 10)
+        self.timeout = self.options.get('timeout', 300)
 
         # State tracking
         self.total_rows = 0
@@ -205,3 +205,101 @@ class Flow:
         except Exception as e:
             self.logger.error(f"Consumer error: {str(e)}")
             raise FlowError(f"Consumer failed: {str(e)}")
+
+
+class FlowConfig(BaseModel):
+    """
+    Configuration for a data flow.
+
+    Supports both simple and advanced configurations:
+
+    Simple (Rails spirit - convention over configuration):
+    ```yaml
+    flows:
+      users_to_lake:
+        home: data/users.parquet
+        store: data/lake/users
+    ```
+
+    Advanced (full control):
+    ```yaml
+    flows:
+      users_to_lake:
+        home:
+          type: sql
+          table: users
+          connection: ${DATABASE_URL}
+        store:
+          type: parquet
+          path: data/lake/users
+          options:
+            compression: snappy
+    ```
+    """
+    # Clean, simple configuration - only home/store, no legacy from/to
+    home: Union[str, HomeConfig] = Field(..., description="Home configuration")
+    store: Union[str, StoreConfig] = Field(..., description="Store configuration")
+    queue_size: int = Field(
+        default=10,
+        ge=1, le=100,
+        description="Size of internal queue"
+    )
+    timeout: int = Field(
+        default=300,
+        ge=1,
+        description="Operation timeout in seconds"
+    )
+    options: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional flow options"
+    )
+
+    @field_validator('home', mode='before')
+    @classmethod
+    def parse_home(cls, v):
+        """Parse home configuration from string or dict with smart defaults."""
+        if isinstance(v, str):
+            # Simple path - detect type from extension or use default type
+            if v.endswith('.parquet'):
+                home_type = 'parquet'
+            else:
+                home_type = 'parquet'  # Default type
+
+            return HomeConfig(
+                type=home_type,
+                path=v
+            )
+        elif isinstance(v, dict):
+            # Advanced configuration - apply smart defaults to options
+            # If type not specified, use default
+            if 'type' not in v:
+                v['type'] = 'parquet'
+            return HomeConfig(**v)
+        return v
+
+    @field_validator('store', mode='before')
+    @classmethod
+    def parse_store(cls, v):
+        """Parse store configuration from string or dict with smart defaults."""
+        if isinstance(v, str):
+            # Simple path - use default type with smart defaults
+            return StoreConfig(
+                type='parquet',
+                path=v
+            )
+        elif isinstance(v, dict):
+            # Advanced configuration - apply smart defaults to options
+            # If type not specified, use default
+            if 'type' not in v:
+                v['type'] = 'parquet'
+            return StoreConfig(**v)
+        return v
+
+    @property
+    def home_config(self) -> HomeConfig:
+        """Get home configuration - always returns HomeConfig after validation."""
+        return self.home
+
+    @property
+    def store_config(self) -> StoreConfig:
+        """Get store configuration - always returns StoreConfig after validation."""
+        return self.store

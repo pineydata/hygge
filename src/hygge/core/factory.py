@@ -1,125 +1,107 @@
 """
-Factory for creating Home and Store instances from configurations.
+Factory for creating Home and Store instances.
 
-This factory follows the Rails-inspired principle of "Convention over Configuration"
-by providing sensible defaults and clean instantiation patterns.
+The factory pattern allows us to:
+- Centralize component creation logic
+- Support dependency injection
+- Make testing easier with mock components
+- Extend with new component types easily
 """
-from typing import Dict, Type
+from typing import Dict, Type, Optional
 
-from .home import Home
-from .homes import ParquetHome, SQLHome
-from .store import Store
-from .stores import ParquetStore
+from .home import Home, HomeConfig
+from .store import Store, StoreConfig
+from ..homes.parquet import ParquetHome
+from ..stores.parquet import ParquetStore
 
 
-class HyggeFactory:
+class Factory:
     """
     Factory for creating Home and Store instances.
 
-    This factory encapsulates the type mapping and instantiation logic,
-    making it easy to extend with new Home/Store types and keeping
-    the Coordinator focused on orchestration.
+    This factory centralizes the creation of Home and Store instances,
+    making it easier to extend with new types and test with mocks.
     """
 
-    # Type mappings - easily extensible
-    HOME_TYPES: Dict[str, Type[Home]] = {
-        'sql': SQLHome,
-        'parquet': ParquetHome
-    }
+    def __init__(self):
+        """Initialize factory with component registries."""
+        self._home_types: Dict[str, Type[Home]] = {
+            'parquet': ParquetHome,
+        }
 
-    STORE_TYPES: Dict[str, Type[Store]] = {
-        'parquet': ParquetStore
-    }
+        self._store_types: Dict[str, Type[Store]] = {
+            'parquet': ParquetStore,
+        }
 
-    @classmethod
-    def create_home(cls, name: str, config) -> Home:
+    def create_home(self, name: str, config: HomeConfig) -> Home:
         """
         Create a Home instance from configuration.
 
         Args:
-            name: Name of the home instance
-            config: Home configuration (HomeConfig or subclass)
+            name: Name for the home instance
+            config: Home configuration
 
         Returns:
-            Home: Configured Home instance
+            Home instance
 
         Raises:
             ValueError: If home type is not supported
         """
         home_type = config.type
-        home_class = cls.HOME_TYPES.get(home_type)
 
-        if not home_class:
-            available_types = ', '.join(cls.HOME_TYPES.keys())
-            raise ValueError(
-                f"Unknown home type: {home_type}. "
-                f"Available types: {available_types}"
-            )
+        if home_type not in self._home_types:
+            raise ValueError(f"Unsupported home type: {home_type}")
 
-        return home_class(name=name, config=config)
+        home_class = self._home_types[home_type]
+        return home_class(name, config)
 
-    @classmethod
-    def create_store(cls, name: str, flow_name: str, config) -> Store:
+    def create_store(self, name: str, config: StoreConfig, flow_name: Optional[str] = None) -> Store:
         """
         Create a Store instance from configuration.
 
         Args:
-            name: Name of the store instance
-            flow_name: Name of the flow (used by some store types)
-            config: Store configuration (StoreConfig or subclass)
+            name: Name for the store instance
+            config: Store configuration
+            flow_name: Optional flow name for file naming patterns
 
         Returns:
-            Store: Configured Store instance
+            Store instance
 
         Raises:
             ValueError: If store type is not supported
         """
         store_type = config.type
-        store_class = cls.STORE_TYPES.get(store_type)
 
-        if not store_class:
-            available_types = ', '.join(cls.STORE_TYPES.keys())
-            raise ValueError(
-                f"Unknown store type: {store_type}. "
-                f"Available types: {available_types}"
-            )
+        if store_type not in self._store_types:
+            raise ValueError(f"Unsupported store type: {store_type}")
 
-        return store_class(name=name, config=config, flow_name=flow_name)
+        store_class = self._store_types[store_type]
+        return store_class(name, config, flow_name)
 
-    @classmethod
-    def register_home_type(cls, type_name: str, home_class: Type[Home]) -> None:
+    def register_home_type(self, home_type: str, home_class: Type[Home]) -> None:
         """
-        Register a new Home type.
+        Register a new home type.
 
         Args:
-            type_name: Name of the home type
+            home_type: Type identifier
             home_class: Home class to register
-
-        Example:
-            HyggeFactory.register_home_type('bigquery', BigQueryHome)
         """
-        cls.HOME_TYPES[type_name] = home_class
+        self._home_types[home_type] = home_class
 
-    @classmethod
-    def register_store_type(cls, type_name: str, store_class: Type[Store]) -> None:
+    def register_store_type(self, store_type: str, store_class: Type[Store]) -> None:
         """
-        Register a new Store type.
+        Register a new store type.
 
         Args:
-            type_name: Name of the store type
+            store_type: Type identifier
             store_class: Store class to register
-
-        Example:
-            HyggeFactory.register_store_type('bigquery', BigQueryStore)
         """
-        cls.STORE_TYPES[type_name] = store_class
+        self._store_types[store_type] = store_class
 
-    @classmethod
-    def get_supported_home_types(cls) -> list[str]:
+    def get_supported_home_types(self) -> list[str]:
         """Get list of supported home types."""
-        return list(cls.HOME_TYPES.keys())
+        return list(self._home_types.keys())
 
-    @classmethod
-    def get_supported_store_types(cls) -> list[str]:
+    def get_supported_store_types(self) -> list[str]:
         """Get list of supported store types."""
-        return list(cls.STORE_TYPES.keys())
+        return list(self._store_types.keys())

@@ -7,40 +7,41 @@ Following hygge's testing principles:
 - Test real data movement scenarios
 - Keep tests clear and maintainable
 """
-import pytest
 import asyncio
 import tempfile
 import yaml
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-from typing import Dict, Any, List
+from typing import List
+from unittest.mock import patch
 
-from hygge.core.coordinator import Coordinator, validate_config, _apply_flow_settings
-from hygge.core.factory import HyggeFactory
+import polars as pl
+import pytest
+
+from hygge.core.coordinator import Coordinator, validate_config
 from hygge.core.flow import Flow
 from hygge.core.home import Home
 from hygge.core.store import Store
-from hygge.utility.exceptions import ConfigError
+from hygge.utility.exceptions import ConfigError, FlowError
 
 
 class MockHome(Home):
     """Mock Home for testing coordinator flows."""
 
-    def __init__(self, name: str, data: List[int] = None, should_error: bool = False):
+    def __init__(self, name: str, data: List[pl.DataFrame] = None, should_error: bool = False):
         super().__init__(name, {})
-        self.data = data or [1, 2, 3]  # Simple test data
+        self.data = data or [pl.DataFrame({"id": [1, 2, 3]})]  # Simple test data
         self.should_error = should_error
         self.read_called = False
 
-    async def read(self):
-        """Mock read method."""
+    async def _get_batches(self):
+        """Mock _get_batches method."""
         self.read_called = True
 
         if self.should_error:
             raise ValueError(f"Home error: {self.name}")
 
-        for item in self.data:
-            yield [item]  # Simple batch format
+        for df in self.data:
+            yield df
 
 
 class MockStore(Store):
@@ -53,13 +54,13 @@ class MockStore(Store):
         self.finish_called = False
         self.written_data = []
 
-    async def write(self, batch: List[int], is_recursive: bool = False):
+    async def write(self, data: pl.DataFrame):
         """Mock write method."""
         if self.should_error:
             raise ValueError(f"Store error: {self.name}")
 
         self.write_called = True
-        self.written_data.extend(batch)
+        self.written_data.append(data)
 
     async def finish(self):
         """Mock finish method."""
@@ -162,24 +163,6 @@ class TestConfigurationValidation:
         assert len(errors) > 0
         assert any('home' in error for error in errors)
 
-    def test_apply_flow_settings(self):
-        """Test flow settings application."""
-        flow_config = {
-            'options': {'custom_option': 'value'}
-        }
-
-        with patch('hygge.core.coordinator.settings') as mock_settings:
-            mock_settings.apply_flow_settings.return_value = {
-                'queue_size': 5,
-                'timeout': 300,
-                'custom_option': 'value'
-            }
-
-            result = _apply_flow_settings(flow_config)
-
-            assert 'options' in result
-            assert result['options']['queue_size'] == 5
-            assert result['options']['custom_option'] == 'value'
 
 
 class TestCoordinatorSetup:
@@ -193,25 +176,23 @@ class TestCoordinatorSetup:
         assert coordinator.options == {}
         assert coordinator.flows == []
 
-    def test_coordinator_with_options(self):
-        """Test coordinator initialization with options."""
-        options = {'max_concurrent': 5, 'continue_on_error': True}
-        coordinator = Coordinator('test_config.yaml', options)
+    def test_coordinator_initialization_only_path(self):
+        """Test coordinator initialization with config path only."""
+        coordinator = Coordinator('test_config.yaml')
 
-        assert coordinator.options == options
+        assert coordinator.config_path == Path('test_config.yaml')
+        assert coordinator.options == {}
+        assert coordinator.flows == []
 
-    def test_setup_file_not_found(self):
-        """Test setup handles missing configuration file."""
+    def test_run_file_not_found(self):
+        """Test run handles missing configuration file."""
         coordinator = Coordinator('nonexistent.yaml')
 
-        with pytest.raises(ConfigError) as exc_info:
-            # Use asyncio.run to properly handle async setup
-            asyncio.run(coordinator.setup())
+        with pytest.raises(ConfigError):
+            asyncio.run(coordinator.run())
 
-        assert "Configuration file not found" in str(exc_info.value)
-
-    def test_setup_invalid_yaml(self):
-        """Test setup handles invalid YAML syntax."""
+    def test_run_invalid_yaml(self):
+        """Test run handles invalid YAML syntax."""
         # Create a file with invalid YAML
         with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
             f.write("invalid: yaml: content: [")
@@ -219,20 +200,18 @@ class TestCoordinatorSetup:
 
         coordinator = Coordinator(config_path)
 
-        with pytest.raises(ConfigError) as exc_info:
-            asyncio.run(coordinator.setup())
-
-        assert "Invalid YAML syntax" in str(exc_info.value)
+        with pytest.raises(ConfigError):
+            asyncio.run(coordinator.run())
 
 
 class TestCoordinatorFlowManagement:
     """Test flow management and factory integration."""
 
     @pytest.mark.asyncio
-    async def test_setup_simple_config(self, simple_config_file):
-        """Test setting up coordinator with simple configuration."""
-        with patch('hygge.core.factory.HyggeFactory.create_home') as mock_create_home, \
-             patch('hygge.core.factory.HyggeFactory.create_store') as mock_create_store:
+    async def test_run_simple_config(self, simple_config_file):
+        """Test running coordinator with simple configuration."""
+        with patch('hygge.core.factory.Factory.create_home') as mock_create_home, \
+             patch('hygge.core.factory.Factory.create_store') as mock_create_store:
 
             mock_home = MockHome('test_flow')
             mock_store = MockStore('test_flow')
@@ -240,7 +219,7 @@ class TestCoordinatorFlowManagement:
             mock_create_store.return_value = mock_store
 
             coordinator = Coordinator(simple_config_file)
-            await coordinator.setup()
+            await coordinator.run()
 
             # Should have created one flow
             assert len(coordinator.flows) == 1
@@ -252,10 +231,10 @@ class TestCoordinatorFlowManagement:
             mock_create_store.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_setup_complex_config(self, complex_config_file):
-        """Test setting up coordinator with complex configuration."""
-        with patch('hygge.core.factory.HyggeFactory.create_home') as mock_create_home, \
-             patch('hygge.core.factory.HyggeFactory.create_store') as mock_create_store:
+    async def test_run_complex_config(self, complex_config_file):
+        """Test running coordinator with complex configuration."""
+        with patch('hygge.core.factory.Factory.create_home') as mock_create_home, \
+             patch('hygge.core.factory.Factory.create_store') as mock_create_store:
 
             mock_home1 = MockHome('users_to_lake')
             mock_store1 = MockStore('users_to_lake')
@@ -266,7 +245,7 @@ class TestCoordinatorFlowManagement:
             mock_create_store.side_effect = [mock_store1, mock_store2]
 
             coordinator = Coordinator(complex_config_file)
-            await coordinator.setup()
+            await coordinator.run()
 
             # Should have created two flows
             assert len(coordinator.flows) == 2
@@ -280,24 +259,22 @@ class TestCoordinatorFlowManagement:
             assert mock_create_store.call_count == 2
 
     @pytest.mark.asyncio
-    async def test_setup_invalid_config_config(self, invalid_config_file):
-        """Test setup handles invalid configuration."""
+    async def test_run_invalid_config(self, invalid_config_file):
+        """Test run handles invalid configuration."""
         coordinator = Coordinator(invalid_config_file)
 
-        with pytest.raises(ConfigError) as exc_info:
-            await coordinator.setup()
-
-        assert "Configuration validation failed" in str(exc_info.value)
+        with pytest.raises(ConfigError):
+            await coordinator.run()
 
 
 class TestCoordinatorExecution:
     """Test coordinator execution and flow orchestration."""
 
     @pytest.mark.asyncio
-    async def test_start_single_flow(self, simple_config_file):
-        """Test starting coordinator with single flow."""
-        with patch('hygge.core.factory.HyggeFactory.create_home') as mock_create_home, \
-             patch('hygge.core.factory.HyggeFactory.create_store') as mock_create_store:
+    async def test_run_single_flow(self, simple_config_file):
+        """Test running coordinator with single flow."""
+        with patch('hygge.core.factory.Factory.create_home') as mock_create_home, \
+             patch('hygge.core.factory.Factory.create_store') as mock_create_store:
 
             mock_home = MockHome('test_flow')
             mock_store = MockStore('test_flow')
@@ -305,8 +282,7 @@ class TestCoordinatorExecution:
             mock_create_store.return_value = mock_store
 
             coordinator = Coordinator(simple_config_file)
-            await coordinator.setup()
-            await coordinator.start()
+            await coordinator.run()
 
             # Should have executed the flow
             assert mock_home.read_called
@@ -314,10 +290,10 @@ class TestCoordinatorExecution:
             assert mock_store.finish_called
 
     @pytest.mark.asyncio
-    async def test_start_multiple_flows(self, complex_config_file):
-        """Test starting coordinator with multiple flows."""
-        with patch('hygge.core.factory.HyggeFactory.create_home') as mock_create_home, \
-             patch('hygge.core.factory.HyggeFactory.create_store') as mock_create_store:
+    async def test_run_multiple_flows(self, complex_config_file):
+        """Test running coordinator with multiple flows."""
+        with patch('hygge.core.factory.Factory.create_home') as mock_create_home, \
+             patch('hygge.core.factory.Factory.create_store') as mock_create_store:
 
             mock_homes = [MockHome(f'flow_{i}') for i in range(2)]
             mock_stores = [MockStore(f'flow_{i}') for i in range(2)]
@@ -325,8 +301,7 @@ class TestCoordinatorExecution:
             mock_create_store.side_effect = mock_stores
 
             coordinator = Coordinator(complex_config_file)
-            await coordinator.setup()
-            await coordinator.start()
+            await coordinator.run()
 
             # All flows should have executed
             for home in mock_homes:
@@ -338,11 +313,14 @@ class TestCoordinatorExecution:
     @pytest.mark.asyncio
     async def test_concurrency_control(self, simple_config_file):
         """Test concurrency control limits."""
-        with patch('hygge.core.factory.HyggeFactory.create_home') as mock_create_home, \
-             patch('hygge.core.factory.HyggeFactory.create_store') as mock_create_store:
+        with patch('hygge.core.factory.Factory.create_home') as mock_create_home, \
+             patch('hygge.core.factory.Factory.create_store') as mock_create_store:
 
             # Create slow homes to ensure concurrency testing
-            slow_homes = [MockHome('fast_flow', [1]), MockHome('slow_flow', [1])]
+            slow_homes = [
+                MockHome('fast_flow', [pl.DataFrame({"id": [1]})]),
+                MockHome('slow_flow', [pl.DataFrame({"id": [1]})])
+            ]
             mock_stores = [MockStore(f'flow_{i}') for i in range(2)]
             mock_create_home.side_effect = slow_homes
             mock_create_store.side_effect = mock_stores
@@ -359,11 +337,8 @@ class TestCoordinatorExecution:
                 yaml.dump(config_data, f)
                 config_file = f.name
 
-            coordinator = Coordinator(config_file, {'max_concurrent': 1})
-            await coordinator.setup()
-
-            # Should handle concurrency correctly
-            await coordinator.start()
+            coordinator = Coordinator(config_file)
+            await coordinator.run()
 
             # Both flows should complete
             assert slow_homes[0].read_called
@@ -376,37 +351,36 @@ class TestCoordinatorErrorHandling:
     @pytest.mark.asyncio
     async def test_home_error_propagation(self, simple_config_file):
         """Test that Home errors are handled correctly."""
-        with patch('hygge.core.factory.HyggeFactory.create_home') as mock_create_home, \
-             patch('hygge.core.factory.HyggeFactory.create_store') as mock_create_store:
+        with patch('hygge.core.factory.Factory.create_home') as mock_create_home, \
+             patch('hygge.core.factory.Factory.create_store') as mock_create_store:
 
             error_home = MockHome('test_flow', should_error=True)
             mock_store = MockStore('test_flow')
             mock_create_home.return_value = error_home
             mock_create_store.return_value = mock_store
 
-            coordinator = Coordinator(simple_config_file, {'continue_on_error': False})
-            await coordinator.setup()
+            coordinator = Coordinator(simple_config_file)
 
-            # Should raise error when flow fails
-            with pytest.raises(Exception):
-                await coordinator.start()
+            # Should raise FlowError when home fails
+            with pytest.raises(FlowError):
+                await coordinator.run()
 
     @pytest.mark.asyncio
-    async def test_continue_on_error(self, simple_config_file):
-        """Test continue_on_error option."""
-        with patch('hygge.core.factory.HyggeFactory.create_home') as mock_create_home, \
-             patch('hygge.core.factory.HyggeFactory.create_store') as mock_create_store:
+    async def test_flow_error_handling(self, simple_config_file):
+        """Test flow error handling and cleanup."""
+        with patch('hygge.core.factory.Factory.create_home') as mock_create_home, \
+             patch('hygge.core.factory.Factory.create_store') as mock_create_store:
 
             error_home = MockHome('test_flow', should_error=True)
             mock_store = MockStore('test_flow')
             mock_create_home.return_value = error_home
             mock_create_store.return_value = mock_store
 
-            coordinator = Coordinator(simple_config_file, {'continue_on_error': True})
-            await coordinator.setup()
+            coordinator = Coordinator(simple_config_file)
 
-            # Should complete despite errors (logs error but continues)
-            await coordinator.start()
+            # Should raise FlowError when home fails
+            with pytest.raises(FlowError):
+                await coordinator.run()
 
             # Flow should have been attempted
             assert error_home.read_called

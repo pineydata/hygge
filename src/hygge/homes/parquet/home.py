@@ -2,14 +2,14 @@
 Parquet file home implementation.
 """
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator, Dict
 
 import polars as pl
 
 from hygge.core.home import Home
 from hygge.utility.exceptions import HomeError
 
-from .configs import ParquetHomeConfig
+from pydantic import BaseModel, Field, field_validator
 
 
 class ParquetHome(Home):
@@ -34,7 +34,7 @@ class ParquetHome(Home):
     def __init__(
         self,
         name: str,
-        config: ParquetHomeConfig
+        config: "ParquetHomeConfig"
     ):
         # Get merged options from config
         merged_options = config.get_merged_options()
@@ -57,7 +57,7 @@ class ParquetHome(Home):
             return [self.data_path]
         elif self.data_path.is_dir():
             # Find all parquet files in the directory
-            parquet_files = list(self.data_path.glob("*.parquet"))
+            parquet_files = sorted(self.data_path.glob("*.parquet"))
             if not parquet_files:
                 raise HomeError(
                     f"No parquet files found in directory: {self.data_path}"
@@ -87,3 +87,44 @@ class ParquetHome(Home):
 
         except Exception as e:
             raise HomeError(f"Failed to read parquet from {self.data_path}: {str(e)}")
+
+
+class ParquetHomeConfig(BaseModel):
+    """Configuration for a ParquetHome."""
+    type: str = Field(default='parquet', description="Type of home")
+    path: str = Field(..., description="Path to parquet file or directory")
+    batch_size: int = Field(
+        default=10_000,
+        ge=1,
+        description="Number of rows to read at once"
+    )
+    options: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional parquet home options"
+    )
+
+    @field_validator('type')
+    @classmethod
+    def validate_type(cls, v):
+        """Validate home type."""
+        if v != 'parquet':
+            raise ValueError("Type must be 'parquet' for ParquetHome")
+        return v
+
+    @field_validator('path')
+    @classmethod
+    def validate_path(cls, v):
+        """Validate path is provided."""
+        if not v:
+            raise ValueError("Path is required for parquet homes")
+        return v
+
+    def get_merged_options(self) -> Dict[str, Any]:
+        """Get all options including defaults."""
+        # Start with the config fields
+        options = {
+            'batch_size': self.batch_size,
+        }
+        # Add any additional options
+        options.update(self.options)
+        return options

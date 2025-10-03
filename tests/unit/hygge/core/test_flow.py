@@ -127,8 +127,8 @@ class TestSimplifiedFlow:
     def test_flow_default_options(self, mock_home, mock_store):
         """Test Flow uses default options when none provided."""
         flow = Flow(name="test", home=mock_home, store=mock_store)
-        assert flow.queue_size == 10  # Default from FlowDefaults
-        assert flow.timeout == 300  # Default from FlowDefaults
+        assert flow.queue_size == 10  # Default from FlowSettings
+        assert flow.timeout == 300  # Default from FlowSettings
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(30)

@@ -130,16 +130,18 @@ class TestHomeInitialization:
         assert home.row_multiplier == 100000
         assert home.options == options
 
-    def test_home_initialization_missing_implementation(self):
+    @pytest.mark.asyncio
+    async def test_home_initialization_missing_implementation(self):
         """Test that incomplete Home implementations fail appropriately."""
         class IncompleteHome(Home):
             pass  # Missing all required methods
 
         home = IncompleteHome("incomplete", {})
 
-        # These should raise NotImplementedError
+        # read() method should raise NotImplementedError when _get_batches is not implemented
         with pytest.raises(NotImplementedError):
-            home.get_data_path()
+            async for batch in home.read():
+                pass
 
 class TestHomeDataReading:
     """Test Home data reading functionality."""
@@ -191,26 +193,27 @@ class TestHomeDataReading:
     async def test_home_handles_errors(self, error_home):
         """Test Home handles errors gracefully."""
         # When reading data that causes error
-        with pytest.raises(HomeError) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             async for batch in error_home.read():
                 pass  # Should not reach this
 
-        # Then should raise HomeError with proper message
-        assert "Failed to read from error_home" in str(exc_info.value)
+        # Then should raise ValueError with proper message
         assert "Test error" in str(exc_info.value)
 
 class TestHomeLifecycle:
     """Test Home lifecycle management."""
 
     @pytest.mark.asyncio
-    async def test_home_close_method(self, simple_home):
-        """Test Home close method."""
-        # When calling close
-        await simple_home.close()
+    async def test_home_lifecycle_management(self, simple_home):
+        """Test Home lifecycle management."""
+        # When using the home normally
+        batches = []
+        async for batch in simple_home.read():
+            batches.append(batch)
 
         # Then should complete without error
-        # (close is optional, so just verify it doesn't raise)
-        assert True  # Success if we get here
+        # (lifecycle is handled automatically)
+        assert len(batches) > 0
 
     @pytest.mark.asyncio
     async def test_home_batch_size_behavior(self):

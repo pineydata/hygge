@@ -17,165 +17,130 @@ import yaml
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 
-from .configs import HyggeConfig
-from .configs.settings import settings
-from .factory import HyggeFactory
-from .flow import Flow
+from pydantic import BaseModel, Field, field_validator
+
+from .factory import Factory
+from .flow import Flow, FlowConfig
 
 
 def validate_config(config: Dict[str, Any]) -> List[str]:
     """Validate configuration using Pydantic models."""
     try:
-        HyggeConfig.from_dict(config)
-        return []  # No errors
+        CoordinatorConfig.from_dict(config)
+        return []
     except Exception as e:
-        # Convert Pydantic validation errors to user-friendly messages
-        if hasattr(e, 'errors'):
-            errors = []
-            for error in e.errors():
-                field = '.'.join(str(x) for x in error['loc'])
-                message = error['msg']
-                errors.append(f"{field}: {message}")
-            return errors
-        else:
-            return [str(e)]
-
-
-def _apply_flow_settings(flow_config: Dict[str, Any]) -> Dict[str, Any]:
-    """Apply flow-level settings to configuration."""
-    # Get existing options or start with empty dict
-    existing_options = flow_config.get('options', {})
-
-    # Apply centralized settings
-    flow_options = settings.apply_flow_settings(existing_options)
-
-    # Return updated config with settings applied
-    config_with_settings = flow_config.copy()
-    config_with_settings['options'] = flow_options
-    return config_with_settings
-
-
+        return [str(e)]
 
 
 class Coordinator:
     """
-    Coordinates multiple flows based on template configuration.
+    Orchestrates multiple data flows based on configuration.
 
-    The coordinator reads configuration and creates flows, using the
-    HyggeFactory to instantiate Home and Store instances.
-
-    Example config:
-    ```yaml
-    flows:
-      users_to_lake:
-        home:
-          type: parquet
-          path: data/users.parquet
-          options:
-            batch_size: 10000
-        store:
-          type: parquet
-          path: data/lake/users
-          options:
-            batch_size: 100000
-            compression: snappy
-        options:
-          queue_size: 5
-    ```
+    The coordinator:
+    - Reads configuration from YAML files
+    - Validates configuration using Pydantic models
+    - Orchestrates flows in parallel
+    - Handles flow-level error management
     """
 
-    def __init__(
-        self,
-        config_path: str,
-        options: Optional[Dict[str, Any]] = None
-    ):
+    def __init__(self, config_path: str):
         self.config_path = Path(config_path)
-        self.options = options or {}
-        self.logger = get_logger("hygge.coordinator")
+        self.config = None
         self.flows: List[Flow] = []
+        self.options: Dict[str, Any] = {}
+        self.logger = get_logger("hygge.coordinator")
 
-    async def setup(self) -> None:
-        """Load and validate configuration."""
+        # Factory for creating components
+        self.factory = Factory()
+
+    async def run(self) -> None:
+        """Run all configured flows."""
+        self.logger.info(f"Starting coordinator with config: {self.config_path}")
+
+        # Load and validate configuration
+        self._load_config()
+
+        # Create flows
+        self._create_flows()
+
+        # Run flows in parallel
+        await self._run_flows()
+
+    def _load_config(self) -> None:
+        """Load and validate configuration from file."""
         try:
-            # Load config
-            with open(self.config_path) as f:
-                config = yaml.safe_load(f)
+            with open(self.config_path, 'r') as f:
+                config_data = yaml.safe_load(f)
 
             # Validate configuration
-            errors = validate_config(config)
+            errors = validate_config(config_data)
             if errors:
-                error_msg = (
-                    "Configuration validation failed:\n" +
-                    "\n".join(f"  - {error}" for error in errors)
-                )
-                raise ConfigError(error_msg)
+                raise ConfigError(f"Configuration validation failed: {errors}")
 
-            # Set up flows - each flow handles its own home/store instantiation
-            await self._setup_flows(config.get('flows', {}))
+            # Parse with Pydantic
+            self.config = CoordinatorConfig.from_dict(config_data)
 
-        except FileNotFoundError:
-            raise ConfigError(f"Configuration file not found: {self.config_path}")
-        except yaml.YAMLError as e:
-            raise ConfigError(f"Invalid YAML syntax: {str(e)}")
+            # Extract options
+            self.options = config_data.get('options', {})
+
+            self.logger.info(f"Loaded configuration with {len(self.config.flows)} flows")
+
         except Exception as e:
-            raise ConfigError(f"Failed to setup coordinator: {str(e)}")
+            raise ConfigError(f"Failed to load configuration: {str(e)}")
 
-    async def _setup_flows(self, flows_config: Dict[str, Any]) -> None:
-        """Set up configured flows."""
-        for name, config in flows_config.items():
-            self.logger.info(f"Setting up flow: {name}")
+    def _create_flows(self) -> None:
+        """Create Flow instances from configuration."""
+        self.flows = []
 
-            # Apply flow-level settings (home/store settings handled by Pydantic)
-            config_with_settings = _apply_flow_settings(config)
+        for flow_name, flow_config in self.config.flows.items():
+            try:
+                # Create home and store using factory
+                home = self.factory.create_home(flow_name, flow_config.home_config)
+                store = self.factory.create_store(flow_name, flow_config.store_config, flow_name)
 
-            # Parse the flow configuration using Pydantic - applies all smart settings
-            flow_config = HyggeConfig.from_dict(
-                {'flows': {name: config_with_settings}}
-            ).flows[name]
+                # Create flow with options
+                flow_options = flow_config.options.copy()
+                flow_options.update({
+                    'queue_size': flow_config.queue_size,
+                    'timeout': flow_config.timeout
+                })
 
-            # Create Home and Store instances using factory
-            home = HyggeFactory.create_home(name, flow_config.home_config)
-            store = HyggeFactory.create_store(name, name, flow_config.store_config)
+                flow = Flow(flow_name, home, store, flow_options)
+                self.flows.append(flow)
 
-            # Create flow with Home and Store instances
-            flow = Flow(
-                name=name,
-                home=home,
-                store=store,
-                options=flow_config.options
+                self.logger.debug(f"Created flow: {flow_name}")
+
+            except Exception as e:
+                raise ConfigError(f"Failed to create flow {flow_name}: {str(e)}")
+
+    async def _run_flows(self) -> None:
+        """Run all flows in parallel."""
+        if not self.flows:
+            self.logger.warning("No flows to run")
+            return
+
+        self.logger.info(f"Running {len(self.flows)} flows in parallel")
+
+        # Create tasks for all flows
+        tasks = []
+        for flow in self.flows:
+            task = asyncio.create_task(
+                self._run_flow(flow),
+                name=f"flow_{flow.name}"
             )
-            self.flows.append(flow)
+            tasks.append(task)
 
-    async def start(self) -> None:
-        """Start all configured flows."""
-        self.logger.info(f"Starting coordinator with {len(self.flows)} flows")
-
-        max_concurrent = self.options.get('max_concurrent', 3)
-
-        async with asyncio.TaskGroup() as group:
-            running = []
-
-            for flow in self.flows:
-                # Respect concurrency limits
-                while len(running) >= max_concurrent:
-                    done, still_running = await asyncio.wait(
-                        running,
-                        return_when=asyncio.FIRST_COMPLETED
-                    )
-                    # Update running list to still running tasks
-                    running = list(still_running)
-                    # Handle any completed tasks
-                    for task in done:
-                        await task
-
-                # Start new flow
-                task = group.create_task(
-                    self._run_flow(flow),
-                    name=flow.name
-                )
-                running.append(task)
-
-        self.logger.info("All flows completed successfully")
+        # Run all flows concurrently
+        try:
+            await asyncio.gather(*tasks)
+            self.logger.success("All flows completed successfully")
+        except Exception as e:
+            self.logger.error(f"Some flows failed: {str(e)}")
+            # Cancel remaining tasks
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            raise
 
     async def _run_flow(self, flow: Flow) -> None:
         """Run a single flow with error handling."""
@@ -185,3 +150,29 @@ class Coordinator:
             self.logger.error(f"Error in flow {flow.name}: {e}")
             if not self.options.get('continue_on_error', False):
                 raise
+
+
+class CoordinatorConfig(BaseModel):
+    """Main configuration model for hygge."""
+    flows: Dict[str, FlowConfig] = Field(..., description="Flow configurations")
+
+    @field_validator('flows')
+    @classmethod
+    def validate_flows_not_empty(cls, v):
+        """Validate flows section is not empty."""
+        if not v:
+            raise ValueError("At least one flow must be configured")
+        return v
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'CoordinatorConfig':
+        """Create configuration from dictionary."""
+        return cls(**data)
+
+    def get_flow_config(self, flow_name: str) -> FlowConfig:
+        """Get configuration for a specific flow."""
+        if flow_name not in self.flows:
+            raise ValueError(f"Flow '{flow_name}' not found in configuration")
+        return self.flows[flow_name]
+
+

@@ -210,20 +210,5 @@ See [HYGGE_PROGRESS.md](HYGGE_PROGRESS.md) for detailed assessment.
   - `context.md` - Project overview, ethos, and current status
   - `development.md` - Code standards and implementation guidelines
   - `rails_philosophy.md` - Condensed Rails principles for hygge
-  - `no_terminal.md` - Critical constraint reminder
-
-## Development Quick Start
-
-1. **Install dependencies**: `pip install -r requirements.txt`
-2. **Run tests**: `pytest` to verify the framework works
-3. **Explore examples**: Check `examples/` directory for programmatic usage
-4. **Review samples**: Look at `samples/` directory for YAML configuration examples
-5. **Read progress**: Check [HYGGE_PROGRESS.md](HYGGE_PROGRESS.md) for current status
-
-## Framework Usage (for end users)
-
-1. Copy a sample configuration from the `samples/` directory
-2. Update the paths to your data
-3. Run: `python -m hygge.coordinator your_config.yaml`
 
 See the `samples/` directory for working examples and the `examples/` directory for programmatic usage.

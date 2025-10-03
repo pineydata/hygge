@@ -1,12 +1,14 @@
 # hygge
 
+![hygge logo](hygge.svg)
+
 A cozy, comfortable data movement framework that makes data feel at home.
 
 ## Philosophy
 
 hygge (pronounced "hoo-ga") is a Danish word representing comfort, coziness, and well-being. This framework brings those qualities to data movement:
 
-- **Comfort**: Data should feel at home wherever it lives
+- **Comfort**: You should relax while you move some tables.
 - **Simplicity**: Clean, intuitive APIs that feel natural
 - **Reliability**: Robust, predictable behavior without surprises
 - **Flow**: Smooth, efficient movement without friction

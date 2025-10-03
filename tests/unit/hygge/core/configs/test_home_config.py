@@ -10,7 +10,7 @@ Following hygge's configuration philosophy:
 import pytest
 from pydantic import ValidationError
 
-from hygge.core.configs.home_config import HomeConfig
+from hygge.core.home import HomeConfig
 
 
 class TestHomeConfig:

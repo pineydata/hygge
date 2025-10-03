@@ -2,14 +2,14 @@
 Parquet store implementation.
 """
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import polars as pl
 
 from hygge.core.store import Store
 from hygge.utility.exceptions import StoreError
 
-from .configs import ParquetStoreConfig
+from pydantic import BaseModel, Field, field_validator
 
 
 class ParquetStore(Store):
@@ -39,7 +39,7 @@ class ParquetStore(Store):
     def __init__(
         self,
         name: str,
-        config: ParquetStoreConfig,
+        config: "ParquetStoreConfig",
         flow_name: Optional[str] = None
     ):
         # Get merged options from config (with flow_name for file_pattern)
@@ -140,3 +140,71 @@ class ParquetStore(Store):
                 self.logger.debug(f"Cleaned up staging directory: {staging_dir}")
         except Exception as e:
             self.logger.warning(f"Failed to cleanup staging directory: {str(e)}")
+
+
+class ParquetStoreConfig(BaseModel):
+    """Configuration for a ParquetStore."""
+    type: str = Field(default='parquet', description="Type of store")
+    path: str = Field(..., description="Path to destination directory")
+    batch_size: int = Field(
+        default=100_000,
+        ge=1,
+        description="Number of rows to accumulate before writing"
+    )
+    compression: str = Field(
+        default='snappy',
+        description="Compression algorithm"
+    )
+    file_pattern: str = Field(
+        default="{sequence:020d}.parquet",
+        description="File naming pattern"
+    )
+    options: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional parquet store options"
+    )
+
+    @field_validator('type')
+    @classmethod
+    def validate_type(cls, v):
+        """Validate store type."""
+        if v != 'parquet':
+            raise ValueError("Type must be 'parquet' for ParquetStore")
+        return v
+
+    @field_validator('path')
+    @classmethod
+    def validate_path(cls, v):
+        """Validate path is provided."""
+        if not v:
+            raise ValueError("Path is required for parquet stores")
+        return v
+
+    @field_validator('compression')
+    @classmethod
+    def validate_compression(cls, v):
+        """Validate compression type."""
+        valid_compressions = ['snappy', 'gzip', 'lz4', 'brotli', 'zstd']
+        if v not in valid_compressions:
+            raise ValueError(
+                f"Compression must be one of {valid_compressions}, got '{v}'"
+            )
+        return v
+
+    def get_merged_options(self, flow_name: str = None) -> Dict[str, Any]:
+        """Get all options including defaults."""
+        # Start with the config fields
+        options = {
+            'batch_size': self.batch_size,
+            'compression': self.compression,
+            'file_pattern': self.file_pattern,
+        }
+        # Add any additional options
+        options.update(self.options)
+
+        # Set flow-specific file pattern if flow_name provided
+        if flow_name:
+            pattern = options['file_pattern']
+            options['file_pattern'] = pattern.format(flow_name=flow_name)
+
+        return options

@@ -1,11 +1,16 @@
 # hygge Testing Strategy
 
 ## Current State
-- **No unit tests** for core components
-- **No integration tests** for data flows
-- **No error scenario testing**
-- **No performance testing**
-- **No data integrity validation**
+- **⚠️ Core architecture tests** - Flow, Coordinator, Factory tests exist but need verification after refactor
+- **⚠️ Configuration tests** - 81 tests exist but need verification after config consolidation
+- **⚠️ Integration tests** - YAML config tests exist but need verification after refactor
+- **⚠️ Error scenario tests** - Error tests exist but need verification after refactor
+- **⚠️ Async testing infrastructure** - Timeout protection exists but needs verification
+- **❌ Implementation-level tests** - ParquetHome, ParquetStore specific testing needed
+- **❌ End-to-end data movement tests** - Real parquet-to-parquet workflows
+- **❌ Performance benchmarks** - Memory usage and processing speed validation
+
+**CRITICAL**: All existing tests need verification after major architecture refactor (flattened structure, config consolidation, clean naming)
 
 ## hygge Testing Philosophy
 
@@ -20,147 +25,128 @@ Following hygge's "Reliability Over Speed" principle:
 
 ## Testing Structure
 
-### 1. Core Component Tests (`tests/unit/hygge/core/`)
+### 1. Core Component Tests (`tests/unit/hygge/core/`) ⚠️ NEEDS VERIFICATION
 
-#### Home Tests (`test_home.py`)
+#### Flow Tests (`test_flow.py`) ⚠️
+- ⚠️ Flow orchestration and producer-consumer pattern (needs verification after refactor)
+- ⚠️ Async generator and consumer error handling (needs verification after refactor)
+- ⚠️ Timeout protection and task cleanup (needs verification after refactor)
+- ⚠️ Progress tracking and performance metrics (needs verification after refactor)
+
+#### Coordinator Tests (`test_coordinator.py`) ⚠️
+- ⚠️ YAML configuration loading and validation (needs verification after refactor)
+- ⚠️ Flow creation and parallel execution (needs verification after refactor)
+- ⚠️ Error handling and flow failure management (needs verification after refactor)
+- ⚠️ Integration with Factory pattern (needs verification after refactor)
+
+#### Factory Tests (`test_factory.py`) ⚠️
+- ⚠️ Home and Store instantiation (needs verification after refactor)
+- ⚠️ Type registration and validation (needs verification after refactor)
+- ⚠️ Error handling for unsupported types (needs verification after refactor)
+
+#### Home/Store Base Tests (`test_home.py`, `test_store.py`) ⚠️
+- ⚠️ Base class functionality and interfaces (needs verification after refactor)
+- ⚠️ Configuration validation and defaults (needs verification after refactor)
+- ⚠️ Error handling patterns (needs verification after refactor)
+
+### 2. Implementation-Level Tests (NEEDED)
+
+#### ParquetHome Tests (`tests/unit/hygge/homes/test_parquet_home.py`)
 ```python
-class TestHome:
-    def test_parquet_home_reads_data(self):
-        """Test that ParquetHome can read parquet files."""
+class TestParquetHome:
+    def test_parquet_home_reads_single_file(self):
+        """Test that ParquetHome can read single parquet files."""
 
-    def test_sql_home_connects_to_database(self):
-        """Test that SQLHome can connect to databases."""
+    def test_parquet_home_reads_directory(self):
+        """Test that ParquetHome can read directory of parquet files."""
 
-    def test_home_batch_processing(self):
-        """Test that homes process data in batches."""
+    def test_parquet_home_batch_processing(self):
+        """Test that ParquetHome processes data in batches."""
 
-    def test_home_error_handling(self):
-        """Test that homes handle errors gracefully."""
+    def test_parquet_home_error_handling(self):
+        """Test that ParquetHome handles missing files gracefully."""
+
+    def test_parquet_home_config_consolidation(self):
+        """Test that ParquetHomeConfig works with merged config."""
 ```
 
-#### Store Tests (`test_store.py`)
+#### ParquetStore Tests (`tests/unit/hygge/stores/test_parquet_store.py`)
 ```python
-class TestStore:
+class TestParquetStore:
     def test_parquet_store_writes_data(self):
         """Test that ParquetStore can write parquet files."""
 
-    def test_store_batch_accumulation(self):
-        """Test that stores accumulate data properly."""
+    def test_parquet_store_staging_mechanism(self):
+        """Test that ParquetStore stages data before final write."""
 
-    def test_store_staging_mechanism(self):
-        """Test that stores stage data before final write."""
+    def test_parquet_store_atomic_writes(self):
+        """Test that ParquetStore uses atomic file operations."""
 
-    def test_store_error_handling(self):
-        """Test that stores handle errors gracefully."""
+    def test_parquet_store_compression_settings(self):
+        """Test that ParquetStore applies compression settings."""
+
+    def test_parquet_store_config_consolidation(self):
+        """Test that ParquetStoreConfig works with merged config."""
 ```
 
-#### Flow Tests (`test_flow.py`)
+### 3. Configuration Tests (`tests/unit/hygge/core/`) ⚠️ NEEDS VERIFICATION
+
+#### Config Validation Tests ⚠️
+- ⚠️ FlowConfig validation and smart defaults (needs verification after refactor)
+- ⚠️ HomeConfig and StoreConfig validation (needs verification after refactor)
+- ⚠️ CoordinatorConfig validation and flow management (needs verification after refactor)
+- ⚠️ Simple vs advanced configuration parsing (needs verification after refactor)
+- ⚠️ Error handling and helpful error messages (needs verification after refactor)
+- ⚠️ Config consolidation testing (merged configs work properly) (needs verification)
+
+### 4. Integration Tests (`tests/integration/`) ⚠️ NEEDS VERIFICATION
+
+#### Configuration Integration Tests ⚠️
+- ⚠️ YAML config to execution pipeline validation (needs verification after refactor)
+- ⚠️ Simple vs advanced configuration workflows (needs verification after refactor)
+- ⚠️ Mixed configuration styles and performance testing (needs verification after refactor)
+- ⚠️ Unicode handling and error scenarios (needs verification after refactor)
+- ⚠️ User configuration errors and validation (needs verification after refactor)
+
+#### End-to-End Flow Tests (NEEDED)
 ```python
-class TestFlow:
-    def test_flow_moves_data_from_home_to_store(self):
-        """Test that Flow moves data from Home to Store."""
-
-    def test_flow_handles_empty_data(self):
-        """Test that Flow handles empty data gracefully."""
-
-    def test_flow_progress_tracking(self):
-        """Test that Flow tracks progress correctly."""
-
-    def test_flow_error_recovery(self):
-        """Test that Flow recovers from errors."""
-```
-
-#### Coordinator Tests (`test_coordinator.py`)
-```python
-class TestCoordinator:
-    def test_coordinator_loads_yaml_config(self):
-        """Test that Coordinator loads YAML configuration."""
-
-    def test_coordinator_creates_flows(self):
-        """Test that Coordinator creates flows from config."""
-
-    def test_coordinator_runs_flows_parallel(self):
-        """Test that Coordinator runs flows in parallel."""
-
-    def test_coordinator_handles_flow_failures(self):
-        """Test that Coordinator handles flow failures."""
-```
-
-### 2. Configuration Tests (`tests/unit/hygge/core/configs/`)
-
-#### Config Validation Tests (`test_configs.py`)
-```python
-class TestConfigs:
-    def test_simple_config_validation(self):
-        """Test that simple home: path configs work."""
-
-    def test_advanced_config_validation(self):
-        """Test that advanced configs with options work."""
-
-    def test_config_defaults_application(self):
-        """Test that smart defaults are applied correctly."""
-
-    def test_config_error_messages(self):
-        """Test that config errors provide helpful messages."""
-```
-
-### 3. Integration Tests (`tests/integration/`)
-
-#### End-to-End Flow Tests (`test_flows.py`)
-```python
-class TestFlows:
-    def test_parquet_to_parquet_flow(self):
-        """Test complete parquet-to-parquet data movement."""
-
-    def test_sql_to_parquet_flow(self):
-        """Test complete SQL-to-parquet data movement."""
+class TestParquetToParquetFlows:
+    def test_complete_data_movement_workflow(self):
+        """Test complete parquet-to-parquet data movement with real data."""
 
     def test_multiple_flows_coordination(self):
-        """Test multiple flows running together."""
+        """Test multiple flows running together with Coordinator."""
 
     def test_flow_with_large_dataset(self):
         """Test flow with large dataset (memory management)."""
+
+    def test_flow_error_recovery(self):
+        """Test flow recovery from various error scenarios."""
 ```
 
-#### Configuration Integration Tests (`test_config_integration.py`)
+### 5. Error Scenario Tests (`tests/error_scenarios/`) ⚠️ NEEDS VERIFICATION
+
+#### Configuration Error Tests ⚠️
+- ⚠️ Malformed YAML handling (needs verification after refactor)
+- ⚠️ Invalid type validation (needs verification after refactor)
+- ⚠️ Missing required fields (needs verification after refactor)
+- ⚠️ User configuration errors (typos, case sensitivity) (needs verification after refactor)
+- ⚠️ Conflicting options validation (needs verification after refactor)
+
+#### Data Movement Error Tests (NEEDED)
 ```python
-class TestConfigIntegration:
-    def test_yaml_config_to_flow_execution(self):
-        """Test that YAML configs result in working flows."""
-
-    def test_simple_config_works(self):
-        """Test that simple home: path configs work end-to-end."""
-
-    def test_advanced_config_works(self):
-        """Test that advanced configs work end-to-end."""
-```
-
-### 4. Error Scenario Tests (`tests/error_scenarios/`)
-
-#### Network and Connection Tests (`test_network_errors.py`)
-```python
-class TestNetworkErrors:
-    def test_database_connection_failure(self):
-        """Test handling of database connection failures."""
-
+class TestDataMovementErrors:
     def test_file_not_found_errors(self):
-        """Test handling of missing files."""
+        """Test handling of missing parquet files."""
 
     def test_permission_errors(self):
         """Test handling of permission issues."""
 
     def test_disk_space_errors(self):
         """Test handling of disk space issues."""
-```
 
-#### Data Integrity Tests (`test_data_integrity.py`)
-```python
-class TestDataIntegrity:
     def test_data_corruption_handling(self):
-        """Test handling of corrupted data."""
-
-    def test_schema_mismatch_handling(self):
-        """Test handling of schema mismatches."""
+        """Test handling of corrupted parquet files."""
 
     def test_partial_failure_recovery(self):
         """Test recovery from partial failures."""
@@ -243,21 +229,22 @@ def simple_config():
 
 ## Implementation Priority
 
-### Phase 1: Core Functionality Tests (Week 1)
-1. **Home tests** - Basic reading functionality
-2. **Store tests** - Basic writing functionality
-3. **Flow tests** - Basic data movement
-4. **Simple config tests** - Verify smart defaults work
+### Phase 1: Post-Refactor Verification (CRITICAL - IMMEDIATE)
+1. **Test suite execution** - Verify all existing tests pass after major refactor
+2. **Import verification** - Ensure all imports work with new structure
+3. **Config consolidation testing** - Verify merged config classes function properly
+4. **Fix any broken tests** - Address any test failures caused by refactor
+5. **Validate test coverage** - Ensure no test coverage was lost during refactor
 
-### Phase 2: Integration Tests (Week 2)
-1. **End-to-end flow tests** - Complete data movement
-2. **Configuration integration** - YAML to execution
-3. **Error scenario tests** - Graceful failure handling
+### Phase 2: Implementation-Level Testing (NEXT)
+1. **ParquetHome tests** - File/directory reading, batch processing, error handling
+2. **ParquetStore tests** - Writing, staging, atomic operations, compression
+3. **Config consolidation tests** - Verify merged ParquetHomeConfig/ParquetStoreConfig
 
-### Phase 3: Advanced Tests (Week 3)
-1. **Performance tests** - Benchmarking
-2. **Data integrity tests** - Validation
-3. **Concurrent flow tests** - Parallel execution
+### Phase 3: End-to-End Testing (FOLLOWING)
+1. **Real data movement tests** - Complete parquet-to-parquet workflows
+2. **Performance benchmarks** - Memory usage and processing speed
+3. **Error recovery tests** - File system and data integrity scenarios
 
 ## Testing Tools
 
@@ -319,9 +306,20 @@ markers = [
 ## Getting Started
 
 1. **Install test dependencies**: `pip install -e ".[test]"`
-2. **Run basic tests**: `pytest tests/unit/ -v`
-3. **Run integration tests**: `pytest tests/integration/ -v`
+2. **Run post-refactor verification**: `pytest tests/ -v` (verify all tests pass after major refactor)
+3. **Run specific test suites**:
+   - `pytest tests/unit/hygge/core/ -v` (core architecture tests)
+   - `pytest tests/integration/ -v` (configuration integration tests)
+   - `pytest tests/error_scenarios/ -v` (error scenario tests)
 4. **Check coverage**: `pytest --cov=src/hygge --cov-report=html`
-5. **Run performance tests**: `pytest tests/performance/ -v --benchmark-only`
+5. **Next phase**: Add implementation-level tests for ParquetHome and ParquetStore
+
+## Current Architecture
+
+The framework now uses:
+- **Clean naming**: `Coordinator`, `Flow`, `Factory`, `Home`, `Store` + their configs
+- **Maximum cohesion**: Each file contains both implementation and configuration
+- **Flattened structure**: No nested directories, clean imports
+- **Consolidated configs**: `ParquetHomeConfig` and `ParquetStoreConfig` merged into their implementation files
 
 This testing strategy ensures hygge follows its "Reliability Over Speed" principle while maintaining the comfort and simplicity that makes it hygge.

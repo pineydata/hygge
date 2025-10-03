@@ -1,39 +1,41 @@
 """
-A store collects data and manages its journey to final storage. It handles:
-- Collecting data until ready to stage
-- Staging data safely before saving
-- Moving data to its final location
-- Tracking progress and handling errors
+Base Store class and configuration for all data stores.
 
+A Store is a data destination that can receive and persist data.
+This is an abstract base class that defines the interface
+that all specific Store implementations must follow.
+
+Example:
+    ```python
+    class MyStore(Store):
+        async def write(self, data: pl.DataFrame) -> None:
+            # Implementation specific to your data destination
+            pass
+    ```
 """
 import asyncio
-from pathlib import Path
 from typing import Any, Dict, Optional
 
-import polars as pl
+from pydantic import BaseModel, Field, field_validator
 
-from hygge.utility.exceptions import StoreError
 from hygge.utility.logger import get_logger
-from hygge.utility.retry import with_retry
 
 
 class Store:
-    """Base class for storing data.
+    """
+    Base class for all data stores.
 
-    A store collects data and manages its journey to final storage. It handles:
-    - Collecting data until ready to stage
-    - Staging data safely before saving
-    - Moving data to its final location
-    - Tracking progress and handling errors
+    A Store is a data destination that can receive and persist data.
+    This is an abstract base class that defines the interface
+    that all specific Store implementations must follow.
 
-    Args:
-        name (str): Name of the store
-        options (Dict[str, Any], optional): Configuration options
-            - batch_size (int): Data batch size before staging (default: 10,000)
-            - row_multiplier (int): Progress logging interval (default: 300,000)
-
-    Raises:
-        StoreError: If any storage operation fails
+    Example:
+        ```python
+        class MyStore(Store):
+            async def write(self, data: pl.DataFrame) -> None:
+                # Implementation specific to your data destination
+                pass
+        ```
     """
 
     def __init__(
@@ -43,329 +45,267 @@ class Store:
     ):
         self.name = name
         self.options = options or {}
-
-        # Core settings from options
         self.batch_size = self.options.get('batch_size', 100_000)
         self.row_multiplier = self.options.get('row_multiplier', 300_000)
-
-        # Path patterns from options
-        self.temp_pattern = self.options.get('temp_pattern', "tmp/{name}/{filename}")
-        self.final_pattern = self.options.get('final_pattern', "data/{name}/{filename}")
+        self.data_buffer = []
+        self.buffer_size = 0
+        self.current_df = None  # Current accumulated data
+        self.total_rows = 0
+        self.transfers = []  # Track file transfers
+        self.temp_pattern = self.options.get('temp_pattern', 'temp/{name}/{filename}')
+        self.final_pattern = self.options.get('final_pattern', 'final/{name}/{filename}')
         self.start_time = None
         self.logger = get_logger(f"hygge.store.{self.__class__.__name__}")
 
-        # Buffering state
-        self.current_df = None
-        self.total_rows = 0
-        self.transfers = []
-
-    # Public Interface
-    async def write(
-        self, df: pl.DataFrame, is_recursive: bool = False
-    ) -> Optional[str]:
-        """Write data to the store."""
-        if df is None:
-            raise StoreError("Cannot write None data")
-
-        if self.start_time is None:
-            self.start_time = asyncio.get_event_loop().time()
-
-        # Only count rows at the top level, not in recursive calls
-        if not is_recursive:
-            self.total_rows += len(df)
-            self._log_progress(self.total_rows)
-
-        if len(df) <= self.batch_size:
-            # Accumulate data
-            if self.current_df is not None:
-                self.current_df = pl.concat([self.current_df, df])
-            else:
-                self.current_df = df
-            return None
-        else:
-            # Slice and stage
-            batch = df.slice(0, self.batch_size)
-            remainder = df.slice(self.batch_size, len(df))
-
-            self.current_df = batch
-            staged_path = await self._stage()
-
-            # Recurse on complement of slice
-            if len(remainder) > 0:
-                return await self.write(remainder, is_recursive=True)
-            return staged_path
-
-    async def finish(self) -> None:
-        """Complete the storage process.
-
-        Stages any remaining data, moves all staged files to their final
-        locations, and resets the store state.
+    async def write(self, data: Any) -> None:
         """
-        # Stage any remaining data
-        if self.current_df is not None and len(self.current_df) > 0:
-            self.logger.info(f"Staging final batch of {len(self.current_df):,} rows")
-            await self._stage()
+        Write data to this store.
 
-        # Move all staged files to final location
-        if self.transfers:
-            self.logger.start(f"Moving {len(self.transfers)} files to final location")
-            for staging_path_str in self.transfers:
-                staging_path = Path(staging_path_str)
-                filename = staging_path.name
-                final_path = self.get_final_path(filename)
-                await self._move_to_final(staging_path, final_path)
-            self.logger.success(f"Completed storage of {len(self.transfers)} files")
-
-    # Core Storage Operations
-    async def _stage(self) -> Optional[str]:
-        """Prepare collected data for storage.
+        This method handles buffering and batch writing:
+        - Accumulates data until batch_size is reached
+        - Writes batches to the underlying store
+        - Tracks progress and performance
 
         Args:
-            None - Uses internally collected data
-
-        Awaits:
-            str or None: Path to staged data if successful, None if no data to stage
+            data: Data to write (typically a polars DataFrame)
         """
-        if self.current_df is None or len(self.current_df) == 0:
-            self.logger.debug("No data to write")
-            return None
-
         try:
-            # Get path for this batch
-            filename = await self.get_next_filename()
-            staging_path = self.get_staging_path(filename)
+            if self.start_time is None:
+                self.start_time = asyncio.get_event_loop().time()
 
-            # Write the data
-            await self._save(self.current_df, staging_path)
+            # Handle None data
+            if data is None:
+                from hygge.utility.exceptions import StoreError
+                raise StoreError("Cannot write None data")
 
-            # Add write to journal
-            await self._add_to_journal(staging_path)
+            # Add data to buffer and update tracking
+            self.data_buffer.append(data)
+            self.buffer_size += len(data)
+            self.total_rows += len(data)
 
-            # Reset buffer
-            self.current_df = None
+            # Update current_df (accumulate or replace)
+            if self.current_df is None:
+                self.current_df = data
+            else:
+                # Combine with existing data
+                import polars as pl
+                if isinstance(data, pl.DataFrame) and isinstance(self.current_df, pl.DataFrame):
+                    self.current_df = pl.concat([self.current_df, data])
 
-            return str(staging_path)
+            # Write if buffer is full
+            while self.buffer_size >= self.batch_size:
+                await self._flush_buffer()
 
         except Exception as e:
-            self.logger.error(f"Failed to write batch: {str(e)}")
-            if 'staging_path' in locals():
-                await self._cleanup_temp(staging_path)
+            self.logger.error(f"Error writing to {self.name}: {str(e)}")
             raise
 
-    @with_retry(
-        timeout=300,  # 5 minutes
-        retries=3,
-        delay=2,
-        exceptions=(StoreError, IOError, OSError),
-        logger_name="hygge.store.save"
-    )
-    async def _save(self, df: pl.DataFrame, path: str) -> None:
-        """Save data in the store's specific format.
+    async def finish(self) -> None:
+        """
+        Finish writing any remaining buffered data.
 
-        Each store type provides its own implementation for writing data
-        (e.g., Parquet files, SQL tables). This operation is retried on failure
-        as it is idempotent - writing the same data to the same path multiple
-        times has the same effect as writing it once.
+        This method should be called when all data has been written
+        to ensure any remaining buffered data is persisted.
+        """
+        if self.data_buffer:
+            await self._flush_buffer()
+
+        # Move staged files to final location for file-based stores
+        if hasattr(self, '_move_staged_files_to_final'):
+            await self._move_staged_files_to_final()
+        elif hasattr(self, 'saved_paths') and hasattr(self, '_move_to_final'):
+            # Move staged files to final location
+            for staging_path_str in self.saved_paths:
+                if staging_path_str:
+                    from pathlib import Path
+                    staging_path = Path(staging_path_str)
+                    # Generate final path
+                    if hasattr(self, 'get_final_directory'):
+                        final_dir = self.get_final_directory()
+                        final_path = final_dir / staging_path.name
+                        await self._move_to_final(staging_path, final_path)
+
+        if self.start_time:
+            duration = asyncio.get_event_loop().time() - self.start_time
+            self.logger.success(f"Store {self.name} completed in {duration:.1f}s")
+
+    async def _flush_buffer(self) -> None:
+        """
+        Flush one batch from the current buffer to the underlying store.
+
+        This method must be implemented by subclasses to provide
+        the actual data writing logic.
+        """
+        if not self.data_buffer:
+            return
+
+        try:
+            # Combine all buffered data
+            combined_data = self._combine_buffered_data()
+
+            # If data exceeds batch_size, only flush one batch
+            if len(combined_data) > self.batch_size:
+                import polars as pl
+                batch_data = combined_data.slice(0, self.batch_size)
+                remaining_data = combined_data.slice(self.batch_size)
+
+                # Update current_df with remaining data
+                self.current_df = remaining_data
+
+                # Clear buffer and add back remaining data
+                self.data_buffer.clear()
+                if len(remaining_data) > 0:
+                    self.data_buffer.append(remaining_data)
+
+                # Update buffer size
+                self.buffer_size = len(remaining_data)
+
+                # Use batch data for writing
+                data_to_write = batch_data
+            else:
+                # Flush all data
+                data_to_write = combined_data
+                self.data_buffer.clear()
+                self.buffer_size = 0
+                # Only clear current_df if there's no remaining data
+                if len(data_to_write) == len(combined_data):
+                    self.current_df = None
+
+            # Generate path for file-based stores
+            path = None
+            if hasattr(self, 'get_next_filename'):
+                filename = await self.get_next_filename()
+                if hasattr(self, 'get_staging_directory'):
+                    staging_dir = self.get_staging_directory()
+                    path = str(staging_dir / filename)
+
+            # Write to underlying store
+            await self._save(data_to_write, path)
+
+            self.logger.debug(
+                f"Flushed batch: {len(data_to_write):,} rows to {self.name}"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Failed to flush buffer for {self.name}: {str(e)}")
+            raise
+
+    def _combine_buffered_data(self) -> Any:
+        """
+        Combine buffered data into a single dataset.
+
+        This method can be overridden by subclasses to provide
+        custom data combination logic.
+
+        Returns:
+            Combined data ready for writing
+        """
+        # Default implementation assumes polars DataFrames
+        if len(self.data_buffer) == 1:
+            return self.data_buffer[0]
+        else:
+            # Combine multiple DataFrames
+            import polars as pl
+            return pl.concat(self.data_buffer)
+
+    async def _save(self, data: Any, path: Optional[str] = None) -> None:
+        """
+        Save data to the underlying store.
+
+        This method must be implemented by subclasses to provide
+        the actual data persistence logic.
 
         Args:
-            df: Data to save
-            path: Where to save the data
-
-        Awaits:
-            None
-
-        Raises:
-            StoreError: If saving fails after all retries
-            TimeoutError: If operation times out
+            data: Combined data to save
+            path: Optional path for the data (for file-based stores)
         """
-        raise NotImplementedError("Each store type must implement _save()")
-
-    # Path Management
-    def get_staging_directory(self) -> Path:
-        """
-        Get the staging directory for temporary storage.
-
-        This is where data is written before being moved to final location.
-        Each store type implements its own staging directory logic.
-
-        Returns:
-            Path: The staging directory path
-
-        Raises:
-            NotImplementedError: If not implemented by subclass
-        """
-        raise NotImplementedError(
-            f"get_staging_directory() must be implemented in {self.__class__.__name__}"
-        )
-
-    def get_final_directory(self) -> Path:
-        """
-        Get the final directory for permanent storage.
-
-        This is where data is moved after successful staging.
-        Each store type implements its own final directory logic.
-
-        Returns:
-            Path: The final directory path
-
-        Raises:
-            NotImplementedError: If not implemented by subclass
-        """
-        raise NotImplementedError(
-            f"get_final_directory() must be implemented in {self.__class__.__name__}"
-        )
-
-    def get_staging_path(self, filename: str) -> Path:
-        """
-        Get the full staging path for a filename.
-
-        Args:
-            filename (str): The filename to stage
-
-        Returns:
-            Path: Full staging path including directory and filename
-        """
-        return self.get_staging_directory() / filename
-
-    def get_final_path(self, filename: str) -> Path:
-        """
-        Get the full final path for a filename.
-
-        Args:
-            filename (str): The filename for final storage
-
-        Returns:
-            Path: Full final path including directory and filename
-        """
-        return self.get_final_directory() / filename
-
-    async def get_next_filename(self) -> str:
-        """
-        Generate the next filename for a batch.
-
-        Each store type implements its own filename generation logic.
-        This should include appropriate naming conventions and uniqueness.
-
-        Returns:
-            str: The next filename to use
-
-        Raises:
-            NotImplementedError: If not implemented by subclass
-        """
-        raise NotImplementedError(
-            f"get_next_filename() must be implemented in {self.__class__.__name__}"
-        )
+        raise NotImplementedError("Subclasses must implement _save")
 
     def ensure_directories_exist(self) -> None:
         """
-        Ensure that both staging and final directories exist.
+        Ensure that required directories exist.
 
-        Creates directories if they don't exist, with proper error handling.
-
-        Raises:
-            StoreError: If directory creation fails
+        This method can be overridden by subclasses to create
+        any necessary directory structure.
         """
-        try:
-            staging_dir = self.get_staging_directory()
-            final_dir = self.get_final_directory()
+        pass
 
-            staging_dir.mkdir(parents=True, exist_ok=True)
-            final_dir.mkdir(parents=True, exist_ok=True)
-
-            self.logger.debug(
-                f"Ensured directories exist: staging={staging_dir}, final={final_dir}"
-            )
-
-        except Exception as e:
-            raise StoreError(f"Failed to create directories: {str(e)}")
-
-    def validate_paths(self) -> None:
+    def get_staging_directory(self) -> "Path":
         """
-        Validate that staging and final directories are accessible.
+        Get the staging directory for temporary files.
 
-        Checks that directories exist and are writable.
-
-        Raises:
-            StoreError: If paths are invalid or inaccessible
+        This method must be implemented by subclasses for file-based stores.
         """
-        try:
-            staging_dir = self.get_staging_directory()
-            final_dir = self.get_final_directory()
+        raise NotImplementedError("Subclasses must implement get_staging_directory")
 
-            # Check staging directory
-            if not staging_dir.exists():
-                raise StoreError(f"Staging directory does not exist: {staging_dir}")
-            if not staging_dir.is_dir():
-                raise StoreError(f"Staging path is not a directory: {staging_dir}")
+    def get_final_directory(self) -> "Path":
+        """
+        Get the final directory for completed files.
 
-            # Check final directory
-            if not final_dir.exists():
-                raise StoreError(f"Final directory does not exist: {final_dir}")
-            if not final_dir.is_dir():
-                raise StoreError(f"Final path is not a directory: {final_dir}")
+        This method must be implemented by subclasses for file-based stores.
+        """
+        raise NotImplementedError("Subclasses must implement get_final_directory")
 
-        except Exception as e:
-            if isinstance(e, StoreError):
-                raise
-            raise StoreError(f"Failed to validate paths: {str(e)}")
+    async def _stage(self) -> None:
+        """
+        Stage the current data buffer.
 
-    # File Operations
-    @with_retry(
-        timeout=300,  # 5 minutes
-        retries=3,
-        delay=2,
-        exceptions=(StoreError, IOError, OSError),
-        logger_name="hygge.store.move"
+        This method is called when data needs to be staged to temporary storage.
+        """
+        # If no data_buffer but current_df exists, use it
+        if not self.data_buffer and self.current_df is not None:
+            self.data_buffer = [self.current_df]
+            self.buffer_size = len(self.current_df)
+
+        if not self.data_buffer:
+            return
+
+        combined_data = self._combine_buffered_data()
+
+        # Generate path for file-based stores
+        path = None
+        if hasattr(self, 'get_next_filename'):
+            filename = await self.get_next_filename()
+            if hasattr(self, 'get_staging_directory'):
+                staging_dir = self.get_staging_directory()
+                path = str(staging_dir / filename)
+
+        await self._save(combined_data, path)
+
+        # Clear buffer after staging
+        self.data_buffer.clear()
+        self.buffer_size = 0
+        self.current_df = None
+
+
+class StoreConfig(BaseModel):
+    """Configuration for a data store."""
+    type: str = Field(..., description="Type of store (parquet)")
+    path: str = Field(..., description="Path to destination")
+    batch_size: int = Field(
+        default=100_000,
+        ge=1,
+        description="Number of rows to accumulate before writing"
     )
-    async def _move_to_final(self, staging_path: Path, final_path: Path) -> None:
-        """
-        Move file from temp to final location.
-
-        This operation is retried on failure as it is idempotent - moving a file
-        to its final location multiple times has the same effect as moving it once,
-        assuming the source file exists and hasn't changed.
-
-        This should be implemented by specific store types.
-
-        Raises:
-            StoreError: If moving fails after all retries
-            TimeoutError: If operation times out
-        """
-        raise NotImplementedError("Each store type must implement _move_to_final()")
-
-    @with_retry(
-        timeout=60,  # 1 minute
-        retries=3,
-        delay=1,
-        exceptions=(StoreError, IOError, OSError),
-        logger_name="hygge.store.cleanup"
+    options: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional store-specific options"
     )
-    async def _cleanup_temp(self, path: Path) -> None:
-        """
-        Clean up temporary data.
 
-        This operation is retried on failure as it is idempotent - deleting a file
-        multiple times has the same effect as deleting it once.
+    @field_validator('type')
+    @classmethod
+    def validate_type(cls, v):
+        """Validate store type."""
+        valid_types = ['parquet']
+        if v not in valid_types:
+            raise ValueError(f"Store type must be one of {valid_types}, got '{v}'")
+        return v
 
-        This should be implemented by specific store types.
-
-        Raises:
-            StoreError: If cleanup fails after all retries
-            TimeoutError: If operation times out
-        """
-        raise NotImplementedError("Each store type must implement _cleanup_temp()")
-
-    # Tracking and Logging
-    async def _add_to_journal(self, staging_path: Path) -> None:
-        """Add the write operation to the journal for tracking and recovery."""
-        self.transfers.append(str(staging_path))
-        self.logger.debug(f"Journal: transfer: {staging_path}")
-
-    def _log_progress(self, total_rows: int) -> None:
-        """Log progress at regular intervals."""
-        if total_rows % self.row_multiplier == 0:
-            elapsed = asyncio.get_event_loop().time() - self.start_time
-            rate = total_rows / elapsed if elapsed > 0 else 0
-            self.logger.info(
-                self.logger.WRITE_TEMPLATE.format(total_rows, elapsed, rate)
-            )
+    def get_merged_options(self) -> Dict[str, Any]:
+        """Get all options including defaults."""
+        # Start with the config fields
+        options = {
+            'batch_size': self.batch_size,
+        }
+        # Add any additional options
+        options.update(self.options)
+        return options
