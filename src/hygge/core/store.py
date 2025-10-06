@@ -93,8 +93,11 @@ class Store:
                     self.current_df = pl.concat([self.current_df, data])
 
             # Write if buffer is full
+            result = None
             while self.buffer_size >= self.batch_size:
-                await self._flush_buffer()
+                result = await self._flush_buffer()
+            
+            return result
 
         except Exception as e:
             self.logger.error(f"Error writing to {self.name}: {str(e)}")
@@ -185,6 +188,9 @@ class Store:
             self.logger.debug(
                 f"Flushed batch: {len(data_to_write):,} rows to {self.name}"
             )
+            
+            # Return path if staging occurred
+            return path
 
         except Exception as e:
             self.logger.error(f"Failed to flush buffer for {self.name}: {str(e)}")

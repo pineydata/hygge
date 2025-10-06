@@ -92,7 +92,9 @@ hygge uses YAML configuration files to define data flows:
 flows:
   users_to_parquet:
     home: data/users.parquet
+      type: parquet
     store: data/lake/users
+      type: parquet
     # That's it! Everything else uses smart defaults
 ```
 

@@ -1,0 +1,96 @@
+# YAML Lint Configuration for hygge
+# Ensures consistent YAML formatting across configuration files
+
+extends: default
+
+rules:
+  # Indentation
+  indentation:
+    spaces: 2
+    indent-sequences: true
+    check-multi-line-strings: false
+
+  # Line length
+  line-length:
+    max: 120
+    level: warning
+
+  # Comments
+  comments:
+    min-spaces-from-content: 1
+
+  # Document start
+  document-start:
+    present: false
+
+  # Empty lines
+  empty-lines:
+    max: 2
+    max-start: 0
+    max-end: 1
+
+  # Truthy values (allow yes/no, true/false)
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+    check-keys: false
+
+  # Quoted strings (allow both quoted and unquoted)
+  quoted-strings:
+    quote-type: any
+    required: false
+
+  # Brackets and braces
+  brackets:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  # Braces
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1
+
+  # Colons
+  colons:
+    max-spaces-before: 0
+    max-spaces-after: 1
+
+  # Commas
+  commas:
+    max-spaces-before: 0
+    min-spaces-after: 1
+
+  # Dashes
+  dashes:
+    max-spaces-before: 0
+    max-spaces-after: 1
+
+  # Dots
+  dots:
+    min-spaces-before: 0
+    max-spaces-before: 0
+
+  # Hyphens
+  hyphens:
+    max-spaces-after: 1
+
+  # Key duplicates
+  key-duplicates:
+    check-in-mapping: true
+    check-in-block-mapping: true
+
+  # Key ordering (disabled for flexibility)
+  key-ordering: disable
+
+  # Octal values
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: false
+
+  # Trailing spaces
+  trailing-spaces:
+    level: error
+
+  # Empty values
+  empty-values:
+    forbid-in-block-mappings: false
+    forbid-in-flow-mappings: false

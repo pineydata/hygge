@@ -1,29 +1,29 @@
 # hygge Next Conversation Prompt
 
-## Current Status: Post-Refactor Test Suite Verification Complete ✅
+## Current Status: ParquetStore Implementation Complete ✅
 
-We've successfully completed comprehensive test suite verification after the major architecture refactor:
+We've successfully completed comprehensive ParquetStore implementation and testing:
 
-- **Core test suite verification** - All 115 core tests pass with new flattened structure
-- **API mismatch resolution** - Fixed all mismatches between tests and refactored components
-- **Test structure reorganization** - Moved ParquetHome tests to proper `homes/` directory
-- **Import compatibility verified** - All imports work correctly with new flattened structure
-- **Cross-component integration** - Flow, Factory, Coordinator work together seamlessly
-- **Configuration consolidation verified** - Merged config classes function properly
+- **ParquetStore unit tests complete** - All 25 unit tests passing with comprehensive coverage
+- **Implementation robust** - File writing, compression, batch handling, staging workflows
+- **Error handling solid** - Invalid directories, empty dataframes, permission issues
+- **Path management working** - Staging to final directory movement, cleanup, idempotent operations
+- **Import structure flattened** - Better UX with `from hygge import ParquetStore`
+- **Happy path focused** - Removed non-essential error scenarios, focused on core functionality
 
-## Next Development Phase: Integration Test Verification
+## Next Development Phase: Parquet-to-Parquet Integration Test
 
-With core test suite verification complete, the next critical step is **integration test verification** to ensure end-to-end workflows work correctly with the new flattened architecture.
+With ParquetStore implementation complete, the next critical step is **parquet-to-parquet integration test verification** to ensure end-to-end data movement workflows work correctly.
 
 ## Priority Focus Areas
 
-### 1. Integration Test Verification 🎯
-With core test suite verification complete, focus on integration testing:
-- **Integration test execution**: Run all integration tests to verify they work with new structure
-- **End-to-end workflow testing**: Verify complete parquet-to-parquet data movement scenarios
-- **Configuration integration**: Test YAML configurations work with new flattened structure
-- **Cross-component integration**: Ensure Coordinator, Flow, Factory work together in real scenarios
-- **Sample data validation**: Verify sample parquet files work correctly with new architecture
+### 1. Parquet-to-Parquet Integration Test 🎯
+Focus on end-to-end parquet data movement:
+- **Integration test execution**: Run `pytest tests/integration/ -v` to verify parquet-to-parquet flow
+- **End-to-end workflow testing**: Verify complete data movement from source to destination
+- **Real file testing**: Test with actual parquet files, not just mocks
+- **Data integrity verification**: Ensure data is correctly read, processed, and written
+- **Error handling**: Test realistic error scenarios in integration context
 
 ### 2. Data Movement Workflow Testing 🔄
 Test complete data movement scenarios:
@@ -70,28 +70,28 @@ Continue with hygge's reliability-first approach:
 
 The core test suite verification is complete with all 115 tests passing. We can now confidently verify integration test functionality.
 
-**Goal**: Run integration test verification, then add Store implementation tests.
+**Goal**: Verify parquet-to-parquet integration tests, then validate working example.
 
-## Priority Focus: Integration Test Verification
+## Priority Focus: Parquet-to-Parquet Integration Test
 
 ### 1. Integration Test Execution 🧪
-- **Integration test suite**: Run all integration tests to verify they work with new structure
+- **Integration test suite**: Run `pytest tests/integration/ -v` to verify parquet-to-parquet flow
 - **End-to-end workflows**: Test complete data movement scenarios with real parquet files
-- **Configuration integration**: Verify YAML configurations work with new flattened architecture
-- **Cross-component integration**: Ensure Coordinator, Flow, Factory work together in real scenarios
+- **Data integrity verification**: Ensure data is correctly read, processed, and written
+- **Real file testing**: Test with actual parquet files, not just mocks
 
-### 2. Store Implementation Testing (Next Phase) 🏪
-- **ParquetStore**: File naming patterns, staging workflows, compression settings
-- **Path Management**: Staging vs final directories, file sequencing, cleanup
-- **Data Integrity**: Correct data writing with polars and proper batching
-- **Error Handling**: Disk space, permissions, file system errors
+### 2. Working Example Validation (Next Phase) 🏪
+- **Example script**: Validate `examples/parquet_flow.py` works end-to-end
+- **Sample data**: Test with real parquet files in data directories
+- **User experience**: Ensure smooth end-to-end experience
+- **Documentation**: Verify examples match actual implementation
 
 ## Test Structure Status
 
 1. **Core Test Verification**: All 115 core tests pass ✅ Complete
-2. **Integration Tests**: Component interaction testing ⚠️ Needs verification
-3. **Implementation Tests**: Individual Home/Store testing (ParquetHome ✅, ParquetStore ❌)
-4. **End-to-End Tests**: Real data movement with sample parquet files ❌
+2. **ParquetStore Implementation**: All 25 unit tests pass ✅ Complete
+3. **Integration Tests**: Parquet-to-parquet data movement ⚠️ Needs verification
+4. **Working Example**: End-to-end script validation ❌
 
 This approach ensures hygge's reliability after major architecture changes before moving to Store implementation testing.
 

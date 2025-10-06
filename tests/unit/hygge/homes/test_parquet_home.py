@@ -14,8 +14,8 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from hygge.homes.parquet.home import ParquetHome, ParquetHomeConfig
-from hygge.utility.exceptions import HomeError
+from hygge.homes import ParquetHome, ParquetHomeConfig
+from hygge.utility import HomeError
 
 
 class TestParquetHomeInitialization:
@@ -436,4 +436,4 @@ class TestParquetHomeIntegration:
         home = ParquetHome("test_home", config)
 
         assert home.logger is not None
-        assert home.logger.name == "hygge.home.ParquetHome"
+        assert home.logger.logger.name == "hygge.home.ParquetHome"

@@ -52,9 +52,22 @@ class ParquetStore(Store):
         self.file_pattern = self.options.get('file_pattern')
         self.compression = self.options.get('compression')
         self.sequence_counter = 0
+        self.saved_paths = []  # Track staged file paths for moving to final
 
         # Ensure directories exist
         self.ensure_directories_exist()
+
+    def ensure_directories_exist(self) -> None:
+        """Create staging and final directories if they don't exist."""
+        try:
+            staging_dir = self.get_staging_directory()
+            final_dir = self.get_final_directory()
+
+            staging_dir.mkdir(parents=True, exist_ok=True)
+            final_dir.mkdir(parents=True, exist_ok=True)
+        except (OSError, FileNotFoundError) as e:
+            from hygge.utility.exceptions import StoreError
+            raise StoreError(f"Failed to create directories: {str(e)}")
 
     def get_staging_directory(self) -> Path:
         """Get the staging directory for temporary storage."""
@@ -72,9 +85,17 @@ class ParquetStore(Store):
             sequence=self.sequence_counter
         )
 
-    async def _save(self, df: pl.DataFrame, staging_path: Path) -> None:
+    async def _save(self, df: pl.DataFrame, staging_path: str) -> None:
         """Save data to parquet file."""
         try:
+            # Skip empty DataFrames
+            if len(df) == 0:
+                self.logger.debug("Skipping empty DataFrame")
+                return
+
+            # Convert string path to Path object
+            staging_path = Path(staging_path)
+
             # Ensure directory exists
             staging_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -94,13 +115,19 @@ class ParquetStore(Store):
                 f"Wrote {len(df):,} rows to {staging_path.name} ({file_size:,} bytes)"
             )
 
+            # Track path for moving to final location
+            self.saved_paths.append(str(staging_path))
+
         except Exception as e:
             self.logger.error(f"Failed to write parquet to {staging_path}: {str(e)}")
             raise StoreError(f"Failed to write parquet to {staging_path}: {str(e)}")
 
-    async def _cleanup_temp(self, staging_path: Path) -> None:
+    async def _cleanup_temp(self, staging_path: str) -> None:
         """Clean up temporary file."""
         try:
+            # Convert string path to Path object
+            staging_path = Path(staging_path)
+
             if staging_path.exists():
                 staging_path.unlink()
                 self.logger.debug(f"Cleaned up staging file: {staging_path}")
@@ -109,11 +136,21 @@ class ParquetStore(Store):
                 f"Failed to cleanup staging file {staging_path}: {str(e)}"
             )
 
-    async def _move_to_final(self, staging_path: Path, final_path: Path) -> None:
+    async def _move_to_final(self, staging_path: str, final_path: str) -> None:
         """Move file from staging to final location."""
         try:
+            # Convert string paths to Path objects
+            staging_path = Path(staging_path)
+            final_path = Path(final_path)
+
+            # If staging file doesn't exist, it may have already been moved
             if not staging_path.exists():
-                raise StoreError(f"Staging file does not exist: {staging_path}")
+                if final_path.exists():
+                    # File already moved, skip silently
+                    self.logger.debug(f"File already moved: {staging_path.name}")
+                    return
+                else:
+                    raise StoreError(f"Staging file does not exist: {staging_path}")
 
             # Ensure parent directory exists
             final_path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,6 +242,9 @@ class ParquetStoreConfig(BaseModel):
         # Set flow-specific file pattern if flow_name provided
         if flow_name:
             pattern = options['file_pattern']
-            options['file_pattern'] = pattern.format(flow_name=flow_name)
+            # Only format flow_name if the pattern contains {flow_name}
+            if '{flow_name}' in pattern:
+                # Simple string replacement for flow_name only
+                options['file_pattern'] = pattern.replace('{flow_name}', flow_name)
 
         return options
