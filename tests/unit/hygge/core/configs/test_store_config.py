@@ -24,10 +24,7 @@ class TestStoreConfig:
 
     def test_parquet_store_config(self):
         """Test parquet store configuration."""
-        config = StoreConfig(
-            type="parquet",
-            path="data/lake/users"
-        )
+        config = StoreConfig(type="parquet", path="data/lake/users")
 
         assert config.type == "parquet"
         assert config.path == "data/lake/users"
@@ -41,8 +38,8 @@ class TestStoreConfig:
             options={
                 "compression": "snappy",
                 "batch_size": 10000,
-                "custom_option": "value"
-            }
+                "custom_option": "value",
+            },
         )
 
         assert config.type == "parquet"
@@ -53,11 +50,7 @@ class TestStoreConfig:
 
     def test_store_with_empty_options(self):
         """Test store configuration with explicit empty options."""
-        config = StoreConfig(
-            type="parquet",
-            path="data/lake/users",
-            options={}
-        )
+        config = StoreConfig(type="parquet", path="data/lake/users", options={})
 
         assert config.options == {}
 
@@ -66,14 +59,11 @@ class TestStoreConfig:
     def test_invalid_store_type(self):
         """Test validation catches invalid store types."""
         with pytest.raises(ValidationError) as exc_info:
-            StoreConfig(
-                type="invalid_type",
-                path="data/lake/users"
-            )
+            StoreConfig(type="invalid_type", path="data/lake/users")
 
         error = exc_info.value.errors()[0]
-        assert error['type'] == 'value_error'
-        assert 'Store type must be one of' in str(error['ctx']['error'])
+        assert error["type"] == "value_error"
+        assert "Store type must be one of" in str(error["ctx"]["error"])
 
     def test_missing_type_field(self):
         """Test validation catches missing type field."""
@@ -84,8 +74,8 @@ class TestStoreConfig:
             )
 
         error = exc_info.value.errors()[0]
-        assert error['type'] == 'missing'
-        assert error['loc'] == ('type',)
+        assert error["type"] == "missing"
+        assert error["loc"] == ("type",)
 
     def test_missing_path_field(self):
         """Test validation catches missing path field."""
@@ -96,29 +86,23 @@ class TestStoreConfig:
             )
 
         error = exc_info.value.errors()[0]
-        assert error['type'] == 'missing'
-        assert error['loc'] == ('path',)
+        assert error["type"] == "missing"
+        assert error["loc"] == ("path",)
 
     def test_empty_path_value(self):
         """Test that empty string path is valid (Path can be empty)."""
-        config = StoreConfig(
-            type="parquet",
-            path=""
-        )
+        config = StoreConfig(type="parquet", path="")
 
         assert config.path == ""
 
     def test_none_path_value(self):
         """Test validation catches None path."""
         with pytest.raises(ValidationError) as exc_info:
-            StoreConfig(
-                type="parquet",
-                path=None
-            )
+            StoreConfig(type="parquet", path=None)
 
         error = exc_info.value.errors()[0]
         # Pydantic reports this as string_type since path must be a string
-        assert error['type'] == 'string_type'
+        assert error["type"] == "string_type"
 
     # Edge Cases
 
@@ -131,10 +115,7 @@ class TestStoreConfig:
         """Test configuration with long path strings."""
         long_path = "/very/long/path/to/data/storage/" + "lake" * 100
 
-        config = StoreConfig(
-            type="parquet",
-            path=long_path
-        )
+        config = StoreConfig(type="parquet", path=long_path)
 
         assert config.path == long_path
 
@@ -142,10 +123,7 @@ class TestStoreConfig:
         """Test configuration with unicode path."""
         unicode_path = "data/用户数据/lake"
 
-        config = StoreConfig(
-            type="parquet",
-            path=unicode_path
-        )
+        config = StoreConfig(type="parquet", path=unicode_path)
 
         assert config.path == unicode_path
 
@@ -155,16 +133,10 @@ class TestStoreConfig:
             type="parquet",
             path="data/lake/users",
             options={
-                "compression_settings": {
-                    "type": "zstd",
-                    "level": 3
-                },
+                "compression_settings": {"type": "zstd", "level": 3},
                 "paths": ["temp", "final"],
-                "metadata": {
-                    "author": "hygge",
-                    "version": "1.0.0"
-                }
-            }
+                "metadata": {"author": "hygge", "version": "1.0.0"},
+            },
         )
 
         assert config.options["compression_settings"]["type"] == "zstd"
@@ -181,8 +153,8 @@ class TestStoreConfig:
                 "batch_size": 10000,
                 "file_count": 5,
                 "size_threshold": 500000000,
-                "ratio": 0.75
-            }
+                "ratio": 0.75,
+            },
         )
 
         assert config.options["batch_size"] == 10000
@@ -198,25 +170,23 @@ class TestStoreConfig:
 
         errors = exc_info.value.errors()
         # Should report missing type and path
-        error_types = [error['type'] for error in errors]
-        assert 'missing' in error_types
+        error_types = [error["type"] for error in errors]
+        assert "missing" in error_types
 
     def test_pydantic_model_features(self):
         """Test standard Pydantic model features work."""
         config = StoreConfig(
-            type="parquet",
-            path="data/lake/users",
-            options={"compression": "snappy"}
+            type="parquet", path="data/lake/users", options={"compression": "snappy"}
         )
 
         # Test serialization
         data = config.model_dump()
-        assert data['type'] == "parquet"
-        assert data['path'] == "data/lake/users"
-        assert data['options']['compression'] == "snappy"
+        assert data["type"] == "parquet"
+        assert data["path"] == "data/lake/users"
+        assert data["options"]["compression"] == "snappy"
 
         # Test JSON schema
         schema = config.model_json_schema()
-        assert 'properties' in schema
-        assert 'type' in schema['properties']
-        assert 'path' in schema['properties']
+        assert "properties" in schema
+        assert "type" in schema["properties"]
+        assert "path" in schema["properties"]

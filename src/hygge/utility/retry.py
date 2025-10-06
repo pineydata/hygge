@@ -4,7 +4,7 @@ Retry decorator with exponential backoff and timeout for async functions.
 import asyncio
 import logging
 from functools import wraps
-from typing import Type, Tuple, Union
+from typing import Tuple, Type, Union
 
 from tenacity import (
     before_sleep_log,
@@ -23,7 +23,9 @@ def with_retry(
     retries: int = 3,
     delay: int = 2,
     exceptions: Union[Type[Exception], Tuple[Type[Exception], ...]] = (
-        HomeError, StoreError, FlowError
+        HomeError,
+        StoreError,
+        FlowError,
     ),
     logger_name: str = "hygge.retry",
 ):
@@ -56,7 +58,7 @@ def with_retry(
             stop=stop_after_attempt(retries),
             wait=wait_exponential(multiplier=delay, min=delay, max=delay * 8),
             retry=retry_if_exception_type(exceptions),
-            before_sleep=before_sleep_log(logger, logging.WARNING)
+            before_sleep=before_sleep_log(logger, logging.WARNING),
         )
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -67,5 +69,7 @@ def with_retry(
                 raise TimeoutError(
                     f"Operation {func.__name__} timed out after {timeout} seconds"
                 )
+
         return wrapper
+
     return decorator

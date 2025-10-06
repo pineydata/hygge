@@ -7,12 +7,12 @@ The factory pattern allows us to:
 - Make testing easier with mock components
 - Extend with new component types easily
 """
-from typing import Dict, Type, Optional
+from typing import Dict, Optional, Type
 
-from .home import Home, HomeConfig
-from .store import Store, StoreConfig
 from ..homes.parquet import ParquetHome
 from ..stores.parquet import ParquetStore
+from .home import Home, HomeConfig
+from .store import Store, StoreConfig
 
 
 class Factory:
@@ -26,11 +26,11 @@ class Factory:
     def __init__(self):
         """Initialize factory with component registries."""
         self._home_types: Dict[str, Type[Home]] = {
-            'parquet': ParquetHome,
+            "parquet": ParquetHome,
         }
 
         self._store_types: Dict[str, Type[Store]] = {
-            'parquet': ParquetStore,
+            "parquet": ParquetStore,
         }
 
     def create_home(self, name: str, config: HomeConfig) -> Home:
@@ -55,7 +55,9 @@ class Factory:
         home_class = self._home_types[home_type]
         return home_class(name, config)
 
-    def create_store(self, name: str, config: StoreConfig, flow_name: Optional[str] = None) -> Store:
+    def create_store(
+        self, name: str, config: StoreConfig, flow_name: Optional[str] = None
+    ) -> Store:
         """
         Create a Store instance from configuration.
 

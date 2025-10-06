@@ -5,11 +5,10 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict
 
 import polars as pl
+from pydantic import BaseModel, Field, field_validator
 
 from hygge.core.home import Home
 from hygge.utility.exceptions import HomeError
-
-from pydantic import BaseModel, Field, field_validator
 
 
 class ParquetHome(Home):
@@ -31,11 +30,7 @@ class ParquetHome(Home):
         ```
     """
 
-    def __init__(
-        self,
-        name: str,
-        config: "ParquetHomeConfig"
-    ):
+    def __init__(self, name: str, config: "ParquetHomeConfig"):
         # Get merged options from config
         merged_options = config.get_merged_options()
 
@@ -79,7 +74,7 @@ class ParquetHome(Home):
 
                 # Use polars' streaming capabilities
                 lf = pl.scan_parquet(path)
-                df = lf.collect(engine='streaming')
+                df = lf.collect(engine="streaming")
 
                 # Yield the DataFrame as a batch
                 if len(df) > 0:
@@ -91,27 +86,25 @@ class ParquetHome(Home):
 
 class ParquetHomeConfig(BaseModel):
     """Configuration for a ParquetHome."""
-    type: str = Field(default='parquet', description="Type of home")
+
+    type: str = Field(default="parquet", description="Type of home")
     path: str = Field(..., description="Path to parquet file or directory")
     batch_size: int = Field(
-        default=10_000,
-        ge=1,
-        description="Number of rows to read at once"
+        default=10_000, ge=1, description="Number of rows to read at once"
     )
     options: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional parquet home options"
+        default_factory=dict, description="Additional parquet home options"
     )
 
-    @field_validator('type')
+    @field_validator("type")
     @classmethod
     def validate_type(cls, v):
         """Validate home type."""
-        if v != 'parquet':
+        if v != "parquet":
             raise ValueError("Type must be 'parquet' for ParquetHome")
         return v
 
-    @field_validator('path')
+    @field_validator("path")
     @classmethod
     def validate_path(cls, v):
         """Validate path is provided."""
@@ -123,7 +116,7 @@ class ParquetHomeConfig(BaseModel):
         """Get all options including defaults."""
         # Start with the config fields
         options = {
-            'batch_size': self.batch_size,
+            "batch_size": self.batch_size,
         }
         # Add any additional options
         options.update(self.options)

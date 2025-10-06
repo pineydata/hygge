@@ -7,13 +7,13 @@ Following hygge's testing principles:
 - Keep tests clear and maintainable
 - Test the actual Home API as implemented
 """
-import pytest
 import asyncio
-import polars as pl
 from typing import AsyncIterator
 
+import polars as pl
+import pytest
+
 from hygge.core.home import Home
-from hygge.utility.exceptions import HomeError
 
 
 class SimpleHome(Home):
@@ -54,7 +54,9 @@ class ErrorHome(Home):
 class DelayedHome(Home):
     """Test implementation with delays."""
 
-    def __init__(self, name: str, data: list[pl.DataFrame], delay: float = 0.1, **kwargs):
+    def __init__(
+        self, name: str, data: list[pl.DataFrame], delay: float = 0.1, **kwargs
+    ):
         super().__init__(name, kwargs)
         self.data = data
         self.delay = delay
@@ -119,10 +121,7 @@ class TestHomeInitialization:
 
     def test_home_initialization_custom_options(self):
         """Test Home respects custom configuration options."""
-        options = {
-            'batch_size': 5000,
-            'row_multiplier': 100000
-        }
+        options = {"batch_size": 5000, "row_multiplier": 100000}
         home = SimpleHome("test", [], **options)
 
         assert home.name == "test"
@@ -133,15 +132,17 @@ class TestHomeInitialization:
     @pytest.mark.asyncio
     async def test_home_initialization_missing_implementation(self):
         """Test that incomplete Home implementations fail appropriately."""
+
         class IncompleteHome(Home):
             pass  # Missing all required methods
 
         home = IncompleteHome("incomplete", {})
 
-        # read() method should raise NotImplementedError when _get_batches is not implemented
+        # read() should raise NotImplementedError when _get_batches not implemented
         with pytest.raises(NotImplementedError):
             async for batch in home.read():
                 pass
+
 
 class TestHomeDataReading:
     """Test Home data reading functionality."""
@@ -200,6 +201,7 @@ class TestHomeDataReading:
         # Then should raise ValueError with proper message
         assert "Test error" in str(exc_info.value)
 
+
 class TestHomeLifecycle:
     """Test Home lifecycle management."""
 
@@ -236,7 +238,7 @@ class TestHomeLifecycle:
             def get_data_path(self):
                 return "/test/path"
 
-        batch_home = BatchAwareHome(large_data, options={'batch_size': 5000})
+        batch_home = BatchAwareHome(large_data, options={"batch_size": 5000})
 
         # When reading data
         batch_count = 0
@@ -247,12 +249,14 @@ class TestHomeLifecycle:
         # Then should have multiple batches
         assert batch_count == 3  # 15000 / 5000 = 3 batches
 
+
 class TestHomeConcurrency:
     """Test Home behavior in concurrent scenarios."""
 
     @pytest.mark.asyncio
     async def test_home_concurrent_access(self, delayed_home):
         """Test Home behavior with concurrent access."""
+
         # Create multiple readers
         async def reader(reader_id):
             batches = []
@@ -270,6 +274,7 @@ class TestHomeConcurrency:
     @pytest.mark.asyncio
     async def test_home_cancellation_handling(self, delayed_home):
         """Test Home handles cancellation gracefully."""
+
         # Start reading with delay
         async def slow_read():
             async for batch in delayed_home.read():

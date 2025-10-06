@@ -26,10 +26,7 @@ class TestFlowConfig:
 
     def test_simple_home_path_config(self):
         """Test simple home: path configuration works with defaults."""
-        config = FlowConfig(
-            home="data/users.parquet",
-            store="data/lake/users"
-        )
+        config = FlowConfig(home="data/users.parquet", store="data/lake/users")
 
         # Should parse home as HomeConfig with defaults
         assert isinstance(config.home_config, HomeConfig)
@@ -39,13 +36,9 @@ class TestFlowConfig:
         # Should parse store as StoreConfig with defaults
         assert isinstance(config.store_config, StoreConfig)
 
-
     def test_simple_store_path_config(self):
         """Test simple store: path configuration works with defaults."""
-        config = FlowConfig(
-            home="data/users.parquet",
-            store="data/output"
-        )
+        config = FlowConfig(home="data/users.parquet", store="data/output")
 
         # Should parse store as StoreConfig with defaults
         assert isinstance(config.store_config, StoreConfig)
@@ -58,16 +51,10 @@ class TestFlowConfig:
             "type": "sql",
             "table": "users",
             "connection": "sqlite:///test.db",
-            "options": {
-                "batch_size": 5000,
-                "custom_option": "value"
-            }
+            "options": {"batch_size": 5000, "custom_option": "value"},
         }
 
-        config = FlowConfig(
-            home=home_config,
-            store="data/output"
-        )
+        config = FlowConfig(home=home_config, store="data/output")
 
         # Should parse as HomeConfig
         assert isinstance(config.home_config, HomeConfig)
@@ -84,16 +71,10 @@ class TestFlowConfig:
         store_config = {
             "type": "parquet",
             "path": "data/lake/users",
-            "options": {
-                "compression": "zstd",
-                "custom_option": "value"
-            }
+            "options": {"compression": "zstd", "custom_option": "value"},
         }
 
-        config = FlowConfig(
-            home="data/users.parquet",
-            store=store_config
-        )
+        config = FlowConfig(home="data/users.parquet", store=store_config)
 
         # Should parse as StoreConfig
         assert isinstance(config.store_config, StoreConfig)
@@ -108,15 +89,10 @@ class TestFlowConfig:
         """Test home config using defaults when type not specified."""
         home_config = {
             "path": "data/users.parquet",
-            "options": {
-                "custom_option": "value"
-            }
+            "options": {"custom_option": "value"},
         }
 
-        config = FlowConfig(
-            home=home_config,
-            store="data/output"
-        )
+        config = FlowConfig(home=home_config, store="data/output")
 
         # Should use default type
         assert config.home_config.type == "parquet"
@@ -127,15 +103,10 @@ class TestFlowConfig:
         """Test store config using defaults when type not specified."""
         store_config = {
             "path": "data/lake/users",
-            "options": {
-                "custom_option": "value"
-            }
+            "options": {"custom_option": "value"},
         }
 
-        config = FlowConfig(
-            home="data/users.parquet",
-            store=store_config
-        )
+        config = FlowConfig(home="data/users.parquet", store=store_config)
 
         # Should use default type
         assert config.store_config.type == "parquet"
@@ -147,10 +118,7 @@ class TestFlowConfig:
         config = FlowConfig(
             home="data/users.parquet",
             store="data/output",
-            options={
-                "custom_flow_option": "value",
-                "timeout": 600
-            }
+            options={"custom_flow_option": "value", "timeout": 600},
         )
 
         assert config.options["custom_flow_option"] == "value"
@@ -158,10 +126,7 @@ class TestFlowConfig:
 
     def test_empty_flow_options_default(self):
         """Test flow configuration with no additional options."""
-        config = FlowConfig(
-            home="data/users.parquet",
-            store="data/output"
-        )
+        config = FlowConfig(home="data/users.parquet", store="data/output")
 
         assert config.options == {}
 
@@ -173,8 +138,8 @@ class TestFlowConfig:
             FlowConfig(store="data/output")
 
         error = exc_info.value.errors()[0]
-        assert error['type'] == 'missing'
-        assert 'home' in error['loc']
+        assert error["type"] == "missing"
+        assert "home" in error["loc"]
 
     def test_config_without_store(self):
         """Test that configuration without store raises validation error."""
@@ -182,15 +147,15 @@ class TestFlowConfig:
             FlowConfig(home="data/users.parquet")
 
         error = exc_info.value.errors()[0]
-        assert error['type'] == 'missing'
-        assert 'store' in error['loc']
+        assert error["type"] == "missing"
+        assert "store" in error["loc"]
 
     def test_invalid_home_config_structure(self):
         """Test validation catches invalid home configuration."""
         with pytest.raises(ValidationError) as exc_info:
             FlowConfig(
                 home={"invalid_field": "value"},  # Missing required fields
-                store="data/output"
+                store="data/output",
             )
 
         # Should have validation errors
@@ -202,7 +167,7 @@ class TestFlowConfig:
         with pytest.raises(ValidationError) as exc_info:
             FlowConfig(
                 home="data/users.parquet",
-                store={"invalid_field": "value"}  # Missing required fields
+                store={"invalid_field": "value"},  # Missing required fields
             )
 
         # Should have validation errors
@@ -212,25 +177,16 @@ class TestFlowConfig:
     def test_home_none_value(self):
         """Test that None home value raises validation error."""
         with pytest.raises(ValidationError):
-            FlowConfig(
-                home=None,
-                store="data/output"
-            )
+            FlowConfig(home=None, store="data/output")
 
     def test_store_none_value(self):
         """Test that None store value raises validation error."""
         with pytest.raises(ValidationError):
-            FlowConfig(
-                home="data/users.parquet",
-                store=None
-            )
+            FlowConfig(home="data/users.parquet", store=None)
 
     def test_empty_string_paths(self):
         """Test handling of empty string paths."""
-        config = FlowConfig(
-            home="",
-            store=""
-        )
+        config = FlowConfig(home="", store="")
 
         # Should parse but with empty paths
         assert config.home_config.path == ""
@@ -243,10 +199,7 @@ class TestFlowConfig:
         config = FlowConfig(
             home="data/users.parquet",
             store="data/output",
-            options={
-                "large_value": 999999999,
-                "small_value": 0.0001
-            }
+            options={"large_value": 999999999, "small_value": 0.0001},
         )
 
         assert config.options["large_value"] == 999999999
@@ -257,8 +210,7 @@ class TestFlowConfig:
         unicode_path = "data/用户/users.parquet"
 
         config = FlowConfig(
-            home=unicode_path,
-            store=unicode_path.replace("用户", "lake")
+            home=unicode_path, store=unicode_path.replace("用户", "lake")
         )
 
         assert config.home_config.path == unicode_path
@@ -266,31 +218,19 @@ class TestFlowConfig:
 
     def test_empty_options_dict(self):
         """Test configuration with explicit empty options."""
-        config = FlowConfig(
-            home="data/users.parquet",
-            store="data/output",
-            options={}
-        )
+        config = FlowConfig(home="data/users.parquet", store="data/output", options={})
 
         assert config.options == {}
 
     def test_config_with_complex_nested_options(self):
         """Test configuration with complex nested options."""
         complex_options = {
-            "batch_settings": {
-                "size": 1000,
-                "retry_count": 3
-            },
-            "paths": [
-                "data/temp",
-                "data/final"
-            ]
+            "batch_settings": {"size": 1000, "retry_count": 3},
+            "paths": ["data/temp", "data/final"],
         }
 
         config = FlowConfig(
-            home="data/users.parquet",
-            store="data/output",
-            options=complex_options
+            home="data/users.parquet", store="data/output", options=complex_options
         )
 
         assert config.options["batch_settings"]["size"] == 1000
@@ -298,15 +238,11 @@ class TestFlowConfig:
 
     def test_flow_config_defaults(self):
         """Test FlowConfig provides reasonable defaults."""
-        config = FlowConfig(
-            home="data/users.parquet",
-            store="data/output"
-        )
+        config = FlowConfig(home="data/users.parquet", store="data/output")
 
         # Should have defaults
         assert config.queue_size == 10  # Default from FlowConfig
         assert config.timeout == 300  # Default from FlowConfig
-
 
 
 class TestConfigurationPropertyAccess:
@@ -314,10 +250,7 @@ class TestConfigurationPropertyAccess:
 
     def test_home_config_property(self):
         """Test home_config property always returns HomeConfig."""
-        config = FlowConfig(
-            home="data/users.parquet",
-            store="data/output"
-        )
+        config = FlowConfig(home="data/users.parquet", store="data/output")
 
         # Should always return HomeConfig instance
         assert isinstance(config.home_config, HomeConfig)
@@ -325,17 +258,14 @@ class TestConfigurationPropertyAccess:
         # Test advanced config
         advanced_config = FlowConfig(
             home={"type": "sql", "table": "users", "connection": "test.db"},
-            store="data/output"
+            store="data/output",
         )
 
         assert isinstance(advanced_config.home_config, HomeConfig)
 
     def test_store_config_property(self):
         """Test store config property always returns StoreConfig."""
-        config = FlowConfig(
-            home="data/users.parquet",
-            store="data/output"
-        )
+        config = FlowConfig(home="data/users.parquet", store="data/output")
 
         # Should always return StoreConfig instance
         assert isinstance(config.store_config, StoreConfig)
@@ -343,7 +273,7 @@ class TestConfigurationPropertyAccess:
         # Test advanced config
         advanced_config = FlowConfig(
             home="data/users.parquet",
-            store={"type": "parquet", "path": "data/output", "options": {}}
+            store={"type": "parquet", "path": "data/output", "options": {}},
         )
 
         assert isinstance(advanced_config.store_config, StoreConfig)

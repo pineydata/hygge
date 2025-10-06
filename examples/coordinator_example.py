@@ -11,30 +11,33 @@ from hygge import Coordinator
 
 async def setup_test_data(path: str, rows: int = 1_000_000) -> None:
     """Create test parquet file."""
-    df = pl.DataFrame({
-        'id': range(rows),
-        'value': [f'test_{i}' for i in range(rows)],
-        'number': [i*6 for i in range(rows)],
-    })
+    df = pl.DataFrame(
+        {
+            "id": range(rows),
+            "value": [f"test_{i}" for i in range(rows)],
+            "number": [i * 6 for i in range(rows)],
+        }
+    )
     df.write_parquet(path)
 
 
 async def main():
     # Setup paths
-    base_dir = Path('data')
+    base_dir = Path("data")
     base_dir.mkdir(exist_ok=True)
 
     # Home structure: data/home/table/
-    home_dir = base_dir / 'home' / 'numbers'
+    home_dir = base_dir / "home" / "numbers"
     home_dir.mkdir(parents=True, exist_ok=True)
-    source_file = home_dir / '01.parquet'
+    source_file = home_dir / "01.parquet"
 
     # Store structure: data/store/
-    store_dir = base_dir / 'store'
+    store_dir = base_dir / "store"
 
     # Clean up existing store data
     if store_dir.exists():
         import shutil
+
         shutil.rmtree(store_dir)
         print(f"Cleaned up existing store directory: {store_dir}")
 
@@ -65,8 +68,8 @@ flows:
 """
 
     # Write config file
-    config_path = base_dir / 'coordinator_config.yaml'
-    with open(config_path, 'w') as f:
+    config_path = base_dir / "coordinator_config.yaml"
+    with open(config_path, "w") as f:
         f.write(config_content)
 
     print(f"Created configuration at {config_path}")
@@ -75,9 +78,9 @@ flows:
     coordinator = Coordinator(
         config_path=str(config_path),
         options={
-            'max_concurrent': 1,  # Run one flow at a time for this example
-            'continue_on_error': False
-        }
+            "max_concurrent": 1,  # Run one flow at a time for this example
+            "continue_on_error": False,
+        },
     )
 
     print("Setting up coordinator...")
@@ -89,7 +92,7 @@ flows:
     print("Coordinator completed successfully!")
 
     # Verify results
-    result_files = list((store_dir / 'numbers_flow').glob('*.parquet'))
+    result_files = list((store_dir / "numbers_flow").glob("*.parquet"))
     print(f"\nResults in {store_dir / 'numbers_flow'}:")
     total_rows = 0
     for file in result_files:
@@ -100,5 +103,5 @@ flows:
     print(f"\nTotal rows: {total_rows:,}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     asyncio.run(main())

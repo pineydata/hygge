@@ -5,11 +5,10 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import polars as pl
+from pydantic import BaseModel, Field, field_validator
 
 from hygge.core.store import Store
 from hygge.utility.exceptions import StoreError
-
-from pydantic import BaseModel, Field, field_validator
 
 
 class ParquetStore(Store):
@@ -37,10 +36,7 @@ class ParquetStore(Store):
     """
 
     def __init__(
-        self,
-        name: str,
-        config: "ParquetStoreConfig",
-        flow_name: Optional[str] = None
+        self, name: str, config: "ParquetStoreConfig", flow_name: Optional[str] = None
     ):
         # Get merged options from config (with flow_name for file_pattern)
         merged_options = config.get_merged_options(flow_name or name)
@@ -49,8 +45,8 @@ class ParquetStore(Store):
         self.config = config
         self.base_path = Path(config.path)
 
-        self.file_pattern = self.options.get('file_pattern')
-        self.compression = self.options.get('compression')
+        self.file_pattern = self.options.get("file_pattern")
+        self.compression = self.options.get("compression")
         self.sequence_counter = 0
         self.saved_paths = []  # Track staged file paths for moving to final
 
@@ -67,6 +63,7 @@ class ParquetStore(Store):
             final_dir.mkdir(parents=True, exist_ok=True)
         except (OSError, FileNotFoundError) as e:
             from hygge.utility.exceptions import StoreError
+
             raise StoreError(f"Failed to create directories: {str(e)}")
 
     def get_staging_directory(self) -> Path:
@@ -80,10 +77,7 @@ class ParquetStore(Store):
     async def get_next_filename(self) -> str:
         """Generate the next filename using pattern."""
         self.sequence_counter += 1
-        return self.file_pattern.format(
-            name=self.name,
-            sequence=self.sequence_counter
-        )
+        return self.file_pattern.format(name=self.name, sequence=self.sequence_counter)
 
     async def _save(self, df: pl.DataFrame, staging_path: str) -> None:
         """Save data to parquet file."""
@@ -100,10 +94,7 @@ class ParquetStore(Store):
             staging_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Write using standard parquet write
-            df.write_parquet(
-                staging_path,
-                compression=self.compression
-            )
+            df.write_parquet(staging_path, compression=self.compression)
 
             # Verify the file was actually created
             if not staging_path.exists():
@@ -181,35 +172,29 @@ class ParquetStore(Store):
 
 class ParquetStoreConfig(BaseModel):
     """Configuration for a ParquetStore."""
-    type: str = Field(default='parquet', description="Type of store")
+
+    type: str = Field(default="parquet", description="Type of store")
     path: str = Field(..., description="Path to destination directory")
     batch_size: int = Field(
-        default=100_000,
-        ge=1,
-        description="Number of rows to accumulate before writing"
+        default=100_000, ge=1, description="Number of rows to accumulate before writing"
     )
-    compression: str = Field(
-        default='snappy',
-        description="Compression algorithm"
-    )
+    compression: str = Field(default="snappy", description="Compression algorithm")
     file_pattern: str = Field(
-        default="{sequence:020d}.parquet",
-        description="File naming pattern"
+        default="{sequence:020d}.parquet", description="File naming pattern"
     )
     options: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional parquet store options"
+        default_factory=dict, description="Additional parquet store options"
     )
 
-    @field_validator('type')
+    @field_validator("type")
     @classmethod
     def validate_type(cls, v):
         """Validate store type."""
-        if v != 'parquet':
+        if v != "parquet":
             raise ValueError("Type must be 'parquet' for ParquetStore")
         return v
 
-    @field_validator('path')
+    @field_validator("path")
     @classmethod
     def validate_path(cls, v):
         """Validate path is provided."""
@@ -217,11 +202,11 @@ class ParquetStoreConfig(BaseModel):
             raise ValueError("Path is required for parquet stores")
         return v
 
-    @field_validator('compression')
+    @field_validator("compression")
     @classmethod
     def validate_compression(cls, v):
         """Validate compression type."""
-        valid_compressions = ['snappy', 'gzip', 'lz4', 'brotli', 'zstd']
+        valid_compressions = ["snappy", "gzip", "lz4", "brotli", "zstd"]
         if v not in valid_compressions:
             raise ValueError(
                 f"Compression must be one of {valid_compressions}, got '{v}'"
@@ -232,19 +217,19 @@ class ParquetStoreConfig(BaseModel):
         """Get all options including defaults."""
         # Start with the config fields
         options = {
-            'batch_size': self.batch_size,
-            'compression': self.compression,
-            'file_pattern': self.file_pattern,
+            "batch_size": self.batch_size,
+            "compression": self.compression,
+            "file_pattern": self.file_pattern,
         }
         # Add any additional options
         options.update(self.options)
 
         # Set flow-specific file pattern if flow_name provided
         if flow_name:
-            pattern = options['file_pattern']
+            pattern = options["file_pattern"]
             # Only format flow_name if the pattern contains {flow_name}
-            if '{flow_name}' in pattern:
+            if "{flow_name}" in pattern:
                 # Simple string replacement for flow_name only
-                options['file_pattern'] = pattern.replace('{flow_name}', flow_name)
+                options["file_pattern"] = pattern.replace("{flow_name}", flow_name)
 
         return options

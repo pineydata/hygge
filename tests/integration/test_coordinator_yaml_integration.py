@@ -13,14 +13,15 @@ Following hygge's testing philosophy:
 - Verify end-to-end orchestration works
 - Focus on user experience and configuration validation
 """
-import pytest
 import asyncio
-import polars as pl
-import tempfile
 import shutil
-import yaml
+import tempfile
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict
+
+import polars as pl
+import pytest
+import yaml
 
 from hygge import Coordinator
 from hygge.utility.exceptions import ConfigError
@@ -44,125 +45,125 @@ def sample_data_files(temp_config_dir: Path) -> Dict[str, Path]:
     files = {}
 
     # Users data
-    users_df = pl.DataFrame({
-        'user_id': range(1000),
-        'name': [f'user_{i}' for i in range(1000)],
-        'email': [f'user{i}@example.com' for i in range(1000)],
-        'active': [True] * 1000
-    })
+    users_df = pl.DataFrame(
+        {
+            "user_id": range(1000),
+            "name": [f"user_{i}" for i in range(1000)],
+            "email": [f"user{i}@example.com" for i in range(1000)],
+            "active": [True] * 1000,
+        }
+    )
     users_file = data_dir / "users.parquet"
     users_df.write_parquet(users_file)
-    files['users'] = users_file
+    files["users"] = users_file
 
     # Orders data
-    orders_df = pl.DataFrame({
-        'order_id': range(2000),
-        'user_id': [i % 1000 for i in range(2000)],
-        'amount': [i * 10.5 for i in range(2000)],
-        'status': ['pending', 'completed', 'cancelled'][i % 3] for i in range(2000)
-    })
+    orders_df = pl.DataFrame(
+        {
+            "order_id": range(2000),
+            "user_id": [i % 1000 for i in range(2000)],
+            "amount": [i * 10.5 for i in range(2000)],
+            "status": [
+                ["pending", "completed", "cancelled"][i % 3] for i in range(2000)
+            ],
+        }
+    )
     orders_file = data_dir / "orders.parquet"
     orders_df.write_parquet(orders_file)
-    files['orders'] = orders_file
+    files["orders"] = orders_file
 
     # Products data
-    products_df = pl.DataFrame({
-        'product_id': range(500),
-        'name': [f'product_{i}' for i in range(500)],
-        'price': [i * 5.0 for i in range(500)],
-        'category': [f'cat_{i % 10}' for i in range(500)]
-    })
+    products_df = pl.DataFrame(
+        {
+            "product_id": range(500),
+            "name": [f"product_{i}" for i in range(500)],
+            "price": [i * 5.0 for i in range(500)],
+            "category": [f"cat_{i % 10}" for i in range(500)],
+        }
+    )
     products_file = data_dir / "products.parquet"
     products_df.write_parquet(products_file)
-    files['products'] = products_file
+    files["products"] = products_file
 
     return files
 
 
 @pytest.fixture
-def simple_config_file(temp_config_dir: Path, sample_data_files: Dict[str, Path]) -> Path:
+def simple_config_file(
+    temp_config_dir: Path, sample_data_files: Dict[str, Path]
+) -> Path:
     """Create simple YAML configuration file."""
     config_content = {
-        'flows': {
-            'users_flow': {
-                'home': str(sample_data_files['users']),
-                'store': str(temp_config_dir / "lake" / "users")
+        "flows": {
+            "users_flow": {
+                "home": str(sample_data_files["users"]),
+                "store": str(temp_config_dir / "lake" / "users"),
             },
-            'orders_flow': {
-                'home': str(sample_data_files['orders']),
-                'store': str(temp_config_dir / "lake" / "orders")
-            }
+            "orders_flow": {
+                "home": str(sample_data_files["orders"]),
+                "store": str(temp_config_dir / "lake" / "orders"),
+            },
         }
     }
 
     config_file = temp_config_dir / "simple_config.yaml"
-    with open(config_file, 'w') as f:
+    with open(config_file, "w") as f:
         yaml.dump(config_content, f, default_flow_style=False)
 
     return config_file
 
 
 @pytest.fixture
-def advanced_config_file(temp_config_dir: Path, sample_data_files: Dict[str, Path]) -> Path:
+def advanced_config_file(
+    temp_config_dir: Path, sample_data_files: Dict[str, Path]
+) -> Path:
     """Create advanced YAML configuration file with custom options."""
     config_content = {
-        'flows': {
-            'users_flow': {
-                'home': {
-                    'type': 'parquet',
-                    'path': str(sample_data_files['users']),
-                    'options': {
-                        'batch_size': 500
-                    }
+        "flows": {
+            "users_flow": {
+                "home": {
+                    "type": "parquet",
+                    "path": str(sample_data_files["users"]),
+                    "options": {"batch_size": 500},
                 },
-                'store': {
-                    'type': 'parquet',
-                    'path': str(temp_config_dir / "lake" / "users"),
-                    'options': {
-                        'batch_size': 1000,
-                        'compression': 'snappy',
-                        'file_pattern': 'users_{sequence:020d}.parquet'
-                    }
+                "store": {
+                    "type": "parquet",
+                    "path": str(temp_config_dir / "lake" / "users"),
+                    "options": {
+                        "batch_size": 1000,
+                        "compression": "snappy",
+                        "file_pattern": "users_{sequence:020d}.parquet",
+                    },
                 },
-                'options': {
-                    'queue_size': 3,
-                    'timeout': 60
-                }
+                "options": {"queue_size": 3, "timeout": 60},
             },
-            'orders_flow': {
-                'home': {
-                    'type': 'parquet',
-                    'path': str(sample_data_files['orders']),
-                    'options': {
-                        'batch_size': 800
-                    }
+            "orders_flow": {
+                "home": {
+                    "type": "parquet",
+                    "path": str(sample_data_files["orders"]),
+                    "options": {"batch_size": 800},
                 },
-                'store': {
-                    'type': 'parquet',
-                    'path': str(temp_config_dir / "lake" / "orders"),
-                    'options': {
-                        'batch_size': 1500,
-                        'compression': 'gzip',
-                        'file_pattern': 'orders_{sequence:020d}.parquet'
-                    }
+                "store": {
+                    "type": "parquet",
+                    "path": str(temp_config_dir / "lake" / "orders"),
+                    "options": {
+                        "batch_size": 1500,
+                        "compression": "gzip",
+                        "file_pattern": "orders_{sequence:020d}.parquet",
+                    },
                 },
-                'options': {
-                    'queue_size': 5,
-                    'timeout': 120
-                }
+                "options": {"queue_size": 5, "timeout": 120},
             },
-            'products_flow': {
-                'home': str(sample_data_files['products']),
-                'store': str(temp_config_dir / "lake" / "products"),
-                'options': {
-                    'queue_size': 2
-                }
-            }
+            "products_flow": {
+                "home": str(sample_data_files["products"]),
+                "store": str(temp_config_dir / "lake" / "products"),
+                "options": {"queue_size": 2},
+            },
         }
     }
 
     config_file = temp_config_dir / "advanced_config.yaml"
-    with open(config_file, 'w') as f:
+    with open(config_file, "w") as f:
         yaml.dump(config_content, f, default_flow_style=False)
 
     return config_file
@@ -172,16 +173,16 @@ def advanced_config_file(temp_config_dir: Path, sample_data_files: Dict[str, Pat
 def invalid_config_file(temp_config_dir: Path) -> Path:
     """Create invalid YAML configuration file."""
     config_content = {
-        'flows': {
-            'invalid_flow': {
-                'home': '/nonexistent/path/file.parquet',
-                'store': '/nonexistent/path/destination'
+        "flows": {
+            "invalid_flow": {
+                "home": "/nonexistent/path/file.parquet",
+                "store": "/nonexistent/path/destination",
             }
         }
     }
 
     config_file = temp_config_dir / "invalid_config.yaml"
-    with open(config_file, 'w') as f:
+    with open(config_file, "w") as f:
         yaml.dump(config_content, f, default_flow_style=False)
 
     return config_file
@@ -191,7 +192,9 @@ class TestCoordinatorYAMLIntegration:
     """Test Coordinator with YAML configuration integration."""
 
     @pytest.mark.asyncio
-    async def test_simple_config_execution(self, simple_config_file: Path, temp_config_dir: Path):
+    async def test_simple_config_execution(
+        self, simple_config_file: Path, temp_config_dir: Path
+    ):
         """Test Coordinator with simple YAML configuration."""
         # Given a simple configuration
         coordinator = Coordinator(str(simple_config_file))
@@ -225,7 +228,9 @@ class TestCoordinatorYAMLIntegration:
         assert total_orders_rows == 2000, f"Orders rows mismatch: {total_orders_rows}"
 
     @pytest.mark.asyncio
-    async def test_advanced_config_execution(self, advanced_config_file: Path, temp_config_dir: Path):
+    async def test_advanced_config_execution(
+        self, advanced_config_file: Path, temp_config_dir: Path
+    ):
         """Test Coordinator with advanced YAML configuration."""
         # Given an advanced configuration
         coordinator = Coordinator(str(advanced_config_file))
@@ -238,9 +243,9 @@ class TestCoordinatorYAMLIntegration:
 
         # Verify flow configurations
         flow_names = [flow.name for flow in coordinator.flows]
-        assert 'users_flow' in flow_names
-        assert 'orders_flow' in flow_names
-        assert 'products_flow' in flow_names
+        assert "users_flow" in flow_names
+        assert "orders_flow" in flow_names
+        assert "products_flow" in flow_names
 
         # Verify output directories exist
         users_output = temp_config_dir / "lake" / "users"
@@ -262,15 +267,17 @@ class TestCoordinatorYAMLIntegration:
 
         assert total_users_rows == 1000, f"Users rows mismatch: {total_users_rows}"
         assert total_orders_rows == 2000, f"Orders rows mismatch: {total_orders_rows}"
-        assert total_products_rows == 500, f"Products rows mismatch: {total_products_rows}"
+        assert (
+            total_products_rows == 500
+        ), f"Products rows mismatch: {total_products_rows}"
 
     @pytest.mark.asyncio
     async def test_config_validation(self, temp_config_dir: Path):
         """Test configuration validation."""
         # Test empty flows
-        empty_config = {'flows': {}}
+        empty_config = {"flows": {}}
         empty_config_file = temp_config_dir / "empty_config.yaml"
-        with open(empty_config_file, 'w') as f:
+        with open(empty_config_file, "w") as f:
             yaml.dump(empty_config, f)
 
         coordinator = Coordinator(str(empty_config_file))
@@ -288,7 +295,9 @@ class TestCoordinatorYAMLIntegration:
             await coordinator.run()
 
     @pytest.mark.asyncio
-    async def test_coordinator_parallel_execution(self, advanced_config_file: Path, temp_config_dir: Path):
+    async def test_coordinator_parallel_execution(
+        self, advanced_config_file: Path, temp_config_dir: Path
+    ):
         """Test that Coordinator runs flows in parallel."""
         coordinator = Coordinator(str(advanced_config_file))
 
@@ -309,7 +318,7 @@ class TestCoordinatorYAMLIntegration:
         outputs = [
             temp_config_dir / "lake" / "users",
             temp_config_dir / "lake" / "orders",
-            temp_config_dir / "lake" / "products"
+            temp_config_dir / "lake" / "products",
         ]
 
         for output_dir in outputs:
@@ -318,24 +327,26 @@ class TestCoordinatorYAMLIntegration:
             assert len(files) > 0, f"Output files should exist: {output_dir}"
 
     @pytest.mark.asyncio
-    async def test_coordinator_error_isolation(self, temp_config_dir: Path, sample_data_files: Dict[str, Path]):
+    async def test_coordinator_error_isolation(
+        self, temp_config_dir: Path, sample_data_files: Dict[str, Path]
+    ):
         """Test that Coordinator handles individual flow errors appropriately."""
         # Create config with one valid and one invalid flow
         mixed_config = {
-            'flows': {
-                'valid_flow': {
-                    'home': str(sample_data_files['users']),
-                    'store': str(temp_config_dir / "valid_output")
+            "flows": {
+                "valid_flow": {
+                    "home": str(sample_data_files["users"]),
+                    "store": str(temp_config_dir / "valid_output"),
                 },
-                'invalid_flow': {
-                    'home': '/nonexistent/file.parquet',
-                    'store': str(temp_config_dir / "invalid_output")
-                }
+                "invalid_flow": {
+                    "home": "/nonexistent/file.parquet",
+                    "store": str(temp_config_dir / "invalid_output"),
+                },
             }
         }
 
         config_file = temp_config_dir / "mixed_config.yaml"
-        with open(config_file, 'w') as f:
+        with open(config_file, "w") as f:
             yaml.dump(mixed_config, f)
 
         coordinator = Coordinator(str(config_file))
@@ -360,4 +371,4 @@ class TestCoordinatorYAMLIntegration:
             # Should have default queue size
             assert flow.queue_size == 10  # Default
             assert flow.timeout == 300  # Default
-            assert flow.name in ['users_flow', 'orders_flow']
+            assert flow.name in ["users_flow", "orders_flow"]

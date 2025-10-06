@@ -104,10 +104,7 @@ def mock_store():
 def flow(mock_home, mock_store):
     """Create a Flow instance with mock Home and Store."""
     return Flow(
-        name="test_flow",
-        home=mock_home,
-        store=mock_store,
-        options={"queue_size": 5}
+        name="test_flow", home=mock_home, store=mock_store, options={"queue_size": 5}
     )
 
 
@@ -180,6 +177,7 @@ class TestSimplifiedFlow:
     @pytest.mark.timeout(10)
     async def test_flow_handles_home_error(self):
         """Test Flow handles Home errors gracefully."""
+
         class ErrorHome(MockHome):
             async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
                 """Simulate error by raising exception before any data."""
@@ -203,6 +201,7 @@ class TestSimplifiedFlow:
     @pytest.mark.timeout(10)
     async def test_flow_handles_store_error(self, sample_data):
         """Test Flow handles Store errors gracefully."""
+
         class ErrorStore(MockStore):
             async def write(self, df: pl.DataFrame, is_recursive: bool = False):
                 raise ValueError("Store write error")
@@ -241,6 +240,7 @@ class TestSimplifiedFlow:
     @pytest.mark.timeout(15)
     async def test_flow_cancellation_handling(self):
         """Test Flow handles cancellation gracefully."""
+
         # Create a slow home that we can cancel
         class SlowHome(MockHome):
             async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
@@ -262,7 +262,6 @@ class TestSimplifiedFlow:
         # Should handle cancellation gracefully
         with pytest.raises(asyncio.CancelledError):
             await task
-
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(30)

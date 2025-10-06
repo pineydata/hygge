@@ -8,10 +8,10 @@ retries, and state management.
 import asyncio
 from typing import Any, Dict, Optional, Union
 
+from pydantic import BaseModel, Field, field_validator
+
 from hygge.utility.exceptions import FlowError
 from hygge.utility.logger import get_logger
-
-from pydantic import BaseModel, Field, field_validator
 
 from .home import Home, HomeConfig
 from .store import Store, StoreConfig
@@ -41,7 +41,7 @@ class Flow:
         name: str,
         home: Home,
         store: Store,
-        options: Optional[Dict[str, Any]] = None
+        options: Optional[Dict[str, Any]] = None,
     ):
         self.name = name
         self.home = home
@@ -49,8 +49,8 @@ class Flow:
         self.options = options or {}
 
         # Default settings
-        self.queue_size = self.options.get('queue_size', 10)
-        self.timeout = self.options.get('timeout', 300)
+        self.queue_size = self.options.get("queue_size", 10)
+        self.timeout = self.options.get("timeout", 300)
 
         # State tracking
         self.total_rows = 0
@@ -58,7 +58,6 @@ class Flow:
         self.start_time = None
 
         self.logger = get_logger(f"hygge.flow.{name}")
-
 
     async def start(self) -> None:
         """Start the flow from Home to Store."""
@@ -74,12 +73,10 @@ class Flow:
 
             # Start producer and consumer tasks
             producer = asyncio.create_task(
-                self._producer(queue, producer_done),
-                name=f"{self.name}_producer"
+                self._producer(queue, producer_done), name=f"{self.name}_producer"
             )
             consumer = asyncio.create_task(
-                self._consumer(queue, producer_done),
-                name=f"{self.name}_consumer"
+                self._consumer(queue, producer_done), name=f"{self.name}_consumer"
             )
 
             # Wait for producer to finish
@@ -236,61 +233,50 @@ class FlowConfig(BaseModel):
             compression: snappy
     ```
     """
+
     # Clean, simple configuration - only home/store, no legacy from/to
     home: Union[str, HomeConfig] = Field(..., description="Home configuration")
     store: Union[str, StoreConfig] = Field(..., description="Store configuration")
     queue_size: int = Field(
-        default=10,
-        ge=1, le=100,
-        description="Size of internal queue"
+        default=10, ge=1, le=100, description="Size of internal queue"
     )
-    timeout: int = Field(
-        default=300,
-        ge=1,
-        description="Operation timeout in seconds"
-    )
+    timeout: int = Field(default=300, ge=1, description="Operation timeout in seconds")
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional flow options"
     )
 
-    @field_validator('home', mode='before')
+    @field_validator("home", mode="before")
     @classmethod
     def parse_home(cls, v):
         """Parse home configuration from string or dict with smart defaults."""
         if isinstance(v, str):
             # Simple path - detect type from extension or use default type
-            if v.endswith('.parquet'):
-                home_type = 'parquet'
+            if v.endswith(".parquet"):
+                home_type = "parquet"
             else:
-                home_type = 'parquet'  # Default type
+                home_type = "parquet"  # Default type
 
-            return HomeConfig(
-                type=home_type,
-                path=v
-            )
+            return HomeConfig(type=home_type, path=v)
         elif isinstance(v, dict):
             # Advanced configuration - apply smart defaults to options
             # If type not specified, use default
-            if 'type' not in v:
-                v['type'] = 'parquet'
+            if "type" not in v:
+                v["type"] = "parquet"
             return HomeConfig(**v)
         return v
 
-    @field_validator('store', mode='before')
+    @field_validator("store", mode="before")
     @classmethod
     def parse_store(cls, v):
         """Parse store configuration from string or dict with smart defaults."""
         if isinstance(v, str):
             # Simple path - use default type with smart defaults
-            return StoreConfig(
-                type='parquet',
-                path=v
-            )
+            return StoreConfig(type="parquet", path=v)
         elif isinstance(v, dict):
             # Advanced configuration - apply smart defaults to options
             # If type not specified, use default
-            if 'type' not in v:
-                v['type'] = 'parquet'
+            if "type" not in v:
+                v["type"] = "parquet"
             return StoreConfig(**v)
         return v
 

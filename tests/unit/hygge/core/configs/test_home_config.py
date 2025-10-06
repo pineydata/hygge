@@ -24,10 +24,7 @@ class TestHomeConfig:
 
     def test_parquet_home_config(self):
         """Test parquet home configuration."""
-        config = HomeConfig(
-            type="parquet",
-            path="data/users.parquet"
-        )
+        config = HomeConfig(type="parquet", path="data/users.parquet")
 
         assert config.type == "parquet"
         assert config.path == "data/users.parquet"
@@ -39,10 +36,7 @@ class TestHomeConfig:
         config = HomeConfig(
             type="parquet",
             path="data/users.parquet",
-            options={
-                "batch_size": 1000,
-                "custom_option": "value"
-            }
+            options={"batch_size": 1000, "custom_option": "value"},
         )
 
         assert config.type == "parquet"
@@ -55,7 +49,7 @@ class TestHomeConfig:
         config = HomeConfig(
             type="sql",
             connection="sqlite:///test.db",
-            path="users"  # Optional for SQL
+            path="users",  # Optional for SQL
         )
 
         assert config.type == "sql"
@@ -68,10 +62,7 @@ class TestHomeConfig:
             type="sql",
             connection="postgresql://user:pass@localhost/db",
             path="public.users",
-            options={
-                "batch_size": 5000,
-                "schema": "public"
-            }
+            options={"batch_size": 5000, "schema": "public"},
         )
 
         assert config.type == "sql"
@@ -81,10 +72,7 @@ class TestHomeConfig:
 
     def test_sql_home_without_path(self):
         """Test SQL home configuration without path (path is optional for SQL)."""
-        config = HomeConfig(
-            type="sql",
-            connection="sqlite:///test.db"
-        )
+        config = HomeConfig(type="sql", connection="sqlite:///test.db")
 
         assert config.type == "sql"
         assert config.connection == "sqlite:///test.db"
@@ -95,14 +83,11 @@ class TestHomeConfig:
     def test_invalid_home_type(self):
         """Test validation catches invalid home types."""
         with pytest.raises(ValidationError) as exc_info:
-            HomeConfig(
-                type="invalid_type",
-                path="data/users.parquet"
-            )
+            HomeConfig(type="invalid_type", path="data/users.parquet")
 
         error = exc_info.value.errors()[0]
-        assert error['type'] == 'value_error'
-        assert 'Home type must be one of' in str(error['ctx']['error'])
+        assert error["type"] == "value_error"
+        assert "Home type must be one of" in str(error["ctx"]["error"])
 
     def test_parquet_home_without_path(self):
         """Test validation requires path for parquet homes"""
@@ -113,16 +98,13 @@ class TestHomeConfig:
             )
 
         error = exc_info.value.errors()[0]
-        assert error['type'] == 'value_error'
-        assert 'Path is required for parquet homes' in str(error['ctx']['error'])
+        assert error["type"] == "value_error"
+        assert "Path is required for parquet homes" in str(error["ctx"]["error"])
 
     def test_parquet_home_with_empty_path(self):
-        """Test empty path is allowed for parquet homes (validation happens during execution)."""
+        """Test empty path is allowed for parquet homes."""
         # Empty string should be allowed (actual validation happens during execution)
-        config = HomeConfig(
-            type="parquet",
-            path=""
-        )
+        config = HomeConfig(type="parquet", path="")
         assert config.path == ""
 
     def test_sql_home_without_connection(self):
@@ -134,16 +116,13 @@ class TestHomeConfig:
             )
 
         error = exc_info.value.errors()[0]
-        assert error['type'] == 'value_error'
-        assert 'Connection is required for SQL homes' in str(error['ctx']['error'])
+        assert error["type"] == "value_error"
+        assert "Connection is required for SQL homes" in str(error["ctx"]["error"])
 
     def test_sql_home_with_empty_connection(self):
-        """Test empty connection is allowed for SQL homes (validation happens during execution)."""
+        """Test empty connection allowed for SQL homes (validation during execution)."""
         # Empty string should be allowed (actual validation happens during execution)
-        config = HomeConfig(
-            type="sql",
-            connection=""
-        )
+        config = HomeConfig(type="sql", connection="")
         assert config.connection == ""
 
     def test_missing_type_field(self):
@@ -155,8 +134,8 @@ class TestHomeConfig:
             )
 
         error = exc_info.value.errors()[0]
-        assert error['type'] == 'missing'
-        assert error['loc'] == ('type',)
+        assert error["type"] == "missing"
+        assert error["loc"] == ("type",)
 
     # Edge Cases
 
@@ -171,29 +150,17 @@ class TestHomeConfig:
     def test_none_values(self):
         """Test handling of None values in optional fields."""
         # None path should be allowed for SQL
-        config = HomeConfig(
-            type="sql",
-            connection="sqlite:///test.db",
-            path=None
-        )
+        config = HomeConfig(type="sql", connection="sqlite:///test.db", path=None)
 
         assert config.path is None
 
         # None connection should not be allowed for SQL
         with pytest.raises(ValidationError):
-            HomeConfig(
-                type="sql",
-                connection=None,
-                path="table_name"
-            )
+            HomeConfig(type="sql", connection=None, path="table_name")
 
     def test_empty_options_dict(self):
         """Test configuration with explicit empty options."""
-        config = HomeConfig(
-            type="parquet",
-            path="data/users.parquet",
-            options={}
-        )
+        config = HomeConfig(type="parquet", path="data/users.parquet", options={})
 
         assert config.options == {}
 
@@ -203,12 +170,9 @@ class TestHomeConfig:
             type="sql",
             connection="sqlite:///test.db",
             options={
-                "batch_settings": {
-                    "size": 1000,
-                    "retry_count": 3
-                },
-                "paths": ["temp", "final"]
-            }
+                "batch_settings": {"size": 1000, "retry_count": 3},
+                "paths": ["temp", "final"],
+            },
         )
 
         assert config.options["batch_settings"]["size"] == 1000
@@ -218,10 +182,7 @@ class TestHomeConfig:
         """Test configuration with long path strings."""
         long_path = "/very/long/path/to/data/files/" + "users" * 100 + ".parquet"
 
-        config = HomeConfig(
-            type="parquet",
-            path=long_path
-        )
+        config = HomeConfig(type="parquet", path=long_path)
 
         assert config.path == long_path
 
@@ -229,10 +190,7 @@ class TestHomeConfig:
         """Test connection string with unicode characters."""
         unicode_connection = "postgresql://用户:密码@localhost/数据库"
 
-        config = HomeConfig(
-            type="sql",
-            connection=unicode_connection
-        )
+        config = HomeConfig(type="sql", connection=unicode_connection)
 
         assert config.connection == unicode_connection
 
@@ -244,23 +202,21 @@ class TestHomeConfig:
 
         errors = exc_info.value.errors()
         # Should report missing type
-        assert any(error['type'] == 'missing' for error in errors)
+        assert any(error["type"] == "missing" for error in errors)
 
     def test_pydantic_model_features(self):
         """Test standard Pydantic model features work."""
         config = HomeConfig(
-            type="parquet",
-            path="data/users.parquet",
-            options={"batch_size": 1000}
+            type="parquet", path="data/users.parquet", options={"batch_size": 1000}
         )
 
         # Test serialization
         data = config.model_dump()
-        assert data['type'] == "parquet"
-        assert data['path'] == "data/users.parquet"
-        assert data['options']['batch_size'] == 1000
+        assert data["type"] == "parquet"
+        assert data["path"] == "data/users.parquet"
+        assert data["options"]["batch_size"] == 1000
 
         # Test JSON schema
         schema = config.model_json_schema()
-        assert 'properties' in schema
-        assert 'type' in schema['properties']
+        assert "properties" in schema
+        assert "type" in schema["properties"]

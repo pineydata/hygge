@@ -6,15 +6,16 @@ This module provides shared fixtures and utilities following hygge's testing phi
 - Provide comfortable defaults for tests
 - Keep fixtures simple and maintainable
 """
-import pytest
 import logging
+import shutil
 import sys
 import tempfile
-import shutil
-from pathlib import Path
-from typing import Dict, Any
-import polars as pl
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict
+
+import polars as pl
+import pytest
 
 # Add src directory to Python path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
@@ -44,22 +45,26 @@ def test_data_dir():
 @pytest.fixture
 def small_sample_data():
     """Generate small sample data for testing."""
-    return pl.DataFrame({
-        "id": range(10),
-        "value": [f"test_{i}" for i in range(10)],
-        "timestamp": [datetime.now() for _ in range(10)]
-    })
+    return pl.DataFrame(
+        {
+            "id": range(10),
+            "value": [f"test_{i}" for i in range(10)],
+            "timestamp": [datetime.now() for _ in range(10)],
+        }
+    )
 
 
 @pytest.fixture
 def medium_sample_data():
     """Generate medium sample data for testing."""
-    return pl.DataFrame({
-        "id": range(1000),
-        "value": [f"test_{i}" for i in range(1000)],
-        "timestamp": [datetime.now() for _ in range(1000)],
-        "category": [f"cat_{i % 5}" for i in range(1000)]
-    })
+    return pl.DataFrame(
+        {
+            "id": range(1000),
+            "value": [f"test_{i}" for i in range(1000)],
+            "timestamp": [datetime.now() for _ in range(1000)],
+            "category": [f"cat_{i % 5}" for i in range(1000)],
+        }
+    )
 
 
 @pytest.fixture
@@ -77,7 +82,7 @@ def simple_flow_config():
         "flows": {
             "test_flow": {
                 "home": "data/source/test.parquet",
-                "store": "data/destination/output"
+                "store": "data/destination/output",
             }
         }
     }
@@ -92,21 +97,14 @@ def advanced_flow_config():
                 "home": {
                     "type": "parquet",
                     "path": "data/source/users.parquet",
-                    "options": {
-                        "batch_size": 5000
-                    }
+                    "options": {"batch_size": 5000},
                 },
                 "store": {
                     "type": "parquet",
                     "path": "data/lake/users",
-                    "options": {
-                        "compression": "snappy",
-                        "batch_size": 10000
-                    }
+                    "options": {"compression": "snappy", "batch_size": 10000},
                 },
-                "options": {
-                    "timeout": 300
-                }
+                "options": {"timeout": 300},
             }
         }
     }
@@ -119,20 +117,20 @@ def multiple_flows_config():
         "flows": {
             "users_flow": {
                 "home": "data/source/users.parquet",
-                "store": "data/lake/users"
+                "store": "data/lake/users",
             },
             "orders_flow": {
                 "home": "data/source/orders.parquet",
-                "store": "data/lake/orders"
+                "store": "data/lake/orders",
             },
             "products_flow": {
                 "home": {
                     "type": "parquet",
                     "path": "data/source/products.parquet",
-                    "options": {"batch_size": 1000}
+                    "options": {"batch_size": 1000},
                 },
-                "store": "data/lake/products"
-            }
+                "store": "data/lake/products",
+            },
         }
     }
 
@@ -147,9 +145,9 @@ def sql_config():
                     "type": "sql",
                     "table": "users",
                     "connection": "sqlite:///test.db",
-                    "options": {"batch_size": 1000}
+                    "options": {"batch_size": 1000},
                 },
-                "store": "data/lake/users"
+                "store": "data/lake/users",
             }
         }
     }
@@ -161,14 +159,8 @@ def invalid_config():
     return {
         "flows": {
             "bad_flow": {
-                "home": {
-                    "type": "invalid_type",
-                    "path": "data/test.parquet"
-                },
-                "store": {
-                    "type": "invalid_type",
-                    "path": "data/output"
-                }
+                "home": {"type": "invalid_type", "path": "data/test.parquet"},
+                "store": {"type": "invalid_type", "path": "data/output"},
             }
         }
     }
@@ -178,6 +170,7 @@ def invalid_config():
 def hygge_settings_defaults():
     """Default HyggeSettings for testing."""
     from hygge.core.configs.settings import HyggeSettings
+
     return HyggeSettings()
 
 
@@ -185,12 +178,13 @@ def hygge_settings_defaults():
 def hygge_settings_custom():
     """Custom HyggeSettings for testing."""
     from hygge.core.configs.settings import HyggeSettings
+
     return HyggeSettings(
         home_type="sql",
         store_type="parquet",
         home_batch_size=5000,
         store_batch_size=50000,
-        flow_queue_size=5
+        flow_queue_size=5,
     )
 
 
@@ -216,11 +210,13 @@ class TestDataManager:
 
     def write_test_data(self, batch_size: int = 100) -> Path:
         """Write test data and return file path."""
-        data = pl.DataFrame({
-            "id": range(batch_size),
-            "value": [f"test_value_{i}" for i in range(batch_size)],
-            "timestamp": [datetime.now() for _ in range(batch_size)]
-        })
+        data = pl.DataFrame(
+            {
+                "id": range(batch_size),
+                "value": [f"test_value_{i}" for i in range(batch_size)],
+                "timestamp": [datetime.now() for _ in range(batch_size)],
+            }
+        )
         return self.create_parquet_file("test_data.parquet", data)
 
     def cleanup(self):
@@ -297,7 +293,9 @@ class TestAssertionHelpers:
     @staticmethod
     def assert_dataframe_equal(df1: pl.DataFrame, df2: pl.DataFrame):
         """Assert two DataFrames are equal."""
-        assert df1.equals(df2), f"DataFrames not equal. Shape: {df1.shape} vs {df2.shape}"
+        assert df1.equals(
+            df2
+        ), f"DataFrames not equal. Shape: {df1.shape} vs {df2.shape}"
 
     @staticmethod
     def assert_parquet_file_exists(path: Path):

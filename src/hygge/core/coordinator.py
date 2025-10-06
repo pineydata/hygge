@@ -10,14 +10,13 @@ Home and Store instantiation is delegated to Flow.
 """
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import yaml
+from pydantic import BaseModel, Field, field_validator
 
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
-
-from pydantic import BaseModel, Field, field_validator
 
 from .factory import Factory
 from .flow import Flow, FlowConfig
@@ -69,7 +68,7 @@ class Coordinator:
     def _load_config(self) -> None:
         """Load and validate configuration from file."""
         try:
-            with open(self.config_path, 'r') as f:
+            with open(self.config_path, "r") as f:
                 config_data = yaml.safe_load(f)
 
             # Validate configuration
@@ -81,9 +80,11 @@ class Coordinator:
             self.config = CoordinatorConfig.from_dict(config_data)
 
             # Extract options
-            self.options = config_data.get('options', {})
+            self.options = config_data.get("options", {})
 
-            self.logger.info(f"Loaded configuration with {len(self.config.flows)} flows")
+            self.logger.info(
+                f"Loaded configuration with {len(self.config.flows)} flows"
+            )
 
         except Exception as e:
             raise ConfigError(f"Failed to load configuration: {str(e)}")
@@ -96,14 +97,18 @@ class Coordinator:
             try:
                 # Create home and store using factory
                 home = self.factory.create_home(flow_name, flow_config.home_config)
-                store = self.factory.create_store(flow_name, flow_config.store_config, flow_name)
+                store = self.factory.create_store(
+                    flow_name, flow_config.store_config, flow_name
+                )
 
                 # Create flow with options
                 flow_options = flow_config.options.copy()
-                flow_options.update({
-                    'queue_size': flow_config.queue_size,
-                    'timeout': flow_config.timeout
-                })
+                flow_options.update(
+                    {
+                        "queue_size": flow_config.queue_size,
+                        "timeout": flow_config.timeout,
+                    }
+                )
 
                 flow = Flow(flow_name, home, store, flow_options)
                 self.flows.append(flow)
@@ -124,10 +129,7 @@ class Coordinator:
         # Create tasks for all flows
         tasks = []
         for flow in self.flows:
-            task = asyncio.create_task(
-                self._run_flow(flow),
-                name=f"flow_{flow.name}"
-            )
+            task = asyncio.create_task(self._run_flow(flow), name=f"flow_{flow.name}")
             tasks.append(task)
 
         # Run all flows concurrently
@@ -148,15 +150,16 @@ class Coordinator:
             await flow.start()
         except Exception as e:
             self.logger.error(f"Error in flow {flow.name}: {e}")
-            if not self.options.get('continue_on_error', False):
+            if not self.options.get("continue_on_error", False):
                 raise
 
 
 class CoordinatorConfig(BaseModel):
     """Main configuration model for hygge."""
+
     flows: Dict[str, FlowConfig] = Field(..., description="Flow configurations")
 
-    @field_validator('flows')
+    @field_validator("flows")
     @classmethod
     def validate_flows_not_empty(cls, v):
         """Validate flows section is not empty."""
@@ -165,7 +168,7 @@ class CoordinatorConfig(BaseModel):
         return v
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'CoordinatorConfig':
+    def from_dict(cls, data: Dict[str, Any]) -> "CoordinatorConfig":
         """Create configuration from dictionary."""
         return cls(**data)
 
@@ -174,5 +177,3 @@ class CoordinatorConfig(BaseModel):
         if flow_name not in self.flows:
             raise ValueError(f"Flow '{flow_name}' not found in configuration")
         return self.flows[flow_name]
-
-

@@ -14,6 +14,7 @@ Example:
     ```
 """
 import asyncio
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -38,22 +39,20 @@ class Store:
         ```
     """
 
-    def __init__(
-        self,
-        name: str,
-        options: Optional[Dict[str, Any]] = None
-    ):
+    def __init__(self, name: str, options: Optional[Dict[str, Any]] = None):
         self.name = name
         self.options = options or {}
-        self.batch_size = self.options.get('batch_size', 100_000)
-        self.row_multiplier = self.options.get('row_multiplier', 300_000)
+        self.batch_size = self.options.get("batch_size", 100_000)
+        self.row_multiplier = self.options.get("row_multiplier", 300_000)
         self.data_buffer = []
         self.buffer_size = 0
         self.current_df = None  # Current accumulated data
         self.total_rows = 0
         self.transfers = []  # Track file transfers
-        self.temp_pattern = self.options.get('temp_pattern', 'temp/{name}/{filename}')
-        self.final_pattern = self.options.get('final_pattern', 'final/{name}/{filename}')
+        self.temp_pattern = self.options.get("temp_pattern", "temp/{name}/{filename}")
+        self.final_pattern = self.options.get(
+            "final_pattern", "final/{name}/{filename}"
+        )
         self.start_time = None
         self.logger = get_logger(f"hygge.store.{self.__class__.__name__}")
 
@@ -76,6 +75,7 @@ class Store:
             # Handle None data
             if data is None:
                 from hygge.utility.exceptions import StoreError
+
                 raise StoreError("Cannot write None data")
 
             # Add data to buffer and update tracking
@@ -89,14 +89,17 @@ class Store:
             else:
                 # Combine with existing data
                 import polars as pl
-                if isinstance(data, pl.DataFrame) and isinstance(self.current_df, pl.DataFrame):
+
+                if isinstance(data, pl.DataFrame) and isinstance(
+                    self.current_df, pl.DataFrame
+                ):
                     self.current_df = pl.concat([self.current_df, data])
 
             # Write if buffer is full
             result = None
             while self.buffer_size >= self.batch_size:
                 result = await self._flush_buffer()
-            
+
             return result
 
         except Exception as e:
@@ -114,16 +117,17 @@ class Store:
             await self._flush_buffer()
 
         # Move staged files to final location for file-based stores
-        if hasattr(self, '_move_staged_files_to_final'):
+        if hasattr(self, "_move_staged_files_to_final"):
             await self._move_staged_files_to_final()
-        elif hasattr(self, 'saved_paths') and hasattr(self, '_move_to_final'):
+        elif hasattr(self, "saved_paths") and hasattr(self, "_move_to_final"):
             # Move staged files to final location
             for staging_path_str in self.saved_paths:
                 if staging_path_str:
                     from pathlib import Path
+
                     staging_path = Path(staging_path_str)
                     # Generate final path
-                    if hasattr(self, 'get_final_directory'):
+                    if hasattr(self, "get_final_directory"):
                         final_dir = self.get_final_directory()
                         final_path = final_dir / staging_path.name
                         await self._move_to_final(staging_path, final_path)
@@ -148,7 +152,6 @@ class Store:
 
             # If data exceeds batch_size, only flush one batch
             if len(combined_data) > self.batch_size:
-                import polars as pl
                 batch_data = combined_data.slice(0, self.batch_size)
                 remaining_data = combined_data.slice(self.batch_size)
 
@@ -176,9 +179,9 @@ class Store:
 
             # Generate path for file-based stores
             path = None
-            if hasattr(self, 'get_next_filename'):
+            if hasattr(self, "get_next_filename"):
                 filename = await self.get_next_filename()
-                if hasattr(self, 'get_staging_directory'):
+                if hasattr(self, "get_staging_directory"):
                     staging_dir = self.get_staging_directory()
                     path = str(staging_dir / filename)
 
@@ -188,7 +191,7 @@ class Store:
             self.logger.debug(
                 f"Flushed batch: {len(data_to_write):,} rows to {self.name}"
             )
-            
+
             # Return path if staging occurred
             return path
 
@@ -212,6 +215,7 @@ class Store:
         else:
             # Combine multiple DataFrames
             import polars as pl
+
             return pl.concat(self.data_buffer)
 
     async def _save(self, data: Any, path: Optional[str] = None) -> None:
@@ -270,9 +274,9 @@ class Store:
 
         # Generate path for file-based stores
         path = None
-        if hasattr(self, 'get_next_filename'):
+        if hasattr(self, "get_next_filename"):
             filename = await self.get_next_filename()
-            if hasattr(self, 'get_staging_directory'):
+            if hasattr(self, "get_staging_directory"):
                 staging_dir = self.get_staging_directory()
                 path = str(staging_dir / filename)
 
@@ -286,22 +290,21 @@ class Store:
 
 class StoreConfig(BaseModel):
     """Configuration for a data store."""
+
     type: str = Field(..., description="Type of store (parquet)")
     path: str = Field(..., description="Path to destination")
     batch_size: int = Field(
-        default=100_000,
-        ge=1,
-        description="Number of rows to accumulate before writing"
+        default=100_000, ge=1, description="Number of rows to accumulate before writing"
     )
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional store-specific options"
     )
 
-    @field_validator('type')
+    @field_validator("type")
     @classmethod
     def validate_type(cls, v):
         """Validate store type."""
-        valid_types = ['parquet']
+        valid_types = ["parquet"]
         if v not in valid_types:
             raise ValueError(f"Store type must be one of {valid_types}, got '{v}'")
         return v
@@ -310,7 +313,7 @@ class StoreConfig(BaseModel):
         """Get all options including defaults."""
         # Start with the config fields
         options = {
-            'batch_size': self.batch_size,
+            "batch_size": self.batch_size,
         }
         # Add any additional options
         options.update(self.options)

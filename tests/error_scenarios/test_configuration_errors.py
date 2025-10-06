@@ -13,16 +13,11 @@ Following hygge's reliability principles:
 - Clear error messages
 - User-friendly error reporting
 """
+
 import pytest
 import yaml
-from pathlib import Path
-from unittest.mock import Mock, patch
-import tempfile
-import os
 
 from hygge.core.configs.flow_config import FlowConfig
-from hygge.core.configs.home_config import HomeConfig
-from hygge.core.configs.store_config import StoreConfig
 from hygge.core.configs.settings import HyggeSettings
 
 
@@ -55,65 +50,67 @@ class TestConfigurationErrorScenarios:
             "store": "data/output",
             "options": {
                 "invalid_json": {"key": "value"},  # Valid
-                "circular_ref": {}  # Will be filled below
-            }
+                "circular_ref": {},  # Will be filled below
+            },
         }
 
         # Create circular reference
-        config_data["options"]["circular_ref"]["self"] = config_data["options"]["circular_ref"]
+        config_data["options"]["circular_ref"]["self"] = config_data["options"][
+            "circular_ref"
+        ]
 
         # Should handle gracefully (Pydantic might serialize different from original)
-        config = FlowConfig(**config_data)
+        _ = FlowConfig(**config_data)
         # This tests Pydantic's handling of complex structures
 
     def test_missing_required_fields(self):
         """Test validation errors for missing required fields."""
         # Missing home
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(Exception):
             FlowConfig(store="data/output")
 
         # Missing store
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(Exception):
             FlowConfig(home="data/test.parquet")
 
     def test_invalid_home_type(self):
         """Test validation with invalid home type."""
         invalid_config = {
             "home": {"type": "invalid_type", "path": "data/test.parquet"},
-            "store": "data/output"
+            "store": "data/output",
         }
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(Exception):
             FlowConfig(**invalid_config)
 
     def test_invalid_store_type(self):
         """Test validation with invalid store type."""
         invalid_config = {
             "home": "data/test.parquet",
-            "store": {"type": "invalid_type", "path": "data/output"}
+            "store": {"type": "invalid_type", "path": "data/output"},
         }
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(Exception):
             FlowConfig(**invalid_config)
 
     def test_missing_home_path_for_parquet(self):
         """Test error when parquet home is missing path."""
         invalid_config = {
             "home": {"type": "parquet"},  # Missing required path
-            "store": "data/output"
+            "store": "data/output",
         }
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(Exception):
             FlowConfig(**invalid_config)
 
     def test_missing_home_connection_for_sql(self):
         """Test error when SQL home is missing connection."""
         invalid_config = {
             "home": {"type": "sql"},  # Missing required connection
-            "store": "data/output"
+            "store": "data/output",
         }
 
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(Exception):
             FlowConfig(**invalid_config)
 
     def test_invalid_option_types(self):
@@ -121,7 +118,7 @@ class TestConfigurationErrorScenarios:
         # This tests Pydantic's type coercion behavior
         config_data = {
             "home": {"type": "parquet", "path": "test.parquet", "options": {}},
-            "store": "data/output"
+            "store": "data/output",
         }
 
         # Should handle various types correctly
@@ -131,14 +128,12 @@ class TestConfigurationErrorScenarios:
     def test_large_configuration_file(self):
         """Test handling of very large configuration files."""
         # Create a configuration with many flows
-        large_config = {
-            "flows": {}
-        }
+        large_config = {"flows": {}}
 
         for i in range(10000):  # Very large number of flows
             large_config["flows"][f"flow_{i}"] = {
                 "home": f"data/source/test_{i}.parquet",
-                "store": f"data/output/test_{i}"
+                "store": f"data/output/test_{i}",
             }
 
         # Should parse without memory issues
@@ -160,8 +155,12 @@ class TestConfigurationErrorScenarios:
         current["value"] = "deep_value"
 
         config_data = {
-            "home": {"type": "parquet", "path": "test.parquet", "options": deeply_nested},
-            "store": "data/output"
+            "home": {
+                "type": "parquet",
+                "path": "test.parquet",
+                "options": deeply_nested,
+            },
+            "store": "data/output",
         }
 
         # Should handle deep nesting without recursion errors
@@ -191,7 +190,7 @@ class TestConfigurationErrorScenarios:
         # Test with list instead of dict
         invalid_config = {
             "home": ["data", "test.parquet"],  # List instead of string or dict
-            "store": "data/output"
+            "store": "data/output",
         }
 
         with pytest.raises(Exception):
@@ -201,7 +200,7 @@ class TestConfigurationErrorScenarios:
         """Test configuration mixing valid and invalid types."""
         mixed_config = {
             "home": "data/test.parquet",  # Valid simple config
-            "store": {"invalid_field": "value"}  # Invalid store config
+            "store": {"invalid_field": "value"},  # Invalid store config
         }
 
         with pytest.raises(Exception):
@@ -236,7 +235,7 @@ class TestSettingsErrorScenarios:
             home_batch_size=1,  # Minimum
             store_batch_size=1,  # Minimum
             flow_queue_size=1,  # Minimum
-            flow_timeout=1  # Minimum
+            flow_timeout=1,  # Minimum
         )
 
         assert settings.home_batch_size == 1
@@ -254,7 +253,7 @@ class TestSettingsErrorScenarios:
         settings = HyggeSettings(
             home_batch_size=999999999,
             store_batch_size=999999999,
-            flow_timeout=86400  # 24 hours
+            flow_timeout=86400,  # 24 hours
         )
 
         assert settings.home_batch_size == 999999999
@@ -271,7 +270,7 @@ class TestFileSystemErrorScenarios:
 
         config_data = {
             "home": str(non_existent_path),
-            "store": str(temp_dir / "output")
+            "store": str(temp_dir / "output"),
         }
 
         # Configuration parsing should succeed (files checked later)
@@ -284,7 +283,7 @@ class TestFileSystemErrorScenarios:
 
         config_data = {
             "home": str(temp_dir),  # Directory instead of file
-            "store": str(temp_dir / "output")
+            "store": str(temp_dir / "output"),
         }
 
         # Configuration should parse (actual path validation happens in execution)
@@ -297,13 +296,13 @@ class TestFileSystemErrorScenarios:
             "/etc/passwd",
             "/sys/kernel",
             "/proc/cpuinfo",
-            "C:\\Windows\\System32"
+            "C:\\Windows\\System32",
         ]
 
         for path in protected_paths:
             config_data = {
                 "home": path,
-                "store": "/tmp/output"  # Safe output path
+                "store": "/tmp/output",  # Safe output path
             }
 
             # Configuration should parse (access validation happens later)
@@ -321,14 +320,14 @@ class TestNetworkErrorScenarios:
             "postgresql://",
             "sqlite:///",
             "mysql://invalid:invalid@nonexistent:9999/nonexistent",
-            ""  # Empty connection
+            "",  # Empty connection
         ]
 
         for connection in invalid_connections:
             # Test that connection string parsing doesn't crash
             config_data = {
                 "home": {"type": "sql", "connection": connection},
-                "store": "data/output"
+                "store": "data/output",
             }
 
             if connection:  # Empty connection fails validation
@@ -349,10 +348,7 @@ class TestNetworkErrorScenarios:
         ]
 
         for sql_config in incomplete_sql_configs:
-            config_data = {
-                "home": sql_config,
-                "store": "data/output"
-            }
+            config_data = {"home": sql_config, "store": "data/output"}
 
             with pytest.raises(Exception):
                 FlowConfig(**config_data)
@@ -367,8 +363,12 @@ class TestConfigurationPerformanceErrors:
         massive_options = {f"key_{i}": f"value_{i}" for i in range(100000)}
 
         config_data = {
-            "home": {"type": "parquet", "path": "test.parquet", "options": massive_options},
-            "store": "data/output"
+            "home": {
+                "type": "parquet",
+                "path": "test.parquet",
+                "options": massive_options,
+            },
+            "store": "data/output",
         }
 
         # Should handle large options without crashing
@@ -382,22 +382,26 @@ class TestConfigurationPerformanceErrors:
         recursive_config["self_ref"] = recursive_config
 
         config_data = {
-            "home": {"type": "parquet", "path": "test.parquet", "options": recursive_config},
-            "store": "data/output"
+            "home": {
+                "type": "parquet",
+                "path": "test.parquet",
+                "options": recursive_config,
+            },
+            "store": "data/output",
         }
 
         # Pydantic should handle recursive structures
-        config = FlowConfig(**config_data)
+        _ = FlowConfig(**config_data)
         # Note: Pydantic will break the recursion during serialization
 
     def test_malformed_binary_data_in_options(self):
         """Test configuration with binary-like data in options."""
-        binary_data = b'\x00\x01\x02\x03'
+        binary_data = b"\x00\x01\x02\x03"
 
         config_data = {
             "home": {"type": "parquet", "path": "test.parquet", "options": {}},
             "store": "data/output",
-            "options": {"binary": binary_data}
+            "options": {"binary": binary_data},
         }
 
         # Should handle binary data appropriately
@@ -413,7 +417,11 @@ class TestUserErrorScenarios:
         typo_configs = [
             {"hom": "test.parquet", "store": "output"},  # 'hom' instead of 'home'
             {"home": "test.parquet", "stor": "output"},  # 'stor' instead of 'store'
-            {"home": "test.parquet", "store": "output", "optins": {}}  # 'optins' instead of 'options'
+            {
+                "home": "test.parquet",
+                "store": "output",
+                "optins": {},
+            },  # 'optins' instead of 'options'
         ]
 
         for typo_config in typo_configs:
@@ -425,7 +433,7 @@ class TestUserErrorScenarios:
         case_configs = [
             {"HOME": "test.parquet", "store": "output"},  # Wrong case
             {"home": "test.parquet", "STORE": "output"},  # Wrong case
-            {"home": "test.parquet", "Store": "output"},   # Mixed case
+            {"home": "test.parquet", "Store": "output"},  # Mixed case
         ]
 
         for case_config in case_configs:
@@ -439,11 +447,10 @@ class TestUserErrorScenarios:
                 "type": "parquet",
                 "path": "test.parquet",
                 "options": {
-                    "batch_size": 1000,
-                    "batch_size": 2000  # Duplicate key
-                }
+                    "batch_size": 2000,  # Final value wins
+                },
             },
-            "store": "data/output"
+            "store": "data/output",
         }
 
         # Python dictionaries only keep last value for duplicate keys
@@ -458,8 +465,8 @@ class TestUserErrorScenarios:
             "options": {
                 "huge_string": "x" * 1000000,  # 1MB string
                 "huge_number": 999999999999999999999999999,
-                "deep_list": [[[] for _ in range(100)] for _ in range(100)]
-            }
+                "deep_list": [[[] for _ in range(100)] for _ in range(100)],
+            },
         }
 
         # Should handle oversized but valid values

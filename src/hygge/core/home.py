@@ -38,15 +38,11 @@ class Home:
         ```
     """
 
-    def __init__(
-        self,
-        name: str,
-        options: Optional[Dict[str, Any]] = None
-    ):
+    def __init__(self, name: str, options: Optional[Dict[str, Any]] = None):
         self.name = name
         self.options = options or {}
-        self.batch_size = self.options.get('batch_size', 10_000)
-        self.row_multiplier = self.options.get('row_multiplier', 300_000)
+        self.batch_size = self.options.get("batch_size", 10_000)
+        self.row_multiplier = self.options.get("row_multiplier", 300_000)
         self.start_time = None
         self.logger = get_logger(f"hygge.home.{self.__class__.__name__}")
 
@@ -102,8 +98,7 @@ class Home:
             duration = asyncio.get_event_loop().time() - self.start_time
             rate = total_rows / duration if duration > 0 else 0
             self.logger.info(
-                f"Read {total_rows:,} rows in {duration:.1f}s "
-                f"({rate:.0f} rows/s)"
+                f"Read {total_rows:,} rows in {duration:.1f}s " f"({rate:.0f} rows/s)"
             )
 
     def _log_completion(self, total_rows: int) -> None:
@@ -119,40 +114,37 @@ class Home:
 
 class HomeConfig(BaseModel):
     """Configuration for a data home."""
+
     type: str = Field(..., description="Type of home (parquet, sql)")
     path: Optional[str] = Field(None, description="Path to data source")
     connection: Optional[str] = Field(None, description="Database connection string")
     table: Optional[str] = Field(None, description="Table name for SQL homes")
     batch_size: int = Field(
-        default=10_000,
-        ge=1,
-        description="Number of rows to read at once"
+        default=10_000, ge=1, description="Number of rows to read at once"
     )
     row_multiplier: int = Field(
-        default=300_000,
-        ge=1,
-        description="Progress logging interval"
+        default=300_000, ge=1, description="Progress logging interval"
     )
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional home-specific options"
     )
 
-    @field_validator('type')
+    @field_validator("type")
     @classmethod
     def validate_type(cls, v):
         """Validate home type."""
-        valid_types = ['parquet', 'sql']
+        valid_types = ["parquet", "sql"]
         if v not in valid_types:
             raise ValueError(f"Home type must be one of {valid_types}, got '{v}'")
         return v
 
-    @model_validator(mode='after')
+    @model_validator(mode="after")
     def validate_required_fields(self):
         """Validate that required fields are present based on type."""
-        if self.type == 'parquet':
+        if self.type == "parquet":
             if self.path is None:  # Only fail if explicitly None, not empty string
                 raise ValueError("Path is required for parquet homes")
-        elif self.type == 'sql':
+        elif self.type == "sql":
             if self.connection is None:  # Only fail if explicitly None, not empty
                 raise ValueError("Connection is required for SQL homes")
         return self
@@ -161,8 +153,8 @@ class HomeConfig(BaseModel):
         """Get all options including defaults."""
         # Start with the config fields
         options = {
-            'batch_size': self.batch_size,
-            'row_multiplier': self.row_multiplier,
+            "batch_size": self.batch_size,
+            "row_multiplier": self.row_multiplier,
         }
         # Add any additional options
         options.update(self.options)

@@ -7,11 +7,11 @@ Following hygge's testing principles:
 - Keep tests clear and maintainable
 - Test the actual Store API as implemented
 """
-import pytest
 import asyncio
-import polars as pl
 from pathlib import Path
-from unittest.mock import MagicMock
+
+import polars as pl
+import pytest
 
 from hygge.core.store import Store
 from hygge.utility.exceptions import StoreError
@@ -125,20 +125,19 @@ class PathStore(Store):
 @pytest.fixture
 def sample_data():
     """Create sample data for testing."""
-    return pl.DataFrame({
-        'id': range(100),
-        'name': [f'user_{i}' for i in range(100)],
-        'value': [i * 10 for i in range(100)]
-    })
+    return pl.DataFrame(
+        {
+            "id": range(100),
+            "name": [f"user_{i}" for i in range(100)],
+            "value": [i * 10 for i in range(100)],
+        }
+    )
 
 
 @pytest.fixture
 def large_data():
     """Create large data for testing batching."""
-    return pl.DataFrame({
-        'id': range(500000),
-        'value': ['large'] * 500000
-    })
+    return pl.DataFrame({"id": range(500000), "value": ["large"] * 500000})
 
 
 @pytest.fixture
@@ -178,20 +177,21 @@ class TestStoreInitialization:
     def test_store_initialization_custom_options(self):
         """Test Store respects custom configuration options."""
         options = {
-            'batch_size': 5000,
-            'row_multiplier': 100000,
-            'temp_pattern': 'custom_temp/{name}/{filename}',
-            'final_pattern': 'custom_final/{name}/{filename}'
+            "batch_size": 5000,
+            "row_multiplier": 100000,
+            "temp_pattern": "custom_temp/{name}/{filename}",
+            "final_pattern": "custom_final/{name}/{filename}",
         }
         store = SimpleStore("test_store", **options)
 
         assert store.batch_size == 5000
         assert store.row_multiplier == 100000
-        assert 'custom_temp' in store.temp_pattern
-        assert 'custom_final' in store.final_pattern
+        assert "custom_temp" in store.temp_pattern
+        assert "custom_final" in store.final_pattern
 
     def test_store_missing_implementation(self):
         """Test that incomplete Store implementations fail appropriately."""
+
         class IncompleteStore(Store):
             pass  # Missing all required methods
 
@@ -204,11 +204,14 @@ class TestStoreInitialization:
         with pytest.raises(NotImplementedError):
             store.get_final_directory()
 
+
 class TestStoreDataCollection:
     """Test Store data collection and buffering."""
 
     @pytest.mark.asyncio
-    async def test_store_collects_data_under_batch_size(self, simple_store, sample_data):
+    async def test_store_collects_data_under_batch_size(
+        self, simple_store, sample_data
+    ):
         """Test Store collects data when under batch size."""
         # Given data smaller than batch size
         assert len(sample_data) < simple_store.batch_size
@@ -233,7 +236,7 @@ class TestStoreDataCollection:
         assert len(large_data) > path_store.batch_size
 
         # When writing data
-        result = await path_store.write(large_data)
+        await path_store.write(large_data)
 
         # Then should stage data
         assert len(path_store.saved_paths) > 0  # Staging occurred
@@ -255,6 +258,7 @@ class TestStoreDataCollection:
         assert result2 is None  # Under batch size
         assert len(simple_store.current_df) == 100  # Accumulated
         assert simple_store.total_rows == 100
+
 
 class TestStoreStaging:
     """Test Store staging functionality."""
@@ -300,6 +304,7 @@ class TestStoreStaging:
         # Then should raise appropriate error
         assert "Save failed" in str(exc_info.value)
 
+
 class TestStoreFinish:
     """Test Store finish functionality."""
 
@@ -329,6 +334,7 @@ class TestStoreFinish:
         for staging_path, final_path in path_store.moved_files:
             assert str(final_path).startswith("final/")
 
+
 class TestStoreProgressTracking:
     """Test Store progress tracking."""
 
@@ -349,10 +355,7 @@ class TestStoreProgressTracking:
     async def test_store_logs_progress_periodically(self, simple_store):
         """Test Store logs progress at correct intervals."""
         # Create data that crosses row_multiplier boundary
-        large_data = pl.DataFrame({
-            'id': range(400000),
-            'value': ['test'] * 400000
-        })
+        large_data = pl.DataFrame({"id": range(400000), "value": ["test"] * 400000})
 
         # When writing large data (forces low batch_size to avoid staging)
         simple_store.batch_size = 500000  # Force accumulation
@@ -361,6 +364,7 @@ class TestStoreProgressTracking:
 
         # Then should have tracked correct total
         assert simple_store.total_rows == 400000
+
 
 class TestStoreErrorHandling:
     """Test Store error handling."""
@@ -387,6 +391,7 @@ class TestStoreErrorHandling:
         # Then should propagate error
         assert "Save failed" in str(exc_info.value)
 
+
 class TestStoreConcurrency:
     """Test Store behavior in concurrent scenarios."""
 
@@ -398,11 +403,8 @@ class TestStoreConcurrency:
         chunk2 = sample_data.slice(50, 50)
 
         # When writing concurrently
-        tasks = [
-            simple_store.write(chunk1),
-            simple_store.write(chunk2)
-        ]
-        results = await asyncio.gather(*tasks)
+        tasks = [simple_store.write(chunk1), simple_store.write(chunk2)]
+        await asyncio.gather(*tasks)
 
         # Then should handle both writes
         await simple_store.finish()

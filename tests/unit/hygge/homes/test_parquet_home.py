@@ -24,8 +24,7 @@ class TestParquetHomeInitialization:
     def test_parquet_home_initialization_with_config(self):
         """Test ParquetHome initializes correctly with config."""
         config = ParquetHomeConfig(
-            path="/test/data.parquet",
-            options={'batch_size': 5000}
+            path="/test/data.parquet", options={"batch_size": 5000}
         )
 
         home = ParquetHome("test_home", config)
@@ -50,14 +49,14 @@ class TestParquetHomeInitialization:
         """Test ParquetHome properly merges config options with defaults."""
         config = ParquetHomeConfig(
             path="/test/data.parquet",
-            options={'batch_size': 25000, 'custom_option': 'test'}
+            options={"batch_size": 25000, "custom_option": "test"},
         )
 
         home = ParquetHome("test_home", config)
 
         assert home.batch_size == 25000
-        assert home.options['custom_option'] == 'test'
-        assert home.options['batch_size'] == 25000
+        assert home.options["custom_option"] == "test"
+        assert home.options["batch_size"] == 25000
 
 
 class TestParquetHomePathResolution:
@@ -72,7 +71,7 @@ class TestParquetHomePathResolution:
 
     def test_get_batch_paths_single_file(self):
         """Test get_batch_paths with single parquet file."""
-        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
             tmp_path = tmp.name
 
         try:
@@ -96,7 +95,9 @@ class TestParquetHomePathResolution:
         with tempfile.TemporaryDirectory() as tmp_dir:
             # Create multiple parquet files
             for i in range(3):
-                df = pl.DataFrame({"id": range(i*10, (i+1)*10), "value": [f"test{i}"] * 10})
+                df = pl.DataFrame(
+                    {"id": range(i * 10, (i + 1) * 10), "value": [f"test{i}"] * 10}
+                )
                 df.write_parquet(Path(tmp_dir) / f"data_{i}.parquet")
 
             config = ParquetHomeConfig(path=tmp_dir)
@@ -105,7 +106,7 @@ class TestParquetHomePathResolution:
             paths = home.get_batch_paths()
 
             assert len(paths) == 3
-            assert all(path.suffix == '.parquet' for path in paths)
+            assert all(path.suffix == ".parquet" for path in paths)
             assert all(path.parent == Path(tmp_dir) for path in paths)
 
     def test_get_batch_paths_empty_directory(self):
@@ -117,9 +118,7 @@ class TestParquetHomePathResolution:
             with pytest.raises(HomeError) as exc_info:
                 home.get_batch_paths()
 
-            assert "No parquet files found in directory" in str(
-                exc_info.value
-            )
+            assert "No parquet files found in directory" in str(exc_info.value)
             assert tmp_dir in str(exc_info.value)
 
     def test_get_batch_paths_nonexistent_path(self):
@@ -158,16 +157,18 @@ class TestParquetHomeDataReading:
     @pytest.mark.asyncio
     async def test_read_single_parquet_file(self):
         """Test reading from a single parquet file."""
-        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
             tmp_path = tmp.name
 
         try:
             # Create test data
-            expected_df = pl.DataFrame({
-                "id": range(100),
-                "name": [f"user_{i}" for i in range(100)],
-                "value": [i * 2 for i in range(100)]
-            })
+            expected_df = pl.DataFrame(
+                {
+                    "id": range(100),
+                    "name": [f"user_{i}" for i in range(100)],
+                    "value": [i * 2 for i in range(100)],
+                }
+            )
             expected_df.write_parquet(tmp_path)
 
             config = ParquetHomeConfig(path=tmp_path)
@@ -194,11 +195,13 @@ class TestParquetHomeDataReading:
             # Create multiple parquet files with different data
             expected_dfs = []
             for i in range(3):
-                df = pl.DataFrame({
-                    "id": range(i*10, (i+1)*10),
-                    "batch": [i] * 10,
-                    "value": [f"batch_{i}_row_{j}" for j in range(10)]
-                })
+                df = pl.DataFrame(
+                    {
+                        "id": range(i * 10, (i + 1) * 10),
+                        "batch": [i] * 10,
+                        "value": [f"batch_{i}_row_{j}" for j in range(10)],
+                    }
+                )
                 df.write_parquet(Path(tmp_dir) / f"batch_{i}.parquet")
                 expected_dfs.append(df)
 
@@ -220,7 +223,7 @@ class TestParquetHomeDataReading:
     @pytest.mark.asyncio
     async def test_read_empty_parquet_file(self):
         """Test reading from an empty parquet file."""
-        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
             tmp_path = tmp.name
 
         try:
@@ -245,12 +248,12 @@ class TestParquetHomeDataReading:
     @pytest.mark.asyncio
     async def test_read_corrupted_parquet_file(self):
         """Test reading from a corrupted parquet file."""
-        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
             tmp_path = tmp.name
 
         try:
             # Create a file that's not valid parquet
-            with open(tmp_path, 'w') as f:
+            with open(tmp_path, "w") as f:
                 f.write("This is not parquet data")
 
             config = ParquetHomeConfig(path=tmp_path)
@@ -282,7 +285,7 @@ class TestParquetHomeDataReading:
     @pytest.mark.asyncio
     async def test_read_progress_tracking(self):
         """Test that progress tracking works correctly."""
-        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
             tmp_path = tmp.name
 
         try:
@@ -330,15 +333,15 @@ class TestParquetHomeConfiguration:
         """Test ParquetHomeConfig defaults merging."""
         config = ParquetHomeConfig(
             path="/test/data.parquet",
-            options={'batch_size': 15000, 'custom_setting': 'test'}
+            options={"batch_size": 15000, "custom_setting": "test"},
         )
 
         merged_options = config.get_merged_options()
 
-        assert merged_options['batch_size'] == 15000
-        assert merged_options['custom_setting'] == 'test'
+        assert merged_options["batch_size"] == 15000
+        assert merged_options["custom_setting"] == "test"
         # Should include defaults even if not specified
-        assert 'batch_size' in merged_options
+        assert "batch_size" in merged_options
 
     def test_parquet_home_config_defaults_only(self):
         """Test ParquetHomeConfig with only defaults."""
@@ -346,7 +349,7 @@ class TestParquetHomeConfiguration:
 
         merged_options = config.get_merged_options()
 
-        assert merged_options['batch_size'] == 10_000  # Default value
+        assert merged_options["batch_size"] == 10_000  # Default value
 
 
 class TestParquetHomeErrorHandling:
@@ -355,7 +358,7 @@ class TestParquetHomeErrorHandling:
     @pytest.mark.asyncio
     async def test_read_permission_error(self):
         """Test handling of permission errors."""
-        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as tmp:
+        with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
             tmp_path = tmp.name
 
         try:
@@ -417,16 +420,16 @@ class TestParquetHomeIntegration:
         home = ParquetHome("test_home", config)
 
         # Should have all required Home attributes
-        assert hasattr(home, 'name')
-        assert hasattr(home, 'options')
-        assert hasattr(home, 'batch_size')
-        assert hasattr(home, 'row_multiplier')
-        assert hasattr(home, 'start_time')
-        assert hasattr(home, 'logger')
+        assert hasattr(home, "name")
+        assert hasattr(home, "options")
+        assert hasattr(home, "batch_size")
+        assert hasattr(home, "row_multiplier")
+        assert hasattr(home, "start_time")
+        assert hasattr(home, "logger")
 
         # Should have all required Home methods
-        assert hasattr(home, 'read')
-        assert hasattr(home, 'get_data_path')
+        assert hasattr(home, "read")
+        assert hasattr(home, "get_data_path")
         assert callable(home.read)
         assert callable(home.get_data_path)
 

@@ -8,8 +8,8 @@ Following hygge's testing principles:
 - Verify configuration system integration
 """
 import os
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
 
 import polars as pl
@@ -30,23 +30,27 @@ def temp_store_dir():
 @pytest.fixture
 def sample_data():
     """Create sample DataFrame for testing."""
-    return pl.DataFrame({
-        'id': range(1000),
-        'name': [f'user_{i}' for i in range(1000)],
-        'value': [i * 2.5 for i in range(1000)],
-        'category': [f'cat_{i % 5}' for i in range(1000)],
-        'active': [True if i % 2 == 0 else False for i in range(1000)]
-    })
+    return pl.DataFrame(
+        {
+            "id": range(1000),
+            "name": [f"user_{i}" for i in range(1000)],
+            "value": [i * 2.5 for i in range(1000)],
+            "category": [f"cat_{i % 5}" for i in range(1000)],
+            "active": [True if i % 2 == 0 else False for i in range(1000)],
+        }
+    )
 
 
 @pytest.fixture
 def large_data():
     """Create large DataFrame for testing."""
-    return pl.DataFrame({
-        'id': range(100000),
-        'value': [f'large_data_{i}' for i in range(100000)],
-        'number': [i * 3.14 for i in range(100000)]
-    })
+    return pl.DataFrame(
+        {
+            "id": range(100000),
+            "value": [f"large_data_{i}" for i in range(100000)],
+            "number": [i * 3.14 for i in range(100000)],
+        }
+    )
 
 
 class TestParquetStoreInitialization:
@@ -57,8 +61,8 @@ class TestParquetStoreInitialization:
         config = ParquetStoreConfig(
             path=str(temp_store_dir),
             batch_size=5000,
-            compression='gzip',
-            file_pattern='test_{sequence:020d}.parquet'
+            compression="gzip",
+            file_pattern="test_{sequence:020d}.parquet",
         )
 
         store = ParquetStore("test_store", config)
@@ -67,8 +71,8 @@ class TestParquetStoreInitialization:
         assert store.config == config
         assert store.base_path == temp_store_dir
         assert store.batch_size == 5000
-        assert store.compression == 'gzip'
-        assert store.file_pattern == 'test_{sequence:020d}.parquet'
+        assert store.compression == "gzip"
+        assert store.file_pattern == "test_{sequence:020d}.parquet"
         assert store.sequence_counter == 0
 
     def test_parquet_store_initialization_defaults(self, temp_store_dir):
@@ -79,21 +83,20 @@ class TestParquetStoreInitialization:
 
         assert store.name == "test_store"
         assert store.batch_size == 100_000  # Default batch size
-        assert store.compression == 'snappy'  # Default compression
-        assert store.file_pattern == '{sequence:020d}.parquet'  # Default pattern
+        assert store.compression == "snappy"  # Default compression
+        assert store.file_pattern == "{sequence:020d}.parquet"  # Default pattern
         assert store.sequence_counter == 0
 
     def test_parquet_store_with_flow_name(self, temp_store_dir):
         """Test ParquetStore with flow_name for file pattern formatting."""
         config = ParquetStoreConfig(
-            path=str(temp_store_dir),
-            file_pattern='{flow_name}_{sequence:020d}.parquet'
+            path=str(temp_store_dir), file_pattern="{flow_name}_{sequence:020d}.parquet"
         )
 
         store = ParquetStore("test_store", config, flow_name="my_flow")
 
         # Should have flow_name in the file pattern
-        assert 'my_flow' in store.file_pattern
+        assert "my_flow" in store.file_pattern
 
     def test_parquet_store_directories_created(self, temp_store_dir):
         """Test that ParquetStore creates necessary directories."""
@@ -141,8 +144,7 @@ class TestParquetStorePathManagement:
     async def test_get_next_filename(self, temp_store_dir):
         """Test filename generation with sequence counter."""
         config = ParquetStoreConfig(
-            path=str(temp_store_dir),
-            file_pattern='data_{sequence:020d}.parquet'
+            path=str(temp_store_dir), file_pattern="data_{sequence:020d}.parquet"
         )
         store = ParquetStore("test_store", config)
 
@@ -151,33 +153,31 @@ class TestParquetStorePathManagement:
         filename2 = await store.get_next_filename()
         filename3 = await store.get_next_filename()
 
-        assert filename1 == 'data_00000000000000000001.parquet'
-        assert filename2 == 'data_00000000000000000002.parquet'
-        assert filename3 == 'data_00000000000000000003.parquet'
+        assert filename1 == "data_00000000000000000001.parquet"
+        assert filename2 == "data_00000000000000000002.parquet"
+        assert filename3 == "data_00000000000000000003.parquet"
 
     @pytest.mark.asyncio
     async def test_get_next_filename_with_name_pattern(self, temp_store_dir):
         """Test filename generation with name in pattern."""
         config = ParquetStoreConfig(
-            path=str(temp_store_dir),
-            file_pattern='{name}_{sequence:020d}.parquet'
+            path=str(temp_store_dir), file_pattern="{name}_{sequence:020d}.parquet"
         )
         store = ParquetStore("test_store", config)
 
         filename = await store.get_next_filename()
-        assert filename == 'test_store_00000000000000000001.parquet'
+        assert filename == "test_store_00000000000000000001.parquet"
 
     @pytest.mark.asyncio
     async def test_get_next_filename_with_flow_name(self, temp_store_dir):
         """Test filename generation with flow_name in pattern."""
         config = ParquetStoreConfig(
-            path=str(temp_store_dir),
-            file_pattern='{flow_name}_{sequence:020d}.parquet'
+            path=str(temp_store_dir), file_pattern="{flow_name}_{sequence:020d}.parquet"
         )
         store = ParquetStore("test_store", config, flow_name="my_flow")
 
         filename = await store.get_next_filename()
-        assert filename == 'my_flow_00000000000000000001.parquet'
+        assert filename == "my_flow_00000000000000000001.parquet"
 
 
 class TestParquetStoreDataWriting:
@@ -189,7 +189,7 @@ class TestParquetStoreDataWriting:
         config = ParquetStoreConfig(
             path=str(temp_store_dir),
             batch_size=10000,  # Larger than sample data
-            file_pattern='test_{sequence:020d}.parquet'
+            file_pattern="test_{sequence:020d}.parquet",
         )
         store = ParquetStore("test_store", config)
 
@@ -220,7 +220,7 @@ class TestParquetStoreDataWriting:
         config = ParquetStoreConfig(
             path=str(temp_store_dir),
             batch_size=50000,  # Smaller than large_data
-            file_pattern='batch_{sequence:020d}.parquet'
+            file_pattern="batch_{sequence:020d}.parquet",
         )
         store = ParquetStore("test_store", config)
 
@@ -255,8 +255,8 @@ class TestParquetStoreDataWriting:
         """Test writing with different compression algorithms."""
         config = ParquetStoreConfig(
             path=str(temp_store_dir),
-            compression='gzip',
-            file_pattern='compressed_{sequence:020d}.parquet'
+            compression="gzip",
+            file_pattern="compressed_{sequence:020d}.parquet",
         )
         store = ParquetStore("test_store", config)
 
@@ -278,18 +278,20 @@ class TestParquetStoreDataWriting:
         config = ParquetStoreConfig(
             path=str(temp_store_dir),
             batch_size=500,
-            file_pattern='incremental_{sequence:020d}.parquet'
+            file_pattern="incremental_{sequence:020d}.parquet",
         )
         store = ParquetStore("test_store", config)
 
         # Write data in small chunks
         total_rows = 0
         for i in range(5):
-            chunk_data = pl.DataFrame({
-                'id': range(i * 200, (i + 1) * 200),
-                'value': [f'chunk_{i}_{j}' for j in range(200)],
-                'chunk': [i] * 200
-            })
+            chunk_data = pl.DataFrame(
+                {
+                    "id": range(i * 200, (i + 1) * 200),
+                    "value": [f"chunk_{i}_{j}" for j in range(200)],
+                    "chunk": [i] * 200,
+                }
+            )
 
             await store.write(chunk_data)
             total_rows += len(chunk_data)
@@ -332,7 +334,7 @@ class TestParquetStoreErrorHandling:
         store = ParquetStore("test_store", config)
 
         # Create invalid DataFrame (should still work with polars)
-        invalid_data = pl.DataFrame({'invalid_column': [None, None, None]})
+        invalid_data = pl.DataFrame({"invalid_column": [None, None, None]})
 
         # Should handle gracefully
         await store.write(invalid_data)
@@ -349,7 +351,7 @@ class TestParquetStoreErrorHandling:
         config = ParquetStoreConfig(path=str(temp_store_dir))
         store = ParquetStore("test_store", config)
 
-        empty_data = pl.DataFrame({'id': [], 'value': []})
+        empty_data = pl.DataFrame({"id": [], "value": []})
 
         await store.write(empty_data)
         await store.finish()
@@ -370,7 +372,7 @@ class TestParquetStoreErrorHandling:
         os.chmod(final_dir, 0o444)  # Read-only
 
         try:
-            sample_data = pl.DataFrame({'id': [1, 2, 3], 'value': ['a', 'b', 'c']})
+            sample_data = pl.DataFrame({"id": [1, 2, 3], "value": ["a", "b", "c"]})
             await store.write(sample_data)
 
             # Should raise error when finishing (moving to final location)
@@ -380,7 +382,6 @@ class TestParquetStoreErrorHandling:
         finally:
             # Restore permissions
             os.chmod(final_dir, 0o755)
-
 
 
 class TestParquetStoreConfiguration:
@@ -410,25 +411,25 @@ class TestParquetStoreConfiguration:
         config = ParquetStoreConfig(
             path=str(temp_store_dir),
             batch_size=15000,
-            compression='lz4',
-            options={'custom_setting': 'test'}
+            compression="lz4",
+            options={"custom_setting": "test"},
         )
 
         merged_options = config.get_merged_options()
-        assert merged_options['batch_size'] == 15000
-        assert merged_options['compression'] == 'lz4'
-        assert merged_options['custom_setting'] == 'test'
-        assert merged_options['file_pattern'] == '{sequence:020d}.parquet'  # Default
+        assert merged_options["batch_size"] == 15000
+        assert merged_options["compression"] == "lz4"
+        assert merged_options["custom_setting"] == "test"
+        assert merged_options["file_pattern"] == "{sequence:020d}.parquet"  # Default
 
     def test_parquet_store_config_flow_name_pattern(self, temp_store_dir):
         """Test ParquetStoreConfig with flow_name in file pattern."""
         config = ParquetStoreConfig(
             path=str(temp_store_dir),
-            file_pattern='{flow_name}_data_{sequence:020d}.parquet'
+            file_pattern="{flow_name}_data_{sequence:020d}.parquet",
         )
 
-        merged_options = config.get_merged_options('my_flow')
-        assert merged_options['file_pattern'] == 'my_flow_data_{sequence:020d}.parquet'
+        merged_options = config.get_merged_options("my_flow")
+        assert merged_options["file_pattern"] == "my_flow_data_{sequence:020d}.parquet"
 
 
 class TestParquetStoreCleanup:
@@ -483,18 +484,18 @@ class TestParquetStoreIntegration:
         store = ParquetStore("test_store", config)
 
         # Should have all required Store attributes
-        assert hasattr(store, 'name')
-        assert hasattr(store, 'options')
-        assert hasattr(store, 'batch_size')
-        assert hasattr(store, 'row_multiplier')
-        assert hasattr(store, 'start_time')
-        assert hasattr(store, 'logger')
+        assert hasattr(store, "name")
+        assert hasattr(store, "options")
+        assert hasattr(store, "batch_size")
+        assert hasattr(store, "row_multiplier")
+        assert hasattr(store, "start_time")
+        assert hasattr(store, "logger")
 
         # Should have all required Store methods
-        assert hasattr(store, 'write')
-        assert hasattr(store, 'finish')
-        assert hasattr(store, 'get_staging_directory')
-        assert hasattr(store, 'get_final_directory')
+        assert hasattr(store, "write")
+        assert hasattr(store, "finish")
+        assert hasattr(store, "get_staging_directory")
+        assert hasattr(store, "get_final_directory")
         assert callable(store.write)
         assert callable(store.finish)
         assert callable(store.get_staging_directory)

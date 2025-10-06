@@ -18,3 +18,7 @@ repos:
       - id: end-of-file-fixer
       - id: check-yaml
       - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1000]  # Prevent accidentally committing large files
+      - id: check-json
+        name: Check JSON files
