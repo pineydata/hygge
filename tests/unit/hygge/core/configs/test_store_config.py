@@ -7,10 +7,13 @@ Following hygge's configuration philosophy:
 - Test configuration parsing
 - Test error scenarios
 """
+
 import pytest
 from pydantic import ValidationError
 
 from hygge.core.store import StoreConfig
+
+# Import concrete implementations to register them
 
 
 class TestStoreConfig:
@@ -24,7 +27,7 @@ class TestStoreConfig:
 
     def test_parquet_store_config(self):
         """Test parquet store configuration."""
-        config = StoreConfig(type="parquet", path="data/lake/users")
+        config = StoreConfig.create({"type": "parquet", "path": "data/lake/users"})
 
         assert config.type == "parquet"
         assert config.path == "data/lake/users"
@@ -32,14 +35,16 @@ class TestStoreConfig:
 
     def test_parquet_store_with_options(self):
         """Test parquet store configuration with options."""
-        config = StoreConfig(
-            type="parquet",
-            path="data/lake/users",
-            options={
-                "compression": "snappy",
-                "batch_size": 10000,
-                "custom_option": "value",
-            },
+        config = StoreConfig.create(
+            {
+                "type": "parquet",
+                "path": "data/lake/users",
+                "options": {
+                    "compression": "snappy",
+                    "batch_size": 10000,
+                    "custom_option": "value",
+                },
+            }
         )
 
         assert config.type == "parquet"
@@ -50,7 +55,9 @@ class TestStoreConfig:
 
     def test_store_with_empty_options(self):
         """Test store configuration with explicit empty options."""
-        config = StoreConfig(type="parquet", path="data/lake/users", options={})
+        config = StoreConfig.create(
+            {"type": "parquet", "path": "data/lake/users", "options": {}}
+        )
 
         assert config.options == {}
 
@@ -58,31 +65,31 @@ class TestStoreConfig:
 
     def test_invalid_store_type(self):
         """Test validation catches invalid store types."""
-        with pytest.raises(ValidationError) as exc_info:
-            StoreConfig(type="invalid_type", path="data/lake/users")
+        with pytest.raises(ValueError) as exc_info:
+            StoreConfig.create({"type": "invalid_type", "path": "data/lake/users"})
 
-        error = exc_info.value.errors()[0]
-        assert error["type"] == "value_error"
-        assert "Store type must be one of" in str(error["ctx"]["error"])
+        assert "Unknown store config type: invalid_type" in str(exc_info.value)
 
     def test_missing_type_field(self):
-        """Test validation catches missing type field."""
-        with pytest.raises(ValidationError) as exc_info:
-            StoreConfig(
-                path="data/lake/users"
-                # Missing required type
-            )
+        """Test missing type field defaults to parquet."""
+        config = StoreConfig.create(
+            {
+                "path": "data/lake/users"
+                # Missing type - should default to parquet
+            }
+        )
 
-        error = exc_info.value.errors()[0]
-        assert error["type"] == "missing"
-        assert error["loc"] == ("type",)
+        assert config.type == "parquet"
+        assert config.path == "data/lake/users"
 
     def test_missing_path_field(self):
         """Test validation catches missing path field."""
         with pytest.raises(ValidationError) as exc_info:
-            StoreConfig(
-                type="parquet"
-                # Missing required path
+            StoreConfig.create(
+                {
+                    "type": "parquet"
+                    # Missing required path
+                }
             )
 
         error = exc_info.value.errors()[0]
@@ -90,15 +97,18 @@ class TestStoreConfig:
         assert error["loc"] == ("path",)
 
     def test_empty_path_value(self):
-        """Test that empty string path is valid (Path can be empty)."""
-        config = StoreConfig(type="parquet", path="")
+        """Test that empty string path is not allowed for parquet stores."""
+        with pytest.raises(ValidationError) as exc_info:
+            StoreConfig.create({"type": "parquet", "path": ""})
 
-        assert config.path == ""
+        error = exc_info.value.errors()[0]
+        assert error["type"] == "value_error"
+        assert "Path is required for parquet stores" in str(error["ctx"]["error"])
 
     def test_none_path_value(self):
         """Test validation catches None path."""
         with pytest.raises(ValidationError) as exc_info:
-            StoreConfig(type="parquet", path=None)
+            StoreConfig.create({"type": "parquet", "path": None})
 
         error = exc_info.value.errors()[0]
         # Pydantic reports this as string_type since path must be a string
@@ -108,14 +118,16 @@ class TestStoreConfig:
 
     def test_case_sensitive_type(self):
         """Test that type validation is case sensitive."""
-        with pytest.raises(ValidationError):
-            StoreConfig(type="PARQUET", path="data/lake/users")
+        with pytest.raises(ValueError) as exc_info:
+            StoreConfig.create({"type": "PARQUET", "path": "data/lake/users"})
+
+        assert "Unknown store config type: PARQUET" in str(exc_info.value)
 
     def test_long_path_string(self):
         """Test configuration with long path strings."""
         long_path = "/very/long/path/to/data/storage/" + "lake" * 100
 
-        config = StoreConfig(type="parquet", path=long_path)
+        config = StoreConfig.create({"type": "parquet", "path": long_path})
 
         assert config.path == long_path
 
@@ -123,20 +135,22 @@ class TestStoreConfig:
         """Test configuration with unicode path."""
         unicode_path = "data/用户数据/lake"
 
-        config = StoreConfig(type="parquet", path=unicode_path)
+        config = StoreConfig.create({"type": "parquet", "path": unicode_path})
 
         assert config.path == unicode_path
 
     def test_options_with_complex_values(self):
         """Test configuration with complex option values."""
-        config = StoreConfig(
-            type="parquet",
-            path="data/lake/users",
-            options={
-                "compression_settings": {"type": "zstd", "level": 3},
-                "paths": ["temp", "final"],
-                "metadata": {"author": "hygge", "version": "1.0.0"},
-            },
+        config = StoreConfig.create(
+            {
+                "type": "parquet",
+                "path": "data/lake/users",
+                "options": {
+                    "compression_settings": {"type": "zstd", "level": 3},
+                    "paths": ["temp", "final"],
+                    "metadata": {"author": "hygge", "version": "1.0.0"},
+                },
+            }
         )
 
         assert config.options["compression_settings"]["type"] == "zstd"
@@ -146,15 +160,17 @@ class TestStoreConfig:
 
     def test_options_with_numeric_values(self):
         """Test configuration with various numeric option values."""
-        config = StoreConfig(
-            type="parquet",
-            path="data/lake/users",
-            options={
-                "batch_size": 10000,
-                "file_count": 5,
-                "size_threshold": 500000000,
-                "ratio": 0.75,
-            },
+        config = StoreConfig.create(
+            {
+                "type": "parquet",
+                "path": "data/lake/users",
+                "options": {
+                    "batch_size": 10000,
+                    "file_count": 5,
+                    "size_threshold": 500000000,
+                    "ratio": 0.75,
+                },
+            }
         )
 
         assert config.options["batch_size"] == 10000
@@ -165,7 +181,7 @@ class TestStoreConfig:
     def test_multiple_validation_errors(self):
         """Test that multiple validation errors are reported."""
         with pytest.raises(ValidationError) as exc_info:
-            StoreConfig()
+            StoreConfig.create({})
             # Missing both type and path
 
         errors = exc_info.value.errors()
@@ -175,8 +191,12 @@ class TestStoreConfig:
 
     def test_pydantic_model_features(self):
         """Test standard Pydantic model features work."""
-        config = StoreConfig(
-            type="parquet", path="data/lake/users", options={"compression": "snappy"}
+        config = StoreConfig.create(
+            {
+                "type": "parquet",
+                "path": "data/lake/users",
+                "options": {"compression": "snappy"},
+            }
         )
 
         # Test serialization

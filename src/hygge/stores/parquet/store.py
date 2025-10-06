@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import polars as pl
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 
-from hygge.core.store import Store
+from hygge.core.store import BaseStoreConfig, Store, StoreConfig
 from hygge.utility.exceptions import StoreError
 
 
-class ParquetStore(Store):
+class ParquetStore(Store, store_type="parquet"):
     """
     A Parquet file store for data.
 
@@ -170,10 +170,9 @@ class ParquetStore(Store):
             self.logger.warning(f"Failed to cleanup staging directory: {str(e)}")
 
 
-class ParquetStoreConfig(BaseModel):
+class ParquetStoreConfig(StoreConfig, BaseStoreConfig, config_type="parquet"):
     """Configuration for a ParquetStore."""
 
-    type: str = Field(default="parquet", description="Type of store")
     path: str = Field(..., description="Path to destination directory")
     batch_size: int = Field(
         default=100_000, ge=1, description="Number of rows to accumulate before writing"
@@ -185,14 +184,6 @@ class ParquetStoreConfig(BaseModel):
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional parquet store options"
     )
-
-    @field_validator("type")
-    @classmethod
-    def validate_type(cls, v):
-        """Validate store type."""
-        if v != "parquet":
-            raise ValueError("Type must be 'parquet' for ParquetStore")
-        return v
 
     @field_validator("path")
     @classmethod

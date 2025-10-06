@@ -7,22 +7,23 @@ that all specific Store implementations must follow.
 
 Example:
     ```python
-    class MyStore(Store):
+    class MyStore(Store, store_type="my_type"):
         async def write(self, data: pl.DataFrame) -> None:
             # Implementation specific to your data destination
             pass
     ```
 """
 import asyncio
+from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Type, Union
 
 from pydantic import BaseModel, Field, field_validator
 
 from hygge.utility.logger import get_logger
 
 
-class Store:
+class Store(ABC):
     """
     Base class for all data stores.
 
@@ -32,12 +33,42 @@ class Store:
 
     Example:
         ```python
-        class MyStore(Store):
+        class MyStore(Store, store_type="my_type"):
             async def write(self, data: pl.DataFrame) -> None:
                 # Implementation specific to your data destination
                 pass
         ```
     """
+
+    _registry: Dict[str, Type["Store"]] = {}
+
+    def __init_subclass__(cls, store_type: str = None):
+        super().__init_subclass__()
+        if store_type:
+            cls._registry[store_type] = cls
+
+    @classmethod
+    def create(
+        cls, name: str, config: "StoreConfig", flow_name: Optional[str] = None
+    ) -> "Store":
+        """
+        Create a Store instance using the registry pattern.
+
+        Args:
+            name: Name for the store instance
+            config: Store configuration
+            flow_name: Optional flow name for file naming patterns
+
+        Returns:
+            Store instance of the appropriate type
+
+        Raises:
+            ValueError: If store type is not registered
+        """
+        store_type = config.type
+        if store_type not in cls._registry:
+            raise ValueError(f"Unknown store type: {store_type}")
+        return cls._registry[store_type](name, config, flow_name)
 
     def __init__(self, name: str, options: Optional[Dict[str, Any]] = None):
         self.name = name
@@ -218,6 +249,7 @@ class Store:
 
             return pl.concat(self.data_buffer)
 
+    @abstractmethod
     async def _save(self, data: Any, path: Optional[str] = None) -> None:
         """
         Save data to the underlying store.
@@ -229,32 +261,25 @@ class Store:
             data: Combined data to save
             path: Optional path for the data (for file-based stores)
         """
-        raise NotImplementedError("Subclasses must implement _save")
-
-    def ensure_directories_exist(self) -> None:
-        """
-        Ensure that required directories exist.
-
-        This method can be overridden by subclasses to create
-        any necessary directory structure.
-        """
         pass
 
+    @abstractmethod
     def get_staging_directory(self) -> "Path":
         """
         Get the staging directory for temporary files.
 
         This method must be implemented by subclasses for file-based stores.
         """
-        raise NotImplementedError("Subclasses must implement get_staging_directory")
+        pass
 
+    @abstractmethod
     def get_final_directory(self) -> "Path":
         """
         Get the final directory for completed files.
 
         This method must be implemented by subclasses for file-based stores.
         """
-        raise NotImplementedError("Subclasses must implement get_final_directory")
+        pass
 
     async def _stage(self) -> None:
         """
@@ -288,10 +313,58 @@ class Store:
         self.current_df = None
 
 
-class StoreConfig(BaseModel):
-    """Configuration for a data store."""
+class StoreConfig(ABC):
+    """Base configuration for a data store."""
 
-    type: str = Field(..., description="Type of store (parquet)")
+    _registry: Dict[str, Type["StoreConfig"]] = {}
+
+    def __init_subclass__(cls, config_type: str = None):
+        super().__init_subclass__()
+        if config_type:
+            cls._registry[config_type] = cls
+            # Set default type field value
+            if hasattr(cls, "model_fields") and "type" in cls.model_fields:
+                cls.model_fields["type"].default = config_type
+
+    @classmethod
+    def create(cls, data: Union[str, Dict]) -> "StoreConfig":
+        """
+        Create a StoreConfig instance using the registry pattern.
+
+        Args:
+            data: Configuration data (string path or dict)
+
+        Returns:
+            StoreConfig instance of the appropriate type
+
+        Raises:
+            ValueError: If config type is not registered or data is invalid
+        """
+        if isinstance(data, str):
+            # Simple path - assume parquet type
+            config_type = "parquet"
+            config_data = {"type": config_type, "path": data}
+        elif isinstance(data, dict):
+            config_type = data.get("type", "parquet")  # Default to parquet
+            config_data = data
+        else:
+            raise ValueError(f"Invalid config data type: {type(data)}")
+
+        if config_type not in cls._registry:
+            raise ValueError(f"Unknown store config type: {config_type}")
+
+        return cls._registry[config_type](**config_data)
+
+    @abstractmethod
+    def get_merged_options(self, flow_name: str = None) -> Dict[str, Any]:
+        """Get all options including defaults."""
+        pass
+
+
+class BaseStoreConfig(BaseModel):
+    """Base configuration for a data store."""
+
+    type: str = Field(default="", description="Type of store (parquet)")
     path: str = Field(..., description="Path to destination")
     batch_size: int = Field(
         default=100_000, ge=1, description="Number of rows to accumulate before writing"
@@ -309,7 +382,7 @@ class StoreConfig(BaseModel):
             raise ValueError(f"Store type must be one of {valid_types}, got '{v}'")
         return v
 
-    def get_merged_options(self) -> Dict[str, Any]:
+    def get_merged_options(self, flow_name: str = None) -> Dict[str, Any]:
         """Get all options including defaults."""
         # Start with the config fields
         options = {

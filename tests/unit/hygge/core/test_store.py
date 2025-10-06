@@ -17,7 +17,7 @@ from hygge.core.store import Store
 from hygge.utility.exceptions import StoreError
 
 
-class SimpleStore(Store):
+class SimpleStore(Store, store_type="test"):
     """Test implementation of Store for verification."""
 
     def __init__(self, name: str, **kwargs):
@@ -59,7 +59,7 @@ class SimpleStore(Store):
         return Path(self.final_dir)
 
 
-class FailingStore(Store):
+class FailingStore(Store, store_type="failing"):
     """Test implementation that fails during save."""
 
     def __init__(self, name: str, **kwargs):
@@ -87,7 +87,7 @@ class FailingStore(Store):
         return Path("test_final")
 
 
-class PathStore(Store):
+class PathStore(Store, store_type="path"):
     """Test implementation with custom path management."""
 
     def __init__(self, name: str, staging_dir: str, final_dir: str, **kwargs):
@@ -195,14 +195,9 @@ class TestStoreInitialization:
         class IncompleteStore(Store):
             pass  # Missing all required methods
 
-        store = IncompleteStore("incomplete", {})
-
-        # These should raise NotImplementedError
-        with pytest.raises(NotImplementedError):
-            store.get_staging_directory()
-
-        with pytest.raises(NotImplementedError):
-            store.get_final_directory()
+        # With ABC, incomplete implementations can't be instantiated
+        with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+            IncompleteStore("incomplete", {})
 
 
 class TestStoreDataCollection:

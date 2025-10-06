@@ -13,9 +13,6 @@ from pydantic import BaseModel, Field, field_validator
 from hygge.utility.exceptions import FlowError
 from hygge.utility.logger import get_logger
 
-from ..homes import ParquetHomeConfig
-from ..stores import ParquetStoreConfig
-from .factory import Factory
 from .home import Home, HomeConfig
 from .store import Store, StoreConfig
 
@@ -139,7 +136,7 @@ class Flow:
         """Read batches from Home and put them in queue."""
         try:
             self.logger.debug(f"Starting producer for {self.name}")
-            async for batch in self.home.read():  # Use Home's read() method
+            async for batch in self.home.read():
                 if batch is not None:
                     await queue.put(batch)
                     self.logger.debug(
@@ -185,9 +182,8 @@ class Flow:
                         duration = asyncio.get_event_loop().time() - self.start_time
                         rate = self.total_rows / duration if duration > 0 else 0
                         self.logger.info(
-                            self.logger.EXTRACT_TEMPLATE.format(
-                                self.total_rows, duration, rate
-                            )
+                            f"Processed {self.total_rows:,} rows "
+                            f"in {duration:.1f}s ({rate:.0f} rows/s)"
                         )
 
                 except Exception as e:
@@ -237,13 +233,9 @@ class FlowConfig(BaseModel):
     ```
     """
 
-    # Clean, simple configuration - only home/store, no legacy from/to
-    home: Union[str, HomeConfig, ParquetHomeConfig] = Field(
-        ..., description="Home configuration"
-    )
-    store: Union[str, StoreConfig, ParquetStoreConfig] = Field(
-        ..., description="Store configuration"
-    )
+    # Clean, simple configuration - only home/store
+    home: Union[str, Dict, Any] = Field(..., description="Home configuration")
+    store: Union[str, Dict, Any] = Field(..., description="Store configuration")
     queue_size: int = Field(
         default=10, ge=1, le=100, description="Size of internal queue"
     )
@@ -255,50 +247,27 @@ class FlowConfig(BaseModel):
     @field_validator("home", mode="before")
     @classmethod
     def parse_home(cls, v):
-        """Parse home configuration from string or dict with smart defaults."""
-        factory = Factory()
-
-        if isinstance(v, str):
-            # Simple path - detect type from extension or use default type
-            if v.endswith(".parquet"):
-                home_type = "parquet"
-            else:
-                home_type = "parquet"  # Default type
-
-            return factory.create_home_config(home_type, path=v)
-        elif isinstance(v, dict):
-            # Advanced configuration - apply smart defaults to options
-            # If type not specified, use default
-            if "type" not in v:
-                v["type"] = "parquet"
-
-            return factory.create_home_config(v["type"], **v)
-        return v
+        """Parse home configuration using registry pattern."""
+        # Registry pattern creates the right HomeConfig
+        config = HomeConfig.create(v)
+        # Registry pattern creates the right Home instance
+        return Home.create("flow_home", config)
 
     @field_validator("store", mode="before")
     @classmethod
     def parse_store(cls, v):
-        """Parse store configuration from string or dict with smart defaults."""
-        factory = Factory()
-
-        if isinstance(v, str):
-            # Simple path - use default type with smart defaults
-            return factory.create_store_config("parquet", path=v)
-        elif isinstance(v, dict):
-            # Advanced configuration - apply smart defaults to options
-            # If type not specified, use default
-            if "type" not in v:
-                v["type"] = "parquet"
-
-            return factory.create_store_config(v["type"], **v)
-        return v
+        """Parse store configuration using registry pattern."""
+        # Registry pattern creates the right StoreConfig
+        config = StoreConfig.create(v)
+        # Registry pattern creates the right Store instance
+        return Store.create("", config)
 
     @property
-    def home_config(self) -> HomeConfig:
-        """Get home configuration - always returns HomeConfig after validation."""
+    def home_instance(self) -> Home:
+        """Get home instance - always returns Home after validation."""
         return self.home
 
     @property
-    def store_config(self) -> StoreConfig:
-        """Get store configuration - always returns StoreConfig after validation."""
+    def store_instance(self) -> Store:
+        """Get store instance - always returns Store after validation."""
         return self.store

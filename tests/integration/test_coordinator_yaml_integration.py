@@ -24,6 +24,8 @@ import pytest
 import yaml
 
 from hygge import Coordinator
+
+# Import concrete implementations to register them
 from hygge.utility.exceptions import ConfigError
 
 

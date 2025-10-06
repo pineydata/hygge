@@ -395,7 +395,7 @@ class TestParquetStoreConfiguration:
         assert config.type == "parquet"
 
         # Invalid type
-        with pytest.raises(ValueError, match="Type must be 'parquet'"):
+        with pytest.raises(ValueError, match="Store type must be one of"):
             ParquetStoreConfig(type="invalid", path="/test/destination")
 
         # Empty path

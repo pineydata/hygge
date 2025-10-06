@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Dict
 
 import polars as pl
-from pydantic import BaseModel, Field, field_validator
+from pydantic import Field, field_validator
 
-from hygge.core.home import Home
+from hygge.core.home import BaseHomeConfig, Home, HomeConfig
 from hygge.utility.exceptions import HomeError
 
 
-class ParquetHome(Home):
+class ParquetHome(Home, home_type="parquet"):
     """
     A Parquet file home for data.
 
@@ -103,10 +103,9 @@ class ParquetHome(Home):
             raise HomeError(f"Failed to read parquet from {self.data_path}: {str(e)}")
 
 
-class ParquetHomeConfig(BaseModel):
+class ParquetHomeConfig(HomeConfig, BaseHomeConfig, config_type="parquet"):
     """Configuration for a ParquetHome."""
 
-    type: str = Field(default="parquet", description="Type of home")
     path: str = Field(..., description="Path to parquet file or directory")
     batch_size: int = Field(
         default=10_000, ge=1, description="Number of rows to read at once"
@@ -114,14 +113,6 @@ class ParquetHomeConfig(BaseModel):
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional parquet home options"
     )
-
-    @field_validator("type")
-    @classmethod
-    def validate_type(cls, v):
-        """Validate home type."""
-        if v != "parquet":
-            raise ValueError("Type must be 'parquet' for ParquetHome")
-        return v
 
     @field_validator("path")
     @classmethod

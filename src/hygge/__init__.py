@@ -1,7 +1,7 @@
 """
 A cozy, comfortable data movement framework.
 """
-from .core import Coordinator, Factory, Flow, Home, HomeConfig, Store, StoreConfig
+from .core import Coordinator, Flow, Home, HomeConfig, Store, StoreConfig
 
 __all__ = [
     # Core components
@@ -12,6 +12,4 @@ __all__ = [
     # Config classes
     "HomeConfig",
     "StoreConfig",
-    # Factory
-    "Factory",
 ]

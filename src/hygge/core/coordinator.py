@@ -18,7 +18,6 @@ from pydantic import BaseModel, Field, field_validator
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 
-from .factory import Factory
 from .flow import Flow, FlowConfig
 
 
@@ -49,8 +48,7 @@ class Coordinator:
         self.options: Dict[str, Any] = {}
         self.logger = get_logger("hygge.coordinator")
 
-        # Factory for creating components
-        self.factory = Factory()
+        # No longer need Factory - using registry pattern directly
 
     async def run(self) -> None:
         """Run all configured flows."""
@@ -66,28 +64,76 @@ class Coordinator:
         await self._run_flows()
 
     def _load_config(self) -> None:
-        """Load and validate configuration from file."""
+        """Load and validate configuration from file or directory."""
         try:
-            with open(self.config_path, "r") as f:
-                config_data = yaml.safe_load(f)
-
-            # Validate configuration
-            errors = validate_config(config_data)
-            if errors:
-                raise ConfigError(f"Configuration validation failed: {errors}")
-
-            # Parse with Pydantic
-            self.config = CoordinatorConfig.from_dict(config_data)
-
-            # Extract options
-            self.options = config_data.get("options", {})
-
-            self.logger.info(
-                f"Loaded configuration with {len(self.config.flows)} flows"
-            )
+            if self.config_path.is_file():
+                # Single file configuration (legacy)
+                self._load_single_file_config()
+            elif self.config_path.is_dir():
+                # Directory-based configuration (new progressive approach)
+                self._load_directory_config()
+            else:
+                raise ConfigError(
+                    f"Configuration path must be file or directory: {self.config_path}"
+                )
 
         except Exception as e:
             raise ConfigError(f"Failed to load configuration: {str(e)}")
+
+    def _load_single_file_config(self) -> None:
+        """Load configuration from single YAML file (legacy approach)."""
+        with open(self.config_path, "r") as f:
+            config_data = yaml.safe_load(f)
+
+        # Validate configuration
+        errors = validate_config(config_data)
+        if errors:
+            raise ConfigError(f"Configuration validation failed: {errors}")
+
+        # Parse with Pydantic
+        self.config = CoordinatorConfig.from_dict(config_data)
+
+        # Extract options
+        self.options = config_data.get("options", {})
+
+        self.logger.info(
+            f"Loaded single-file configuration with {len(self.config.flows)} flows"
+        )
+
+    def _load_directory_config(self) -> None:
+        """Load configuration from directory structure (progressive approach)."""
+        flows = {}
+
+        # Look for flow directories
+        for flow_dir in self.config_path.iterdir():
+            if flow_dir.is_dir() and (flow_dir / "flow.yml").exists():
+                flow_name = flow_dir.name
+                try:
+                    # Load flow config directly
+                    flow_file = flow_dir / "flow.yml"
+                    with open(flow_file, "r") as f:
+                        flow_data = yaml.safe_load(f)
+                    flow_config = FlowConfig(**flow_data)
+                    flows[flow_name] = flow_config
+                    self.logger.debug(f"Loaded flow: {flow_name}")
+                except Exception as e:
+                    raise ConfigError(f"Failed to load flow {flow_name}: {str(e)}")
+
+        if not flows:
+            raise ConfigError(f"No flows found in directory: {self.config_path}")
+
+        # Create coordinator config
+        self.config = CoordinatorConfig(flows=flows)
+
+        # Load global options if they exist
+        options_file = self.config_path / "options.yml"
+        if options_file.exists():
+            with open(options_file, "r") as f:
+                self.options = yaml.safe_load(f) or {}
+        else:
+            self.options = {}
+
+        self.logger.info(f"Loaded directory configuration with {len(flows)} flows")
 
     def _create_flows(self) -> None:
         """Create Flow instances from configuration."""
@@ -95,11 +141,9 @@ class Coordinator:
 
         for flow_name, flow_config in self.config.flows.items():
             try:
-                # Create home and store using factory
-                home = self.factory.create_home(flow_name, flow_config.home_config)
-                store = self.factory.create_store(
-                    flow_name, flow_config.store_config, flow_name
-                )
+                # Get home and store instances from FlowConfig
+                home = flow_config.home_instance
+                store = flow_config.store_instance
 
                 # Create flow with options
                 flow_options = flow_config.options.copy()

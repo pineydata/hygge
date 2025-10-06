@@ -7,12 +7,15 @@ Following hygge's "Convention over Configuration" philosophy:
 - Verify smart defaults are applied appropriately
 - Test validation catches configuration errors
 """
+
 import pytest
 from pydantic import ValidationError
 
 from hygge.core.flow import FlowConfig
-from hygge.core.home import HomeConfig
-from hygge.core.store import StoreConfig
+from hygge.core.home import Home
+from hygge.core.store import Store
+
+# Import concrete implementations to register them
 
 
 class TestFlowConfig:
@@ -28,90 +31,71 @@ class TestFlowConfig:
         """Test simple home: path configuration works with defaults."""
         config = FlowConfig(home="data/users.parquet", store="data/lake/users")
 
-        # Should parse home as HomeConfig with defaults
-        assert isinstance(config.home_config, HomeConfig)
-        assert config.home_config.path == "data/users.parquet"
-        assert config.home_config.type == "parquet"  # Default type
+        # Should parse home as Home instance with defaults
+        assert isinstance(config.home_instance, Home)
+        assert config.home_instance.name == "flow_home"
 
-        # Should parse store as StoreConfig with defaults
-        assert isinstance(config.store_config, StoreConfig)
+        # Should parse store as Store instance with defaults
+        assert isinstance(config.store_instance, Store)
+        assert config.store_instance.name == ""
 
     def test_simple_store_path_config(self):
         """Test simple store: path configuration works with defaults."""
         config = FlowConfig(home="data/users.parquet", store="data/output")
 
-        # Should parse store as StoreConfig with defaults
-        assert isinstance(config.store_config, StoreConfig)
-        assert config.store_config.path == "data/output"
-        assert config.store_config.type == "parquet"  # Default type
+        # Should parse store as Store instance with defaults
+        assert isinstance(config.store_instance, Store)
+        assert config.store_instance.name == ""
 
     def test_advanced_home_config(self):
         """Test advanced home configuration parsing."""
         home_config = {
-            "type": "sql",
-            "table": "users",
-            "connection": "sqlite:///test.db",
-            "options": {"batch_size": 5000, "custom_option": "value"},
+            "type": "parquet",
+            "path": "data/users.parquet",
+            "batch_size": 5000,
         }
 
         config = FlowConfig(home=home_config, store="data/output")
 
-        # Should parse as HomeConfig
-        assert isinstance(config.home_config, HomeConfig)
-        assert config.home_config.type == "sql"
-        assert config.home_config.table == "users"
-        assert config.home_config.connection == "sqlite:///test.db"
-
-        # Options should be merged with defaults
-        assert config.home_config.options["batch_size"] == 5000
-        assert config.home_config.options["custom_option"] == "value"
+        # Should parse as Home instance
+        assert isinstance(config.home_instance, Home)
+        assert config.home_instance.name == "flow_home"
 
     def test_advanced_store_config(self):
         """Test advanced store configuration parsing."""
         store_config = {
             "type": "parquet",
             "path": "data/lake/users",
-            "options": {"compression": "zstd", "custom_option": "value"},
+            "compression": "zstd",
         }
 
         config = FlowConfig(home="data/users.parquet", store=store_config)
 
-        # Should parse as StoreConfig
-        assert isinstance(config.store_config, StoreConfig)
-        assert config.store_config.type == "parquet"
-        assert config.store_config.path == "data/lake/users"
-
-        # Options should be merged with defaults
-        assert config.store_config.options["compression"] == "zstd"
-        assert config.store_config.options["custom_option"] == "value"
+        # Should parse as Store instance
+        assert isinstance(config.store_instance, Store)
+        assert config.store_instance.name == ""
 
     def test_home_config_with_defaults_only(self):
         """Test home config using defaults when type not specified."""
         home_config = {
             "path": "data/users.parquet",
-            "options": {"custom_option": "value"},
         }
 
         config = FlowConfig(home=home_config, store="data/output")
 
-        # Should use default type
-        assert config.home_config.type == "parquet"
-        assert config.home_config.path == "data/users.parquet"
-        assert config.home_config.options["custom_option"] == "value"
+        # Should use default type and create Home instance
+        assert isinstance(config.home_instance, Home)
 
     def test_store_config_with_defaults_only(self):
         """Test store config using defaults when type not specified."""
         store_config = {
             "path": "data/lake/users",
-            "options": {"custom_option": "value"},
         }
 
         config = FlowConfig(home="data/users.parquet", store=store_config)
 
-        # Should use default type
-        assert config.store_config.type == "parquet"
-        assert config.store_config.path == "data/lake/users"
-        assert config.store_config.options["custom_option"] == "value"
+        # Should use default type and create Store instance
+        assert isinstance(config.store_instance, Store)
 
     def test_config_with_flow_options(self):
         """Test flow configuration with additional options."""
@@ -186,11 +170,20 @@ class TestFlowConfig:
 
     def test_empty_string_paths(self):
         """Test handling of empty string paths."""
-        config = FlowConfig(home="", store="")
+        with pytest.raises(ValidationError) as exc_info:
+            FlowConfig(home="", store="")
 
-        # Should parse but with empty paths
-        assert config.home_config.path == ""
-        assert config.store_config.path == ""
+        # Should have validation errors for both home and store
+        errors = exc_info.value.errors()
+        assert len(errors) == 2
+        assert any(
+            "Path is required for parquet homes" in str(error["ctx"]["error"])
+            for error in errors
+        )
+        assert any(
+            "Path is required for parquet stores" in str(error["ctx"]["error"])
+            for error in errors
+        )
 
     # Edge Cases
 
@@ -213,8 +206,8 @@ class TestFlowConfig:
             home=unicode_path, store=unicode_path.replace("用户", "lake")
         )
 
-        assert config.home_config.path == unicode_path
-        assert "lake" in config.store_config.path
+        assert isinstance(config.home_instance, Home)
+        assert isinstance(config.store_instance, Store)
 
     def test_empty_options_dict(self):
         """Test configuration with explicit empty options."""
@@ -248,32 +241,32 @@ class TestFlowConfig:
 class TestConfigurationPropertyAccess:
     """Test suite for property access methods."""
 
-    def test_home_config_property(self):
-        """Test home_config property always returns HomeConfig."""
+    def test_home_instance_property(self):
+        """Test home_instance property always returns Home."""
         config = FlowConfig(home="data/users.parquet", store="data/output")
 
-        # Should always return HomeConfig instance
-        assert isinstance(config.home_config, HomeConfig)
+        # Should always return Home instance
+        assert isinstance(config.home_instance, Home)
 
         # Test advanced config
         advanced_config = FlowConfig(
-            home={"type": "sql", "table": "users", "connection": "test.db"},
+            home={"type": "parquet", "path": "data/users.parquet"},
             store="data/output",
         )
 
-        assert isinstance(advanced_config.home_config, HomeConfig)
+        assert isinstance(advanced_config.home_instance, Home)
 
-    def test_store_config_property(self):
-        """Test store config property always returns StoreConfig."""
+    def test_store_instance_property(self):
+        """Test store instance property always returns Store."""
         config = FlowConfig(home="data/users.parquet", store="data/output")
 
-        # Should always return StoreConfig instance
-        assert isinstance(config.store_config, StoreConfig)
+        # Should always return Store instance
+        assert isinstance(config.store_instance, Store)
 
         # Test advanced config
         advanced_config = FlowConfig(
             home="data/users.parquet",
-            store={"type": "parquet", "path": "data/output", "options": {}},
+            store={"type": "parquet", "path": "data/output"},
         )
 
-        assert isinstance(advanced_config.store_config, StoreConfig)
+        assert isinstance(advanced_config.store_instance, Store)

@@ -16,7 +16,7 @@ import pytest
 from hygge.core.home import Home
 
 
-class SimpleHome(Home):
+class SimpleHome(Home, home_type="test"):
     """Test implementation of Home for verification."""
 
     def __init__(self, name: str, data: list[pl.DataFrame], **kwargs):
@@ -37,7 +37,7 @@ class SimpleHome(Home):
         return f"/test/home/{self.name}"
 
 
-class ErrorHome(Home):
+class ErrorHome(Home, home_type="error"):
     """Test implementation that raises errors."""
 
     async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
@@ -51,7 +51,7 @@ class ErrorHome(Home):
         return f"/test/home/{self.name}"
 
 
-class DelayedHome(Home):
+class DelayedHome(Home, home_type="delayed"):
     """Test implementation with delays."""
 
     def __init__(
@@ -129,19 +129,15 @@ class TestHomeInitialization:
         assert home.row_multiplier == 100000
         assert home.options == options
 
-    @pytest.mark.asyncio
-    async def test_home_initialization_missing_implementation(self):
+    def test_home_initialization_missing_implementation(self):
         """Test that incomplete Home implementations fail appropriately."""
 
         class IncompleteHome(Home):
             pass  # Missing all required methods
 
-        home = IncompleteHome("incomplete", {})
-
-        # read() should raise NotImplementedError when _get_batches not implemented
-        with pytest.raises(NotImplementedError):
-            async for batch in home.read():
-                pass
+        # With ABC, incomplete implementations can't be instantiated
+        with pytest.raises(TypeError, match="Can't instantiate abstract class"):
+            IncompleteHome("incomplete", {})
 
 
 class TestHomeDataReading:

@@ -322,7 +322,7 @@ class TestParquetHomeConfiguration:
         # Invalid type
         with pytest.raises(ValueError) as exc_info:
             ParquetHomeConfig(type="invalid", path="/test/data.parquet")
-        assert "Type must be 'parquet'" in str(exc_info.value)
+        assert "Home type must be one of" in str(exc_info.value)
 
         # Empty path
         with pytest.raises(ValueError) as exc_info:

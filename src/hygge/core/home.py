@@ -7,21 +7,22 @@ that all specific Home implementations must follow.
 
 Example:
     ```python
-    class MyHome(Home):
+    class MyHome(Home, home_type="my_type"):
         async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
             # Implementation specific to your data source
             pass
     ```
 """
 import asyncio
-from typing import Any, AsyncIterator, Dict, Optional
+from abc import ABC, abstractmethod
+from typing import Any, AsyncIterator, Dict, Optional, Type, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from hygge.utility.logger import get_logger
 
 
-class Home:
+class Home(ABC):
     """
     Base class for all data homes.
 
@@ -31,12 +32,39 @@ class Home:
 
     Example:
         ```python
-        class MyHome(Home):
+        class MyHome(Home, home_type="my_type"):
             async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
                 # Implementation specific to your data source
                 pass
         ```
     """
+
+    _registry: Dict[str, Type["Home"]] = {}
+
+    def __init_subclass__(cls, home_type: str = None):
+        super().__init_subclass__()
+        if home_type:
+            cls._registry[home_type] = cls
+
+    @classmethod
+    def create(cls, name: str, config: "HomeConfig") -> "Home":
+        """
+        Create a Home instance using the registry pattern.
+
+        Args:
+            name: Name for the home instance
+            config: Home configuration
+
+        Returns:
+            Home instance of the appropriate type
+
+        Raises:
+            ValueError: If home type is not registered
+        """
+        home_type = config.type
+        if home_type not in cls._registry:
+            raise ValueError(f"Unknown home type: {home_type}")
+        return cls._registry[home_type](name, config)
 
     def __init__(self, name: str, options: Optional[Dict[str, Any]] = None):
         self.name = name
@@ -73,6 +101,7 @@ class Home:
             self.logger.error(f"Error reading from {self.name}: {str(e)}")
             raise
 
+    @abstractmethod
     async def _get_batches(self) -> AsyncIterator[Any]:
         """
         Get data batches from the underlying data source.
@@ -83,14 +112,7 @@ class Home:
         Yields:
             Data batches from the underlying data source
         """
-        # This is a placeholder implementation that raises NotImplementedError
-        # Subclasses must override this method
-        raise NotImplementedError("Subclasses must implement _get_batches")
-
-        # This line is unreachable but makes the method a proper async generator
-        # Python requires at least one yield to make it an async generator
-        if False:
-            yield  # type: ignore
+        pass
 
     def _log_progress(self, total_rows: int) -> None:
         """Log progress at regular intervals."""
@@ -112,10 +134,58 @@ class Home:
             )
 
 
-class HomeConfig(BaseModel):
-    """Configuration for a data home."""
+class HomeConfig(ABC):
+    """Base configuration for a data home."""
 
-    type: str = Field(..., description="Type of home (parquet, sql)")
+    _registry: Dict[str, Type["HomeConfig"]] = {}
+
+    def __init_subclass__(cls, config_type: str = None):
+        super().__init_subclass__()
+        if config_type:
+            cls._registry[config_type] = cls
+            # Set default type field value
+            if hasattr(cls, "model_fields") and "type" in cls.model_fields:
+                cls.model_fields["type"].default = config_type
+
+    @classmethod
+    def create(cls, data: Union[str, Dict]) -> "HomeConfig":
+        """
+        Create a HomeConfig instance using the registry pattern.
+
+        Args:
+            data: Configuration data (string path or dict)
+
+        Returns:
+            HomeConfig instance of the appropriate type
+
+        Raises:
+            ValueError: If config type is not registered or data is invalid
+        """
+        if isinstance(data, str):
+            # Simple path - assume parquet type
+            config_type = "parquet"
+            config_data = {"type": config_type, "path": data}
+        elif isinstance(data, dict):
+            config_type = data.get("type", "parquet")  # Default to parquet
+            config_data = data
+        else:
+            raise ValueError(f"Invalid config data type: {type(data)}")
+
+        if config_type not in cls._registry:
+            raise ValueError(f"Unknown home config type: {config_type}")
+
+        return cls._registry[config_type](**config_data)
+
+    @abstractmethod
+    def get_merged_options(self) -> Dict[str, Any]:
+        """Get all options including defaults."""
+        pass
+
+
+class BaseHomeConfig(BaseModel):
+    """Base configuration for a data home."""
+
+    type: str = Field(default="", description="Type of home (parquet, sql)")
     path: Optional[str] = Field(None, description="Path to data source")
     connection: Optional[str] = Field(None, description="Database connection string")
     table: Optional[str] = Field(None, description="Table name for SQL homes")
