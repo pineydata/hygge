@@ -1,7 +1,7 @@
 """
 A cozy, comfortable data movement framework.
 """
-from hygge.core import Coordinator, Flow, Home, Store
+from .core import Coordinator, Factory, Flow, Home, HomeConfig, Store, StoreConfig
 
 __all__ = [
     # Core components
@@ -9,4 +9,9 @@ __all__ = [
     "Home",
     "Store",
     "Coordinator",
+    # Config classes
+    "HomeConfig",
+    "StoreConfig",
+    # Factory
+    "Factory",
 ]

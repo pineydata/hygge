@@ -6,7 +6,9 @@ from pathlib import Path
 
 import polars as pl
 
-from hygge import Flow, ParquetHome, ParquetStore
+from hygge import Flow
+from hygge.homes import ParquetHome, ParquetHomeConfig
+from hygge.stores import ParquetStore, ParquetStoreConfig
 
 
 async def setup_test_data(path: str, rows: int = 10_000_000) -> None:
@@ -47,27 +49,28 @@ async def main():
     await setup_test_data(source_file)
     print(f"Created test data at {source_file}")
 
-    # Create and run flow - Flow will instantiate Home and Store
+    # Create Home and Store instances using config classes
+    home_config = ParquetHomeConfig(
+        path=str(source_file),
+        batch_size=100,  # Small batch for testing
+        options={},
+    )
+    home = ParquetHome("numbers", home_config)
+
+    store_config = ParquetStoreConfig(
+        path=str(store_dir),
+        batch_size=500000,  # Different batch size to test accumulation
+        file_pattern="{sequence:020d}.parquet",
+        compression="snappy",
+        options={},
+    )
+    store = ParquetStore("numbers", store_config)
+
+    # Create and run flow
     flow = Flow(
         name="numbers_flow",
-        home_class=ParquetHome,
-        home_config={
-            "name": "numbers",
-            "path": str(source_file),
-            "options": {
-                "batch_size": 100  # Small batch for testing
-            },
-        },
-        store_class=ParquetStore,
-        store_config={
-            "name": "numbers",
-            "path": str(store_dir),
-            "options": {
-                "batch_size": 500000,  # Different batch size to test accumulation
-                "file_pattern": "{sequence:020d}.parquet",
-                "compression": "snappy",
-            },
-        },
+        home=home,
+        store=store,
         options={
             "queue_size": 5  # Small queue for testing
         },

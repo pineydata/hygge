@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field, field_validator
 from hygge.utility.exceptions import FlowError
 from hygge.utility.logger import get_logger
 
+from ..homes import ParquetHomeConfig
+from ..stores import ParquetStoreConfig
+from .factory import Factory
 from .home import Home, HomeConfig
 from .store import Store, StoreConfig
 
@@ -235,8 +238,12 @@ class FlowConfig(BaseModel):
     """
 
     # Clean, simple configuration - only home/store, no legacy from/to
-    home: Union[str, HomeConfig] = Field(..., description="Home configuration")
-    store: Union[str, StoreConfig] = Field(..., description="Store configuration")
+    home: Union[str, HomeConfig, ParquetHomeConfig] = Field(
+        ..., description="Home configuration"
+    )
+    store: Union[str, StoreConfig, ParquetStoreConfig] = Field(
+        ..., description="Store configuration"
+    )
     queue_size: int = Field(
         default=10, ge=1, le=100, description="Size of internal queue"
     )
@@ -249,6 +256,8 @@ class FlowConfig(BaseModel):
     @classmethod
     def parse_home(cls, v):
         """Parse home configuration from string or dict with smart defaults."""
+        factory = Factory()
+
         if isinstance(v, str):
             # Simple path - detect type from extension or use default type
             if v.endswith(".parquet"):
@@ -256,28 +265,32 @@ class FlowConfig(BaseModel):
             else:
                 home_type = "parquet"  # Default type
 
-            return HomeConfig(type=home_type, path=v)
+            return factory.create_home_config(home_type, path=v)
         elif isinstance(v, dict):
             # Advanced configuration - apply smart defaults to options
             # If type not specified, use default
             if "type" not in v:
                 v["type"] = "parquet"
-            return HomeConfig(**v)
+
+            return factory.create_home_config(v["type"], **v)
         return v
 
     @field_validator("store", mode="before")
     @classmethod
     def parse_store(cls, v):
         """Parse store configuration from string or dict with smart defaults."""
+        factory = Factory()
+
         if isinstance(v, str):
             # Simple path - use default type with smart defaults
-            return StoreConfig(type="parquet", path=v)
+            return factory.create_store_config("parquet", path=v)
         elif isinstance(v, dict):
             # Advanced configuration - apply smart defaults to options
             # If type not specified, use default
             if "type" not in v:
                 v["type"] = "parquet"
-            return StoreConfig(**v)
+
+            return factory.create_store_config(v["type"], **v)
         return v
 
     @property

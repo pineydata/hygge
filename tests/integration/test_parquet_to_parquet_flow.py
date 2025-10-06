@@ -22,8 +22,8 @@ import polars as pl
 import pytest
 
 from hygge import Flow
-from hygge.homes import ParquetHome
-from hygge.stores import ParquetStore
+from hygge.homes import ParquetHome, ParquetHomeConfig
+from hygge.stores import ParquetStore, ParquetStoreConfig
 
 
 @pytest.fixture
@@ -103,18 +103,22 @@ class TestParquetToParquetFlow:
         store_config = flow_config["store_config"]
         flow_options = flow_config["flow_options"]
 
-        # Create Home and Store instances
-        home = ParquetHome(
-            name=home_config["name"],
+        # Create Home and Store instances using config classes
+        home_config_obj = ParquetHomeConfig(
             path=home_config["path"],
-            options=home_config["options"],
+            batch_size=home_config["options"]["batch_size"],
+            options={},
         )
+        home = ParquetHome(home_config["name"], home_config_obj)
 
-        store = ParquetStore(
-            name=store_config["name"],
+        store_config_obj = ParquetStoreConfig(
             path=store_config["path"],
-            options=store_config["options"],
+            batch_size=store_config["options"]["batch_size"],
+            file_pattern=store_config["options"]["file_pattern"],
+            compression=store_config["options"]["compression"],
+            options={},
         )
+        store = ParquetStore(store_config["name"], store_config_obj)
 
         # Create Flow
         flow = Flow(flow_name, home, store, flow_options)
@@ -123,7 +127,8 @@ class TestParquetToParquetFlow:
         await flow.start()
 
         # Then verify data integrity
-        store_path = Path(store_config["path"])
+        # ParquetStore creates subdirectory with store name
+        store_path = Path(store_config["path"]) / store_config["name"]
         output_files = list(store_path.glob("*.parquet"))
 
         # Should have created output files
@@ -161,17 +166,21 @@ class TestParquetToParquetFlow:
         flow_config["home_config"]["options"]["batch_size"] = 500
         flow_config["store_config"]["options"]["batch_size"] = 3000
 
-        home = ParquetHome(
-            name=flow_config["home_config"]["name"],
+        home_config_obj = ParquetHomeConfig(
             path=flow_config["home_config"]["path"],
-            options=flow_config["home_config"]["options"],
+            batch_size=flow_config["home_config"]["options"]["batch_size"],
+            options={},
         )
+        home = ParquetHome(flow_config["home_config"]["name"], home_config_obj)
 
-        store = ParquetStore(
-            name=flow_config["store_config"]["name"],
+        store_config_obj = ParquetStoreConfig(
             path=flow_config["store_config"]["path"],
-            options=flow_config["store_config"]["options"],
+            batch_size=flow_config["store_config"]["options"]["batch_size"],
+            file_pattern=flow_config["store_config"]["options"]["file_pattern"],
+            compression=flow_config["store_config"]["options"]["compression"],
+            options={},
         )
+        store = ParquetStore(flow_config["store_config"]["name"], store_config_obj)
 
         flow = Flow(flow_config["name"], home, store, flow_config["flow_options"])
 
@@ -192,13 +201,15 @@ class TestParquetToParquetFlow:
         store_dir = temp_data_dir / "error_store"
         store_dir.mkdir()
 
-        home = ParquetHome(
-            name="invalid", path=str(invalid_source), options={"batch_size": 1000}
+        home_config_obj = ParquetHomeConfig(
+            path=str(invalid_source), batch_size=1000, options={}
         )
+        home = ParquetHome("invalid", home_config_obj)
 
-        store = ParquetStore(
-            name="destination", path=str(store_dir), options={"batch_size": 1000}
+        store_config_obj = ParquetStoreConfig(
+            path=str(store_dir), batch_size=1000, options={}
         )
+        store = ParquetStore("destination", store_config_obj)
 
         flow = Flow("error_test", home, store, {"queue_size": 2})
 
@@ -209,17 +220,21 @@ class TestParquetToParquetFlow:
     @pytest.mark.asyncio
     async def test_flow_performance_metrics(self, flow_config: Dict[str, Any]):
         """Test that flow tracks performance metrics correctly."""
-        home = ParquetHome(
-            name=flow_config["home_config"]["name"],
+        home_config_obj = ParquetHomeConfig(
             path=flow_config["home_config"]["path"],
-            options=flow_config["home_config"]["options"],
+            batch_size=flow_config["home_config"]["options"]["batch_size"],
+            options={},
         )
+        home = ParquetHome(flow_config["home_config"]["name"], home_config_obj)
 
-        store = ParquetStore(
-            name=flow_config["store_config"]["name"],
+        store_config_obj = ParquetStoreConfig(
             path=flow_config["store_config"]["path"],
-            options=flow_config["store_config"]["options"],
+            batch_size=flow_config["store_config"]["options"]["batch_size"],
+            file_pattern=flow_config["store_config"]["options"]["file_pattern"],
+            compression=flow_config["store_config"]["options"]["compression"],
+            options={},
         )
+        store = ParquetStore(flow_config["store_config"]["name"], store_config_obj)
 
         flow = Flow(flow_config["name"], home, store, flow_config["flow_options"])
 
@@ -252,15 +267,25 @@ class TestParquetToParquetFlow:
         store_dir.mkdir()
 
         # Create and run first flow
-        home1 = ParquetHome("flow1", str(source1), {"batch_size": 500})
-        store1 = ParquetStore("flow1", str(store_dir / "flow1"), {"batch_size": 500})
+        home1_config = ParquetHomeConfig(path=str(source1), batch_size=500, options={})
+        home1 = ParquetHome("flow1", home1_config)
+
+        store1_config = ParquetStoreConfig(
+            path=str(store_dir), batch_size=500, options={}
+        )
+        store1 = ParquetStore("flow1", store1_config)
         flow1 = Flow("flow1", home1, store1, {"queue_size": 2})
 
         await flow1.start()
 
         # Create and run second flow
-        home2 = ParquetHome("flow2", str(source2), {"batch_size": 500})
-        store2 = ParquetStore("flow2", str(store_dir / "flow2"), {"batch_size": 500})
+        home2_config = ParquetHomeConfig(path=str(source2), batch_size=500, options={})
+        home2 = ParquetHome("flow2", home2_config)
+
+        store2_config = ParquetStoreConfig(
+            path=str(store_dir), batch_size=500, options={}
+        )
+        store2 = ParquetStore("flow2", store2_config)
         flow2 = Flow("flow2", home2, store2, {"queue_size": 2})
 
         await flow2.start()
@@ -269,6 +294,6 @@ class TestParquetToParquetFlow:
         assert flow1.total_rows == 1000, "First flow should have 1000 rows"
         assert flow2.total_rows == 1000, "Second flow should have 1000 rows"
 
-        # Verify output files exist
+        # Verify output files exist - ParquetStore creates subdirectory with store name
         assert len(list((store_dir / "flow1").glob("*.parquet"))) > 0
         assert len(list((store_dir / "flow2").glob("*.parquet"))) > 0

@@ -9,8 +9,8 @@ The factory pattern allows us to:
 """
 from typing import Dict, Optional, Type
 
-from ..homes.parquet import ParquetHome
-from ..stores.parquet import ParquetStore
+from ..homes import ParquetHome, ParquetHomeConfig
+from ..stores import ParquetStore, ParquetStoreConfig
 from .home import Home, HomeConfig
 from .store import Store, StoreConfig
 
@@ -29,8 +29,16 @@ class Factory:
             "parquet": ParquetHome,
         }
 
+        self._home_config_types: Dict[str, Type[HomeConfig]] = {
+            "parquet": ParquetHomeConfig,
+        }
+
         self._store_types: Dict[str, Type[Store]] = {
             "parquet": ParquetStore,
+        }
+
+        self._store_config_types: Dict[str, Type[StoreConfig]] = {
+            "parquet": ParquetStoreConfig,
         }
 
     def create_home(self, name: str, config: HomeConfig) -> Home:
@@ -79,6 +87,40 @@ class Factory:
 
         store_class = self._store_types[store_type]
         return store_class(name, config, flow_name)
+
+    def create_home_config(self, config_type: str, **kwargs) -> HomeConfig:
+        """
+        Create a HomeConfig instance of the appropriate type.
+
+        Args:
+            config_type: Type of home config to create
+            **kwargs: Configuration parameters
+
+        Returns:
+            HomeConfig instance of the appropriate type
+        """
+        if config_type not in self._home_config_types:
+            raise ValueError(f"Unsupported home config type: {config_type}")
+
+        config_class = self._home_config_types[config_type]
+        return config_class(**kwargs)
+
+    def create_store_config(self, config_type: str, **kwargs) -> StoreConfig:
+        """
+        Create a StoreConfig instance of the appropriate type.
+
+        Args:
+            config_type: Type of store config to create
+            **kwargs: Configuration parameters
+
+        Returns:
+            StoreConfig instance of the appropriate type
+        """
+        if config_type not in self._store_config_types:
+            raise ValueError(f"Unsupported store config type: {config_type}")
+
+        config_class = self._store_config_types[config_type]
+        return config_class(**kwargs)
 
     def register_home_type(self, home_type: str, home_class: Type[Home]) -> None:
         """
