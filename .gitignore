@@ -3,7 +3,7 @@
 .ruff_cache
 elk/
 config/
-starLake/
+starLake/*
 utils/
 logs/
 data/
@@ -90,5 +90,3 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/
-
-

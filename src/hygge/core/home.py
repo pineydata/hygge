@@ -1,48 +1,90 @@
 """
-Home provides a comfortable place for data to start its journey.
+Base Home class and configuration for all data homes.
+
+A Home is a data source that can provide data in batches.
+This is an abstract base class that defines the interface
+that all specific Home implementations must follow.
+
+Example:
+    ```python
+    class MyHome(Home, home_type="my_type"):
+        async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
+            # Implementation specific to your data source
+            pass
+    ```
 """
 import asyncio
-from pathlib import Path
-from typing import Any, AsyncIterator, Dict, Optional
+from abc import ABC, abstractmethod
+from typing import Any, AsyncIterator, Dict, Optional, Type, Union
 
-import polars as pl
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from hygge.utility.exceptions import HomeError
 from hygge.utility.logger import get_logger
 
 
-class Home:
+class Home(ABC):
     """
     Base class for all data homes.
 
-    A home is where data lives before starting its journey. Each home provides
-    a comfortable way to read data with built-in conveniences like:
-    - Batch reading for memory efficiency
-    - Progress tracking
-    - Error handling
+    A Home is a data source that can provide data in batches.
+    This is an abstract base class that defines the interface
+    that all specific Home implementations must follow.
+
+    Example:
+        ```python
+        class MyHome(Home, home_type="my_type"):
+            async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
+                # Implementation specific to your data source
+                pass
+        ```
     """
 
-    def __init__(
-        self,
-        name: str,
-        options: Optional[Dict[str, Any]] = None
-    ):
+    _registry: Dict[str, Type["Home"]] = {}
+
+    def __init_subclass__(cls, home_type: str = None):
+        super().__init_subclass__()
+        if home_type:
+            cls._registry[home_type] = cls
+
+    @classmethod
+    def create(cls, name: str, config: "HomeConfig") -> "Home":
+        """
+        Create a Home instance using the registry pattern.
+
+        Args:
+            name: Name for the home instance
+            config: Home configuration
+
+        Returns:
+            Home instance of the appropriate type
+
+        Raises:
+            ValueError: If home type is not registered
+        """
+        home_type = config.type
+        if home_type not in cls._registry:
+            raise ValueError(f"Unknown home type: {home_type}")
+        return cls._registry[home_type](name, config)
+
+    def __init__(self, name: str, options: Optional[Dict[str, Any]] = None):
         self.name = name
         self.options = options or {}
-        self.batch_size = self.options.get('batch_size', 10_000)
-        self.row_multiplier = self.options.get('row_multiplier', 300_000)
+        self.batch_size = self.options.get("batch_size", 10_000)
+        self.row_multiplier = self.options.get("row_multiplier", 300_000)
         self.start_time = None
         self.logger = get_logger(f"hygge.home.{self.__class__.__name__}")
 
-    async def read(self) -> AsyncIterator[pl.DataFrame]:
+    async def read(self) -> AsyncIterator[Any]:
         """
-        Read data in batches with progress tracking and error handling.
+        Read data from this home.
 
-        This is the main public interface for data access. It wraps the
-        underlying stream with:
+        This method orchestrates the reading process, including:
         - Progress tracking
         - Error handling
-        - Resource cleanup
+        - Performance logging
+
+        Yields:
+            Data batches from the underlying data source
         """
         try:
             total_rows = 0
@@ -56,56 +98,134 @@ class Home:
             self._log_completion(total_rows)
 
         except Exception as e:
-            raise HomeError(f"Failed to read from {self.name}: {str(e)}")
+            self.logger.error(f"Error reading from {self.name}: {str(e)}")
+            raise
 
-    async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
+    @abstractmethod
+    async def _get_batches(self) -> AsyncIterator[Any]:
         """
-        Get data in batches from the source.
+        Get data batches from the underlying data source.
 
-        Each home type implements its own batch reading logic with:
-        - Appropriate batch sizing
-        - Memory management
-        - Source-specific optimizations
+        This method must be implemented by subclasses to provide
+        the actual data reading logic.
+
+        Yields:
+            Data batches from the underlying data source
         """
-        raise NotImplementedError(
-            f"_get_batches() must be implemented in {self.__class__.__name__}"
-        )
+        pass
 
     def _log_progress(self, total_rows: int) -> None:
         """Log progress at regular intervals."""
         if total_rows % self.row_multiplier == 0:
-            elapsed = asyncio.get_event_loop().time() - self.start_time
-            rate = total_rows / elapsed if elapsed > 0 else 0
+            duration = asyncio.get_event_loop().time() - self.start_time
+            rate = total_rows / duration if duration > 0 else 0
             self.logger.info(
-                f"Read {total_rows:,} rows in {elapsed:.1f}s ({rate:.0f} rows/s)"
+                f"Read {total_rows:,} rows in {duration:.1f}s " f"({rate:.0f} rows/s)"
             )
 
     def _log_completion(self, total_rows: int) -> None:
-        """Log completion statistics."""
-        total_time = asyncio.get_event_loop().time() - self.start_time
-        self.logger.info(
-            f"Completed reading from {self.name}: "
-            f"{total_rows:,} total rows in {total_time:.1f}s"
-        )
+        """Log completion summary."""
+        if self.start_time:
+            duration = asyncio.get_event_loop().time() - self.start_time
+            rate = total_rows / duration if duration > 0 else 0
+            self.logger.success(
+                f"Completed reading {total_rows:,} rows in {duration:.1f}s "
+                f"({rate:.0f} rows/s)"
+            )
 
-    async def close(self) -> None:
-        """Clean up when done."""
-        pass
 
-    # Path Management
-    def get_data_path(self) -> Path:
+class HomeConfig(ABC):
+    """Base configuration for a data home."""
+
+    _registry: Dict[str, Type["HomeConfig"]] = {}
+
+    def __init_subclass__(cls, config_type: str = None):
+        super().__init_subclass__()
+        if config_type:
+            cls._registry[config_type] = cls
+            # Set default type field value
+            if hasattr(cls, "model_fields") and "type" in cls.model_fields:
+                cls.model_fields["type"].default = config_type
+
+    @classmethod
+    def create(cls, data: Union[str, Dict]) -> "HomeConfig":
         """
-        Get the primary data path for this home.
+        Create a HomeConfig instance using the registry pattern.
 
-        Each home type implements its own path resolution logic.
-        This could be a single file, directory, or connection string.
+        Args:
+            data: Configuration data (string path or dict)
 
         Returns:
-            Path: The primary data location
+            HomeConfig instance of the appropriate type
 
         Raises:
-            NotImplementedError: If not implemented by subclass
+            ValueError: If config type is not registered or data is invalid
         """
-        raise NotImplementedError(
-            f"get_data_path() must be implemented in {self.__class__.__name__}"
-        )
+        if isinstance(data, str):
+            # Simple path - assume parquet type
+            config_type = "parquet"
+            config_data = {"type": config_type, "path": data}
+        elif isinstance(data, dict):
+            config_type = data.get("type", "parquet")  # Default to parquet
+            config_data = data
+        else:
+            raise ValueError(f"Invalid config data type: {type(data)}")
+
+        if config_type not in cls._registry:
+            raise ValueError(f"Unknown home config type: {config_type}")
+
+        return cls._registry[config_type](**config_data)
+
+    @abstractmethod
+    def get_merged_options(self) -> Dict[str, Any]:
+        """Get all options including defaults."""
+        pass
+
+
+class BaseHomeConfig(BaseModel):
+    """Base configuration for a data home."""
+
+    type: str = Field(default="", description="Type of home (parquet, sql)")
+    path: Optional[str] = Field(None, description="Path to data source")
+    connection: Optional[str] = Field(None, description="Database connection string")
+    table: Optional[str] = Field(None, description="Table name for SQL homes")
+    batch_size: int = Field(
+        default=10_000, ge=1, description="Number of rows to read at once"
+    )
+    row_multiplier: int = Field(
+        default=300_000, ge=1, description="Progress logging interval"
+    )
+    options: Dict[str, Any] = Field(
+        default_factory=dict, description="Additional home-specific options"
+    )
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v):
+        """Validate home type."""
+        valid_types = ["parquet", "sql"]
+        if v not in valid_types:
+            raise ValueError(f"Home type must be one of {valid_types}, got '{v}'")
+        return v
+
+    @model_validator(mode="after")
+    def validate_required_fields(self):
+        """Validate that required fields are present based on type."""
+        if self.type == "parquet":
+            if self.path is None:  # Only fail if explicitly None, not empty string
+                raise ValueError("Path is required for parquet homes")
+        elif self.type == "sql":
+            if self.connection is None:  # Only fail if explicitly None, not empty
+                raise ValueError("Connection is required for SQL homes")
+        return self
+
+    def get_merged_options(self) -> Dict[str, Any]:
+        """Get all options including defaults."""
+        # Start with the config fields
+        options = {
+            "batch_size": self.batch_size,
+            "row_multiplier": self.row_multiplier,
+        }
+        # Add any additional options
+        options.update(self.options)
+        return options

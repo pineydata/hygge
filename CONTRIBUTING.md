@@ -87,4 +87,3 @@ git push origin feature/your-feature-name
 ## Questions?
 
 If you have questions, please open an issue or reach out to the maintainers.
-

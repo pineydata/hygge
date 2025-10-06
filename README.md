@@ -1,12 +1,14 @@
 # hygge
 
+![hygge logo](hygge.svg)
+
 A cozy, comfortable data movement framework that makes data feel at home.
 
 ## Philosophy
 
 hygge (pronounced "hoo-ga") is a Danish word representing comfort, coziness, and well-being. This framework brings those qualities to data movement:
 
-- **Comfort**: Data should feel at home wherever it lives
+- **Comfort**: You should relax while you move some tables.
 - **Simplicity**: Clean, intuitive APIs that feel natural
 - **Reliability**: Robust, predictable behavior without surprises
 - **Flow**: Smooth, efficient movement without friction
@@ -82,33 +84,27 @@ await coordinator.start()  # Everything works together
    - Explicit configuration over implicit behavior
    - Clear logging and progress tracking
 
-## Template-Driven
+## Configuration-Driven
 
-hygge uses YAML templates to define data flows:
+hygge uses YAML configuration files to define data flows:
 
 ```yaml
-homes:
-  users:
-    type: sql
-    connection: ${DB_CONNECTION}
-    options:
-      table: users
-      batch_size: 10000
-
-stores:
-  users_store:
-    type: parquet
-    path: data/users
-    options:
-      compression: snappy
-
 flows:
   users_to_parquet:
-    home: users
-    store: users_store
-    options:
-      incremental: true
+    home: data/users.parquet
+      type: parquet
+    store: data/lake/users
+      type: parquet
+    # That's it! Everything else uses smart defaults
 ```
+
+### Quick Start
+
+1. Copy a sample configuration from the `samples/` directory
+2. Update the paths to your data
+3. Run: `python -m hygge.coordinator your_config.yaml`
+
+See the `samples/` directory for working examples and the `examples/` directory for programmatic usage.
 
 ## Extensibility
 

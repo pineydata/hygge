@@ -11,6 +11,7 @@ import colorama
 # Initialize colorama for cross-platform color support
 colorama.init()
 
+
 class ColorFormatter(logging.Formatter):
     """Custom formatter with colors"""
 
@@ -28,9 +29,7 @@ class ColorFormatter(logging.Formatter):
         # Add color to levelname if it exists in our color mapping
         if record.levelname in self.COLORS:
             color = self.COLORS[record.levelname]
-            record.levelname = (
-                f"{color}{record.levelname}{colorama.Style.RESET_ALL}"
-            )
+            record.levelname = f"{color}{record.levelname}{colorama.Style.RESET_ALL}"
 
         # Add color to message for START and OK prefixes
         if hasattr(record, "color_prefix"):
@@ -39,11 +38,13 @@ class ColorFormatter(logging.Formatter):
 
         return super().format(record)
 
+
 class HyggeLogger:
     """Central logging class for hygge"""
 
     class Style:
         """ANSI color codes for paths"""
+
         CYAN = colorama.Fore.CYAN
         GREEN = colorama.Fore.GREEN
         YELLOW = colorama.Fore.YELLOW
@@ -75,7 +76,7 @@ class HyggeLogger:
 
             # File handler
             log_file = log_dir / "hygge.log"
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
+            file_handler = logging.FileHandler(log_file, encoding="utf-8")
             file_handler.setLevel(logging.DEBUG)
             file_formatter = logging.Formatter(
                 "%(asctime)s  %(message)s", datefmt="%H:%M:%S"
@@ -131,6 +132,7 @@ class HyggeLogger:
         if not color:
             color = self.style.CYAN
         return f"{color}{path}{self.style.RESET}"
+
 
 def get_logger(name: str) -> HyggeLogger:
     """Get a configured logger instance."""
