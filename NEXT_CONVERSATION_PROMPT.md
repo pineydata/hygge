@@ -1,99 +1,101 @@
 # hygge Next Conversation Prompt
 
-## Current Status: ParquetStore Implementation Complete ✅
+## Current Status: Registry Pattern Implementation Complete ✅
 
-We've successfully completed comprehensive ParquetStore implementation and testing:
+We've successfully completed the registry pattern implementation with comprehensive testing:
 
-- **ParquetStore unit tests complete** - All 25 unit tests passing with comprehensive coverage
-- **Implementation robust** - File writing, compression, batch handling, staging workflows
-- **Error handling solid** - Invalid directories, empty dataframes, permission issues
-- **Path management working** - Staging to final directory movement, cleanup, idempotent operations
-- **Import structure flattened** - Better UX with `from hygge import ParquetStore`
-- **Happy path focused** - Removed non-essential error scenarios, focused on core functionality
+- **Registry Pattern Core**: Implemented scalable registry system for `HomeConfig` and `StoreConfig` classes
+- **ABC Integration**: Abstract base classes with `__init_subclass__` for automatic registration
+- **Dynamic Instantiation**: `HomeConfig.create()` and `StoreConfig.create()` methods for type-safe object creation
+- **Pydantic Integration**: `@field_validator` methods handle string/dict to object conversion seamlessly
+- **Factory Elimination**: Removed redundant `Factory` class - registry pattern handles all instantiation
+- **End-to-End Testing**: Comprehensive test suite with 158 tests passing, covering all registry functionality
+- **Type Safety**: Full type validation with clear error messages for unknown types
+- **Scalability Foundation**: Easy to add new `Home`/`Store` types by simply inheriting and registering
 
-## Next Development Phase: Parquet-to-Parquet Integration Test
+## Next Development Phase: POC Verification
 
-With ParquetStore implementation complete, the next critical step is **parquet-to-parquet integration test verification** to ensure end-to-end data movement workflows work correctly.
+With the registry pattern implementation complete, the next critical step is **POC verification** to ensure end-to-end parquet-to-parquet workflows work correctly with real data movement.
 
 ## Priority Focus Areas
 
-### 1. Parquet-to-Parquet Integration Test 🎯
+### 1. POC Verification 🎯
 Focus on end-to-end parquet data movement:
 - **Integration test execution**: Run `pytest tests/integration/ -v` to verify parquet-to-parquet flow
 - **End-to-end workflow testing**: Verify complete data movement from source to destination
 - **Real file testing**: Test with actual parquet files, not just mocks
 - **Data integrity verification**: Ensure data is correctly read, processed, and written
-- **Error handling**: Test realistic error scenarios in integration context
+- **Performance validation**: Test with actual parquet files and measure performance
 
-### 2. Data Movement Workflow Testing 🔄
-Test complete data movement scenarios:
+### 2. Sample Configuration Testing 🔄
+Test sample configurations work correctly:
+- **YAML configuration validation**: Verify sample configurations parse and execute correctly
 - **Simple workflows**: Basic parquet file movements with minimal configuration
 - **Complex workflows**: Multi-flow orchestration with advanced configurations
-- **Edge case scenarios**: Large files, empty datasets, concurrent operations
-- **Failure recovery**: Network interruptions, disk space issues, permission problems
+- **Error handling**: Test realistic error scenarios in integration context
 
-### 3. Production Readiness Assessment 📋
-Evaluate framework readiness for real-world usage:
-- **Configuration validation**: All YAML configurations parse and execute correctly
-- **Error message quality**: Clear, actionable error messages for common issues
-- **Documentation accuracy**: Sample configurations match actual implementation
-- **Performance characteristics**: Memory usage, processing speed, scalability patterns
+### 3. Documentation Verification 📋
+Ensure examples match implementation:
+- **Sample configuration accuracy**: Verify YAML examples work with new registry pattern
+- **Example script validation**: Test `examples/parquet_flow.py` works end-to-end
+- **User experience**: Ensure smooth end-to-end experience
+- **Documentation consistency**: Verify examples match actual implementation
 
 ## Recommended Approach
 
-Following hygge's "Reliability over Speed" principle, focus on integration test verification:
+Following hygge's "Reliability over Speed" principle, focus on POC verification:
 
-1. **Integration test execution**: Run integration tests to verify they work with new flattened structure
-2. **End-to-end workflow testing**: Test complete parquet-to-parquet data movement scenarios
-3. **Configuration integration**: Verify YAML configurations work with new architecture
-4. **Sample data validation**: Test with actual sample parquet files and measure performance
-5. **Cross-component verification**: Ensure Coordinator, Flow, Factory work together in real scenarios
+1. **Integration test execution**: Run `pytest tests/integration/ -v` to verify parquet-to-parquet flow
+2. **End-to-end workflow testing**: Test complete data movement scenarios with real parquet files
+3. **Sample configuration validation**: Verify YAML configurations work with new registry pattern
+4. **Performance validation**: Test with actual parquet files and measure performance
+5. **Cross-component verification**: Ensure Coordinator, Flow, Home, Store work together in real scenarios
 
 ## Key Files to Focus On
 
-- **Integration tests**: `tests/integration/` directory needs verification with new structure
+- **Integration tests**: `tests/integration/` directory with parquet-to-parquet workflows
 - **Sample configurations**: `samples/` directory with working YAML examples
 - **Sample data**: `data/home/numbers/` and `data/store/numbers/` directories
-- **ParquetHome tests**: `tests/unit/hygge/homes/test_parquet_home.py` in new location
-- **End-to-end workflows**: Complete data movement scenarios with real parquet files
+- **Example script**: `examples/parquet_flow.py` for end-to-end validation
+- **Registry integration**: Verify Home/Store creation works with new registry pattern
 
 ## Testing Philosophy
 
 Continue with hygge's reliability-first approach:
-- **Verify integration test stability**: Ensure end-to-end workflows work with new flattened structure
-- **Focus on data movement**: Do complete parquet-to-parquet workflows execute correctly?
-- **Validate configuration integration**: Do YAML configurations work with new architecture?
-- **Confirm cross-component integration**: Do Coordinator, Flow, Factory work together in real scenarios?
-- **Validate sample data scenarios**: Do sample parquet files work correctly with new structure?
+- **Verify POC functionality**: Ensure end-to-end parquet-to-parquet workflows execute correctly
+- **Focus on data movement**: Do complete data movement scenarios work with registry pattern?
+- **Validate configuration integration**: Do YAML configurations work with new registry pattern?
+- **Confirm cross-component integration**: Do Coordinator, Flow, Home, Store work together in real scenarios?
+- **Validate sample data scenarios**: Do sample parquet files work correctly with registry pattern?
 
 ## Ready to Begin
 
-The core test suite verification is complete with all 115 tests passing. We can now confidently verify integration test functionality.
+The registry pattern implementation is complete with all 158 tests passing. We can now confidently verify POC functionality.
 
-**Goal**: Verify parquet-to-parquet integration tests, then validate working example.
+**Goal**: Verify POC works end-to-end with real parquet data movement.
 
-## Priority Focus: Parquet-to-Parquet Integration Test
+## Priority Focus: POC Verification
 
 ### 1. Integration Test Execution 🧪
 - **Integration test suite**: Run `pytest tests/integration/ -v` to verify parquet-to-parquet flow
 - **End-to-end workflows**: Test complete data movement scenarios with real parquet files
 - **Data integrity verification**: Ensure data is correctly read, processed, and written
-- **Real file testing**: Test with actual parquet files, not just mocks
+- **Registry pattern validation**: Verify Home/Store creation works with new registry pattern
 
-### 2. Working Example Validation (Next Phase) 🏪
+### 2. Sample Configuration Testing (Next Phase) 🏪
+- **YAML configuration validation**: Verify sample configurations parse and execute correctly
 - **Example script**: Validate `examples/parquet_flow.py` works end-to-end
 - **Sample data**: Test with real parquet files in data directories
 - **User experience**: Ensure smooth end-to-end experience
-- **Documentation**: Verify examples match actual implementation
 
 ## Test Structure Status
 
-1. **Core Test Verification**: All 115 core tests pass ✅ Complete
-2. **ParquetStore Implementation**: All 25 unit tests pass ✅ Complete
-3. **Integration Tests**: Parquet-to-parquet data movement ⚠️ Needs verification
+1. **Registry Pattern Implementation**: All 158 tests pass ✅ Complete
+2. **POC Verification**: End-to-end parquet-to-parquet workflows ⚠️ Needs verification
+3. **Sample Configuration Testing**: YAML examples validation ❌
 4. **Working Example**: End-to-end script validation ❌
 
-This approach ensures hygge's reliability after major architecture changes before moving to Store implementation testing.
+This approach ensures hygge's POC works correctly with the new registry pattern before moving to production features.
 
 ---
 

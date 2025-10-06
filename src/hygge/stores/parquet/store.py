@@ -68,15 +68,36 @@ class ParquetStore(Store, store_type="parquet"):
 
     def get_staging_directory(self) -> Path:
         """Get the staging directory for temporary storage."""
-        return self.base_path / "tmp" / self.name
+        # Create tmp at the same level as base_path, not nested under it
+        return self.base_path.parent / "tmp" / self.name
 
     def get_final_directory(self) -> Path:
         """Get the final directory for permanent storage."""
-        return self.base_path / self.name
+        return self.base_path
 
     async def get_next_filename(self) -> str:
         """Generate the next filename using pattern."""
         self.sequence_counter += 1
+
+        # Check for existing files and continue from highest sequence number
+        final_dir = self.get_final_directory()
+        if final_dir.exists():
+            existing_files = list(final_dir.glob("*.parquet"))
+            if existing_files:
+                # Extract sequence numbers from existing files
+                max_sequence = 0
+                for file in existing_files:
+                    try:
+                        filename = file.stem
+                        sequence = int(filename)
+                        max_sequence = max(max_sequence, sequence)
+                    except ValueError:
+                        # Skip files that don't match the sequence pattern
+                        continue
+
+                # Start from the next sequence number
+                self.sequence_counter = max_sequence + 1
+
         return self.file_pattern.format(name=self.name, sequence=self.sequence_counter)
 
     async def _save(self, df: pl.DataFrame, staging_path: str) -> None:
