@@ -127,8 +127,8 @@ class TestParquetToParquetFlow:
         await flow.start()
 
         # Then verify data integrity
-        # ParquetStore creates subdirectory with store name
-        store_path = Path(store_config["path"]) / store_config["name"]
+        # ParquetStore now writes directly to base path (no subdirectory)
+        store_path = Path(store_config["path"])
         output_files = list(store_path.glob("*.parquet"))
 
         # Should have created output files
@@ -294,6 +294,6 @@ class TestParquetToParquetFlow:
         assert flow1.total_rows == 1000, "First flow should have 1000 rows"
         assert flow2.total_rows == 1000, "Second flow should have 1000 rows"
 
-        # Verify output files exist - ParquetStore creates subdirectory with store name
-        assert len(list((store_dir / "flow1").glob("*.parquet"))) > 0
-        assert len(list((store_dir / "flow2").glob("*.parquet"))) > 0
+        # Verify output files exist - ParquetStore writes directly to base path
+        assert len(list(store_dir.glob("*.parquet"))) > 0
+        assert len(list(store_dir.glob("*.parquet"))) > 0

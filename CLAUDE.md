@@ -128,8 +128,12 @@ src/hygge/core/
 ```yaml
 flows:
   users_to_parquet:
-    home: data/users.parquet
-    store: data/lake/users
+    home:
+      type: parquet
+      path: data/users.parquet
+    store:
+      type: parquet
+      path: data/lake/users
     # That's it! Everything else uses smart defaults
 ```
 
