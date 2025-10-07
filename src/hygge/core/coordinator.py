@@ -50,7 +50,11 @@ class Coordinator:
         self.config = None
         self.flows: List[Flow] = []
         self.options: Dict[str, Any] = {}
+        self.project_config: Dict[str, Any] = {}
         self.logger = get_logger("hygge.coordinator")
+
+        # Load project config if we found hygge.yml
+        self._load_project_config()
 
         # No longer need Factory - using registry pattern directly
 
@@ -78,6 +82,21 @@ To get started, run:
 """
         raise ConfigError(error_msg)
 
+    def _load_project_config(self) -> None:
+        """Load project configuration from hygge.yml."""
+        if self.config_path.name == "hygge.yml":
+            # We found hygge.yml, load project config
+            with open(self.config_path, "r") as f:
+                raw_config = yaml.safe_load(f)
+                self.project_config = raw_config or {}
+
+            project_name = self.project_config.get("name", "unnamed")
+            self.logger.info(f"Loaded project config: {project_name}")
+            self.logger.debug(f"Raw project config: {raw_config}")
+        else:
+            # Legacy mode - no project config
+            self.project_config = {}
+
     async def run(self) -> None:
         """Run all configured flows."""
         self.logger.info(f"Starting coordinator with config: {self.config_path}")
@@ -95,10 +114,14 @@ To get started, run:
         """Load and validate configuration from file or directory."""
         try:
             if self.config_path.is_file():
-                # Single file configuration (legacy)
-                self._load_single_file_config()
+                if self.config_path.name == "hygge.yml":
+                    # Project-centric mode - load flows from flows/ directory
+                    self._load_project_flows()
+                else:
+                    # Single file configuration (legacy)
+                    self._load_single_file_config()
             elif self.config_path.is_dir():
-                # Directory-based configuration (new progressive approach)
+                # Directory-based configuration (legacy progressive approach)
                 self._load_directory_config()
             else:
                 raise ConfigError(
@@ -107,6 +130,77 @@ To get started, run:
 
         except Exception as e:
             raise ConfigError(f"Failed to load configuration: {str(e)}")
+
+    def _load_project_flows(self) -> None:
+        """Load flows from flows/ directory in project-centric mode."""
+        # Get flows directory from project config
+        flows_dir_name = self.project_config.get("flows_dir", "flows")
+        flows_dir = self.config_path.parent / flows_dir_name
+
+        self.logger.debug(f"Looking for flows in: {flows_dir}")
+        self.logger.debug(f"Project config: {self.project_config}")
+
+        if not flows_dir.exists():
+            raise ConfigError(f"Flows directory not found: {flows_dir}")
+
+        flows = {}
+
+        # Look for flow directories
+        for flow_dir in flows_dir.iterdir():
+            self.logger.debug(f"Checking directory: {flow_dir}")
+            if flow_dir.is_dir() and (flow_dir / "flow.yml").exists():
+                flow_name = flow_dir.name
+                try:
+                    # Load flow config
+                    flow_config = self._load_flow_config(flow_dir)
+                    flows[flow_name] = flow_config
+                    self.logger.debug(f"Loaded flow: {flow_name}")
+                except Exception as e:
+                    self.logger.error(f"Failed to load flow {flow_name}: {str(e)}")
+                    raise ConfigError(f"Failed to load flow {flow_name}: {str(e)}")
+
+        if not flows:
+            raise ConfigError(f"No flows found in directory: {flows_dir}")
+
+        # Create coordinator config
+        self.config = CoordinatorConfig(flows=flows)
+
+        # Load global options from project config
+        self.options = self.project_config.get("options", {})
+
+        self.logger.info(
+            f"Loaded project flows with {len(flows)} flows from {flows_dir}"
+        )
+
+    def _load_flow_config(self, flow_dir: Path) -> FlowConfig:
+        """Load flow configuration from flow directory."""
+        flow_file = flow_dir / "flow.yml"
+        with open(flow_file, "r") as f:
+            flow_data = yaml.safe_load(f)
+
+        # Load entities if they exist
+        entities_dir = flow_dir / "entities"
+        if entities_dir.exists():
+            entities = self._load_entities(entities_dir, flow_data.get("defaults", {}))
+            flow_data["entities"] = entities
+
+        return FlowConfig(**flow_data)
+
+    def _load_entities(
+        self, entities_dir: Path, defaults: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Load entity definitions from entities directory."""
+        entities = []
+
+        for entity_file in entities_dir.glob("*.yml"):
+            with open(entity_file, "r") as f:
+                entity_data = yaml.safe_load(f)
+
+            # Merge with defaults
+            entity_data = {**defaults, **entity_data}
+            entities.append(entity_data)
+
+        return entities
 
     def _load_single_file_config(self) -> None:
         """Load configuration from single YAML file (legacy approach)."""

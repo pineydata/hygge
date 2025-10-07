@@ -9,7 +9,7 @@ hygge is built on Polars + PyArrow for data movement.
 Flows orchestrate the movement of Polars DataFrames from Home to Store.
 """
 import asyncio
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -245,6 +245,9 @@ class FlowConfig(BaseModel):
     timeout: int = Field(default=300, ge=1, description="Operation timeout in seconds")
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional flow options"
+    )
+    entities: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Entity definitions for this flow"
     )
 
     @field_validator("home", mode="before")
