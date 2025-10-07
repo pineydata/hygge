@@ -10,7 +10,7 @@ Home and Store instantiation is delegated to Flow.
 """
 import asyncio
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -41,7 +41,11 @@ class Coordinator:
     - Handles flow-level error management
     """
 
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: Optional[str] = None):
+        if config_path is None:
+            # Project discovery mode - look for hygge.yml
+            config_path = self._find_project_config()
+
         self.config_path = Path(config_path)
         self.config = None
         self.flows: List[Flow] = []
@@ -49,6 +53,30 @@ class Coordinator:
         self.logger = get_logger("hygge.coordinator")
 
         # No longer need Factory - using registry pattern directly
+
+    def _find_project_config(self) -> str:
+        """Look for hygge.yml in current directory and parents."""
+        current = Path.cwd()
+        searched_paths = []
+
+        while current != current.parent:
+            project_file = current / "hygge.yml"
+            searched_paths.append(str(project_file))
+            if project_file.exists():
+                return str(project_file)
+            current = current.parent
+
+        # dbt-style error message
+        error_msg = f"""
+No hygge.yml found in current path: {Path.cwd()}
+
+Searched locations:
+{chr(10).join(f"  - {path}" for path in searched_paths)}
+
+To get started, run:
+  hej init
+"""
+        raise ConfigError(error_msg)
 
     async def run(self) -> None:
         """Run all configured flows."""
