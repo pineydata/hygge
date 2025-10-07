@@ -128,7 +128,7 @@ source_config:
 
     entity_file = entities_dir / "users.yml"
     entity_file.write_text(entity_content)
-    click.echo("✅ Created example entity: {}".format(entity_file))
+    click.echo(f"✅ Created example entity: {entity_file}")
 
     click.echo("\n🎉 hygge project initialized successfully!")
     click.echo("\nNext steps:")
