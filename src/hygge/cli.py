@@ -79,7 +79,7 @@ options:
 """
 
     hygge_file.write_text(hygge_content)
-    click.echo("✅ Created hygge.yml for project '{}'".format(project_name))
+    click.echo(f"✅ Created hygge.yml for project '{project_name}'")
 
     # Create flows directory
     flows_path = current_dir / flows_dir
