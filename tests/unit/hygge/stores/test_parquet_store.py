@@ -110,9 +110,9 @@ class TestParquetStoreInitialization:
         assert staging_dir.exists()
         assert final_dir.exists()
 
-        # Should have correct structure
-        assert staging_dir == temp_store_dir / "tmp" / "test_store"
-        assert final_dir == temp_store_dir / "test_store"
+        # Should have correct structure (new: tmp at output level, final at base path)
+        assert staging_dir == temp_store_dir.parent / "tmp" / "test_store"
+        assert final_dir == temp_store_dir
 
 
 class TestParquetStorePathManagement:
@@ -124,7 +124,7 @@ class TestParquetStorePathManagement:
         store = ParquetStore("test_store", config)
 
         staging_dir = store.get_staging_directory()
-        expected = temp_store_dir / "tmp" / "test_store"
+        expected = temp_store_dir.parent / "tmp" / "test_store"
 
         assert staging_dir == expected
         assert staging_dir.exists()
@@ -135,7 +135,7 @@ class TestParquetStorePathManagement:
         store = ParquetStore("test_store", config)
 
         final_dir = store.get_final_directory()
-        expected = temp_store_dir / "test_store"
+        expected = temp_store_dir
 
         assert final_dir == expected
         assert final_dir.exists()

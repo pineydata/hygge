@@ -1,6 +1,6 @@
-# Contributing to ELK
+# Contributing to hygge
 
-Thank you for your interest in contributing to ELK! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to hygge! This document provides guidelines for making hygge even more comfortable and reliable.
 
 ## Development Setup
 
@@ -11,8 +11,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 
 2. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/elk.git
-cd elk
+git clone https://github.com/pineydata/hygge.git
+cd hygge
 ```
 
 3. Create a virtual environment and install dependencies:
@@ -28,13 +28,13 @@ uv pip install -e ".[dev]"
 git checkout -b feature/your-feature-name
 ```
 
-2. Make your changes, following our coding standards:
-- Use type hints
-- Follow PEP 8 style guide
-- Add docstrings for new functions and classes
-- Add tests for new functionality
+2. Make your changes, following hygge's philosophy:
+- **Comfort**: APIs should feel natural and intuitive
+- **Simplicity**: Clean, clear code over complex optimizations
+- **Reliability**: Robust, predictable behavior
+- **Flow**: Smooth, efficient implementation
 
-3. Run tests:
+3. Write tests immediately after implementing functionality:
 ```bash
 pytest
 ```
@@ -61,20 +61,23 @@ git push origin feature/your-feature-name
 - Maximum line length is 88 characters
 - Use type hints for all function arguments and return values
 - Follow Google style for docstrings
+- **Prioritize comfort and clarity** over cleverness
 
-## Testing
+## Testing Philosophy
 
-- Write unit tests for new functionality
-- Write integration tests for new features
-- Ensure all tests pass before submitting a pull request
-- Maintain or improve code coverage
+- **Focus on behavior that matters**: Test user experience and data integrity
+- **Verify defaults "just work"**: Ensure smart defaults function correctly
+- **Test the happy path first**: Ensure basic functionality works before edge cases
+- **Test error scenarios**: Verify graceful failure handling
+- **Integration over unit tests**: Focus on end-to-end behavior that users care about
 
 ## Documentation
 
 - Update documentation for new features
 - Include docstrings for new functions and classes
 - Update README.md if necessary
-- Add examples for new features
+- Add examples that demonstrate comfort and simplicity
+- **Focus on user experience**: Does this make data movement more comfortable?
 
 ## Pull Request Process
 
@@ -84,6 +87,14 @@ git push origin feature/your-feature-name
 4. Request review from maintainers
 5. Address review comments
 
+## hygge's Core Question
+
+Before submitting any changes, ask yourself:
+- **Does this make data movement more comfortable?**
+- **Does this feel natural and intuitive?**
+- **Does this maintain hygge's reliability?**
+- **Does this keep data flowing smoothly?**
+
 ## Questions?
 
-If you have questions, please open an issue or reach out to the maintainers.
+If you have questions, please open an issue or reach out to the maintainers. We're here to help make hygge even more comfortable!

@@ -84,17 +84,19 @@ await coordinator.start()  # Everything works together
    - Explicit configuration over implicit behavior
    - Clear logging and progress tracking
 
-## Configuration-Driven
+## Simple, Comfortable Configuration
 
-hygge uses YAML configuration files to define data flows:
+hygge makes data movement feel natural with simple YAML configuration:
 
 ```yaml
 flows:
   users_to_parquet:
-    home: data/users.parquet
+    home:
       type: parquet
-    store: data/lake/users
+      path: data/users.parquet
+    store:
       type: parquet
+      path: data/lake/users
     # That's it! Everything else uses smart defaults
 ```
 
@@ -108,19 +110,23 @@ See the `samples/` directory for working examples and the `examples/` directory 
 
 ## Extensibility
 
-Adding new homes and stores is comfortable:
+Adding new homes and stores feels natural and comfortable:
 
 ```python
 class MyHome(Home):
     """A cozy new home for data."""
     async def read_batches(self):
         # Implement your reading logic
+        pass
 
 class MyStore(Store):
     """A cozy new store for data."""
     async def write(self, df):
         # Implement your writing logic
+        pass
 ```
+
+hygge automatically discovers and registers your custom implementations, making them available in your configurations just like the built-in types.
 
 ## Development Philosophy
 
