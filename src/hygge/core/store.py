@@ -53,7 +53,11 @@ class Store(ABC):
 
     @classmethod
     def create(
-        cls, name: str, config: "StoreConfig", flow_name: Optional[str] = None
+        cls,
+        name: str,
+        config: "StoreConfig",
+        flow_name: Optional[str] = None,
+        entity_name: Optional[str] = None,
     ) -> "Store":
         """
         Create a Store instance using the registry pattern.
@@ -62,6 +66,7 @@ class Store(ABC):
             name: Name for the store instance
             config: Store configuration
             flow_name: Optional flow name for file naming patterns
+            entity_name: Optional entity name for subdirectory organization
 
         Returns:
             Store instance of the appropriate type
@@ -72,7 +77,14 @@ class Store(ABC):
         store_type = config.type
         if store_type not in cls._registry:
             raise ValueError(f"Unknown store type: {store_type}")
-        return cls._registry[store_type](name, config, flow_name)
+
+        # Try to pass entity_name if the store constructor accepts it
+        store_class = cls._registry[store_type]
+        try:
+            return store_class(name, config, flow_name, entity_name)
+        except TypeError:
+            # Fallback for stores that don't support entity_name yet
+            return store_class(name, config, flow_name)
 
     def __init__(self, name: str, options: Optional[Dict[str, Any]] = None):
         self.name = name

@@ -2,7 +2,7 @@
 Parquet file home implementation.
 """
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict
+from typing import Any, AsyncIterator, Dict, Optional
 
 import polars as pl
 from pydantic import Field, field_validator
@@ -30,13 +30,21 @@ class ParquetHome(Home, home_type="parquet"):
         ```
     """
 
-    def __init__(self, name: str, config: "ParquetHomeConfig"):
+    def __init__(
+        self, name: str, config: "ParquetHomeConfig", entity_name: Optional[str] = None
+    ):
         # Get merged options from config
         merged_options = config.get_merged_options()
 
         super().__init__(name, merged_options)
         self.config = config
-        self.data_path = Path(config.path)
+        self.entity_name = entity_name
+
+        # If entity_name provided, append to base path
+        if entity_name:
+            self.data_path = Path(config.path) / entity_name
+        else:
+            self.data_path = Path(config.path)
 
     def get_data_path(self) -> Path:
         """Get the primary data path for this parquet home."""
@@ -44,60 +52,75 @@ class ParquetHome(Home, home_type="parquet"):
 
     def get_batch_paths(self) -> list[Path]:
         """
-        Get all available data paths for batch processing.
+        Get list of parquet files that will be read.
 
-        For parquet files, this could be a single file or a directory of files.
+        This is a convenience method for inspection. The actual reading
+        delegates to Polars which handles all path types intelligently.
+
+        Returns:
+            List of Path objects to parquet files
         """
+        # Verify path exists
+        if not self.data_path.exists():
+            raise HomeError(f"Path does not exist: {self.data_path}")
+
+        # If it's a file, return it
         if self.data_path.is_file():
             return [self.data_path]
-        elif self.data_path.is_dir():
-            # Find all parquet files in the directory
-            parquet_files = sorted(self.data_path.glob("*.parquet"))
+
+        # If it's a directory, find all parquet files (including in subdirectories)
+        if self.data_path.is_dir():
+            # Look for .parquet files recursively
+            parquet_files = sorted(self.data_path.rglob("*.parquet"))
             if not parquet_files:
                 raise HomeError(
                     f"No parquet files found in directory: {self.data_path}"
                 )
             return parquet_files
-        else:
-            raise HomeError(
-                f"Data path is neither file nor directory: {self.data_path}"
-            )
+
+        raise HomeError(f"Path is neither file nor directory: {self.data_path}")
 
     async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
-        """Get data iterator for parquet file(s)."""
+        """
+        Get data iterator for parquet file(s).
+
+        Handles:
+        - Single .parquet files
+        - Parquet dataset directories (with or without .parquet extension)
+        - Partitioned parquet datasets
+        - Directories containing multiple parquet files
+
+        Relies on Polars' scan_parquet() to handle path detection.
+        """
         try:
-            paths = self.get_batch_paths()
             batch_size = self.options.get("batch_size", 10_000)
-            self.logger.debug(f"Read from {self.name} at {len(paths)} path(s)")
 
-            for path in paths:
-                self.logger.debug(f"Processing parquet file: {path}")
+            # Let Polars handle path detection - it's smarter than us!
+            # Polars can handle: files, directories, datasets, partitions
+            self.logger.debug(f"Reading parquet from: {self.data_path}")
 
-                # Use polars' streaming capabilities with batching
-                lf = pl.scan_parquet(path)
+            # Polars' scan_parquet handles both files and directories
+            lf = pl.scan_parquet(self.data_path)
 
-                # Get total rows to determine number of batches
-                total_rows = lf.select(pl.len()).collect().item()
+            # Get total rows to determine number of batches
+            total_rows = lf.select(pl.len()).collect().item()
 
-                if total_rows == 0:
-                    continue
+            if total_rows == 0:
+                self.logger.warning(f"No data found in {self.data_path}")
+                return
 
-                # Calculate number of batches needed
-                num_batches = (total_rows + batch_size - 1) // batch_size
-                self.logger.debug(
-                    f"File has {total_rows} rows, will create {num_batches} batches"
-                )
+            # Calculate number of batches needed
+            num_batches = (total_rows + batch_size - 1) // batch_size
+            self.logger.debug(f"{total_rows:,} rows, running {num_batches} batches")
 
-                # Yield data in batches
-                for batch_idx in range(num_batches):
-                    offset = batch_idx * batch_size
-                    batch_df = lf.slice(offset, batch_size).collect(engine="streaming")
+            # Yield data in batches
+            for batch_idx in range(num_batches):
+                offset = batch_idx * batch_size
+                batch_df = lf.slice(offset, batch_size).collect(engine="streaming")
 
-                    if len(batch_df) > 0:
-                        self.logger.debug(
-                            f"Yielding batch {batch_idx + 1}/{num_batches}"
-                        )
-                        yield batch_df
+                if len(batch_df) > 0:
+                    self.logger.debug(f"Yielding batch {batch_idx + 1})")
+                    yield batch_df
 
         except Exception as e:
             raise HomeError(f"Failed to read parquet from {self.data_path}: {str(e)}")

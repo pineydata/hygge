@@ -60,7 +60,12 @@ class Flow:
         self.batches_processed = 0
         self.start_time = None
 
+        # Set up flow-scoped logging
         self.logger = get_logger(f"hygge.flow.{name}")
+
+        # Assign child loggers to home and store for clear log attribution
+        self.home.logger = get_logger(f"hygge.flow.{name}.home")
+        self.store.logger = get_logger(f"hygge.flow.{name}.store")
 
     async def start(self) -> None:
         """Start the flow from Home to Store."""

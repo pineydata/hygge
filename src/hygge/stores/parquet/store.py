@@ -36,14 +36,24 @@ class ParquetStore(Store, store_type="parquet"):
     """
 
     def __init__(
-        self, name: str, config: "ParquetStoreConfig", flow_name: Optional[str] = None
+        self,
+        name: str,
+        config: "ParquetStoreConfig",
+        flow_name: Optional[str] = None,
+        entity_name: Optional[str] = None,
     ):
         # Get merged options from config (with flow_name for file_pattern)
         merged_options = config.get_merged_options(flow_name or name)
 
         super().__init__(name, merged_options)
         self.config = config
-        self.base_path = Path(config.path)
+        self.entity_name = entity_name
+
+        # If entity_name provided, append to base path
+        if entity_name:
+            self.base_path = Path(config.path) / entity_name
+        else:
+            self.base_path = Path(config.path)
 
         self.file_pattern = self.options.get("file_pattern")
         self.compression = self.options.get("compression")

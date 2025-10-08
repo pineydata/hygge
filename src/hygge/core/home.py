@@ -51,13 +51,16 @@ class Home(ABC):
             cls._registry[home_type] = cls
 
     @classmethod
-    def create(cls, name: str, config: "HomeConfig") -> "Home":
+    def create(
+        cls, name: str, config: "HomeConfig", entity_name: Optional[str] = None
+    ) -> "Home":
         """
         Create a Home instance using the registry pattern.
 
         Args:
             name: Name for the home instance
             config: Home configuration
+            entity_name: Optional entity name for subdirectory organization
 
         Returns:
             Home instance of the appropriate type
@@ -68,7 +71,14 @@ class Home(ABC):
         home_type = config.type
         if home_type not in cls._registry:
             raise ValueError(f"Unknown home type: {home_type}")
-        return cls._registry[home_type](name, config)
+
+        # Try to pass entity_name if the home constructor accepts it
+        home_class = cls._registry[home_type]
+        try:
+            return home_class(name, config, entity_name)
+        except TypeError:
+            # Fallback for homes that don't support entity_name yet
+            return home_class(name, config)
 
     def __init__(self, name: str, options: Optional[Dict[str, Any]] = None):
         self.name = name
