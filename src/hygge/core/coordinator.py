@@ -75,7 +75,7 @@ class Coordinator:
 No hygge.yml found in current path: {Path.cwd()}
 
 Searched locations:
-{chr(144).join(f"  - {path}" for path in searched_paths)}
+{chr(10).join(f"  - {path}" for path in searched_paths)}
 
 To get started, run:
   hygge init <project_name>
