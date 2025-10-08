@@ -63,6 +63,40 @@ git push origin feature/your-feature-name
 - Follow Google style for docstrings
 - **Prioritize comfort and clarity** over cleverness
 
+## Registry Pattern
+
+hygge uses a registry pattern for home and store implementations. When adding new implementations:
+
+### Adding New Home/Store Types
+
+1. **Create your implementation** following the existing patterns:
+   ```python
+   # src/hygge/homes/sql/home.py
+   class SqlHome(Home, home_type="sql"):
+       # Implementation here
+
+   class SqlHomeConfig(HomeConfig, BaseHomeConfig, config_type="sql"):
+       # Configuration here
+   ```
+
+2. **Register in the main module** by adding imports to `src/hygge/__init__.py`:
+   ```python
+   # Add to the registry imports section
+   from .homes.sql import SqlHome, SqlHomeConfig  # noqa: F401
+   from .stores.s3 import S3Store, S3StoreConfig  # noqa: F401
+   ```
+
+3. **The registry pattern handles the rest** - your implementation will be automatically available via `Home.create()` and `Store.create()`.
+
+### Why This Pattern?
+
+- **Comfort**: Framework handles its own initialization
+- **Convention**: One place for all registrations
+- **Clarity**: Dependencies are explicit and in the right place
+- **Reliability**: Registry is always initialized when hygge is imported
+
+See `src/hygge/__init__.py` for detailed comments about the registry initialization.
+
 ## Testing Philosophy
 
 - **Focus on behavior that matters**: Test user experience and data integrity

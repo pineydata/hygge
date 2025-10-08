@@ -12,11 +12,7 @@ from typing import Optional
 
 import click
 
-from hygge.core.coordinator import Coordinator
-
-# Import implementations to register them
-from hygge.homes import ParquetHome, ParquetHomeConfig  # noqa: F401
-from hygge.stores import ParquetStore, ParquetStoreConfig  # noqa: F401
+from hygge import Coordinator
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 
