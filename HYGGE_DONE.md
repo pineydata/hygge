@@ -8,6 +8,29 @@
 
 ## 🎉 Completed Work
 
+### Polars + PyArrow Commitment - The Omakase Choice ✅
+*Date: October 8, 2025*
+
+- **Firm Technology Commitment**: hygge is now **built on Polars + PyArrow** - this is the foundation, not a suggestion
+- **Type System Overhaul**: Changed all base classes from `Any` to `pl.DataFrame`
+  - `Home._get_batches()` → `AsyncIterator[pl.DataFrame]`
+  - `Store.write()` → accepts `pl.DataFrame`
+  - `Store._save()` → accepts `pl.DataFrame`
+  - `Store._combine_buffered_data()` → returns `pl.DataFrame`
+- **Removed Lazy Imports**: Polars imported at top of all core files, not lazily
+- **Documentation Updates**:
+  - README.md emphasizes Polars + PyArrow as core technology
+  - CLAUDE.md documents the commitment with rationale
+  - Code docstrings explicitly reference Polars DataFrames
+- **Requirements Clarity**: Added SQLAlchemy for future SQL homes, emphasized Polars as foundation
+- **Rails Philosophy Applied**: "Omakase" principle - we chose the best tool and committed to it
+- **Strategic Decision**: Evaluated DuckDB (can't connect to MS SQL Server), chose Polars for E-L workflows
+- **No More Hedging**: Removed generic abstractions that kept the door open for other frameworks
+- **Zero Linter Errors**: All changes pass type checking
+- **Test Compatibility**: Existing 163 tests already use Polars, no breaking changes
+
+**Why this matters**: This is hygge's "Rails chose REST" moment. We're not trying to support everything - we picked the best tool for data movement and made it comfortable. Polars + PyArrow provides optimal performance, developer experience, and database compatibility for extract-and-load workflows.
+
 ### Parquet-to-Parquet Example Implementation Complete ✅
 - **Simple Example Creation**: Built `examples/parquet_example.py` - one file that does everything
 - **Registry Pattern Integration**: Fixed import issues to properly register parquet implementations

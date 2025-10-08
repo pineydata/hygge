@@ -1,8 +1,10 @@
-# Core data processing
+# Core data movement stack - hygge is built on Polars + PyArrow
+# This is the foundation of all data movement in hygge
 polars>=1.21.0
 pyarrow>=18.0.0
 
-# Database connectivity
+# Database connectivity for SQL homes/stores
+sqlalchemy>=2.0.0
 pyodbc>=5.1.0
 
 # Testing and linting

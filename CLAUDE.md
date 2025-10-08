@@ -106,10 +106,19 @@ hygge (pronounced "hoo-ga") is a data movement framework for solo developers/sma
 
 ## Technical Stack
 
-- **Python 3.11+**, Polars, PyArrow, Pydantic
-- **Async/await patterns**, YAML configuration
-- **Type safety** with Pydantic validation throughout
-- **Smart defaults** with minimal configuration
+### Core Data Movement Stack
+hygge is **built on Polars + PyArrow** for optimal data movement performance:
+- **Polars**: Primary API for all data operations - clean, fast, pythonic
+- **PyArrow**: Columnar memory backend - efficient, zero-copy where possible
+- **Why this choice**: Best balance of performance, developer experience, and database compatibility for E-L workflows
+- **All data movement** happens through Polars DataFrames - this is a firm commitment, not a suggestion
+
+### Supporting Technologies
+- **Python 3.11+**: Modern async/await patterns
+- **SQLAlchemy**: Database connectivity for SQL homes/stores (coming soon)
+- **Pydantic**: Type safety and validation throughout
+- **YAML**: Configuration format with smart defaults
+- **Async/await patterns** for efficient I/O operations
 
 ## File Organization
 

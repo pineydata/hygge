@@ -13,10 +13,21 @@ hygge (pronounced "hoo-ga") is a Danish word representing comfort, coziness, and
 - **Reliability**: Robust, predictable behavior without surprises
 - **Flow**: Smooth, efficient movement without friction
 
+### Built on Polars + PyArrow
+
+hygge is built on **Polars with PyArrow backend** for optimal data movement performance. This combination provides:
+- Efficient columnar memory format for large datasets
+- Automatic batching and streaming capabilities
+- Broad database compatibility via SQLAlchemy
+- Zero-copy operations where possible
+- Clean, intuitive API that feels natural
+
+We chose Polars because it provides the best balance of performance, developer experience, and compatibility for extract-and-load workflows.
+
 ## Core Concepts
 
 ### Home
-Where data starts its journey. A home is a comfortable, familiar place that data lives before moving:
+Where data starts its journey. A home is a comfortable, familiar place that data lives before moving. All homes yield Polars DataFrames:
 
 ```python
 home = SQLHome(
@@ -25,12 +36,13 @@ home = SQLHome(
     options={'batch_size': 10_000}
 )
 
-async for batch in home.read_batches():
-    # Data flows naturally
+async for df in home.read():
+    # Each batch is a Polars DataFrame
+    # Data flows naturally in columnar format
 ```
 
 ### Store
-Where data rests after its journey. A store provides a cozy place for data to settle:
+Where data rests after its journey. A store provides a cozy place for data to settle. All stores accept Polars DataFrames:
 
 ```python
 store = ParquetStore(
@@ -39,7 +51,7 @@ store = ParquetStore(
     options={'compression': 'snappy'}
 )
 
-await store.write(df)  # Data finds its place
+await store.write(df)  # Write Polars DataFrame directly
 ```
 
 ### Flow
