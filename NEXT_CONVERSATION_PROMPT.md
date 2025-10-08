@@ -4,9 +4,9 @@
 
 We've successfully implemented a project-centric CLI that transforms hygge from a library into a framework:
 
-- **Comfort**: `hej init` creates projects with sensible defaults and clear guidance
-- **Simplicity**: `hej start` starts flows with automatic project discovery
-- **Reliability**: `hej debug` provides clear error messages and configuration validation
+- **Comfort**: `hygge init` creates projects with sensible defaults and clear guidance
+- **Simplicity**: `hygge start` starts flows with automatic project discovery
+- **Reliability**: `hygge debug` provides clear error messages and configuration validation
 - **Flow**: Project structure matches how people actually work with data tools
 
 The CLI implementation shows hygge's true value: **making data movement feel natural and comfortable** while providing enterprise-grade project management.
@@ -58,7 +58,7 @@ With CLI implementation complete, we can now focus on proving hygge works with r
 - **Project Discovery**: Automatic `hygge.yml` detection with dbt-style error messages
 - **Flow Directory Structure**: Organized `flows/` with `entities/` subdirectories
 - **Entity Defaults Inheritance**: Flow-level defaults applied to individual entities
-- **CLI Commands**: `hej init`, `hej start`, `hej debug` with comprehensive testing
+- **CLI Commands**: `hygge init`, `hygge start`, `hygge debug` with comprehensive testing
 - **Clean Project Structure**: No runtime artifacts, data stays external
 
 ## hygge's True Success Metrics 🎯
@@ -87,7 +87,7 @@ The CLI implementation shows hygge working as intended - **comfortable, reliable
 ### Immediate Next Steps 🚀
 
 1. **Create Realistic Test Data**: Generate larger parquet files with real-world schemas
-2. **Run End-to-End Workflows**: Use `hej init`, `hej start` with actual data
+2. **Run End-to-End Workflows**: Use `hygge init`, `hygge start` with actual data
 3. **Test Error Scenarios**: Verify graceful handling of missing files, permissions, etc.
 4. **Validate Performance**: Test with larger datasets to ensure efficiency
 5. **Document Findings**: Record any issues or improvements needed

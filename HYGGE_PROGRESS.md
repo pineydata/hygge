@@ -62,7 +62,7 @@
 │    52. ✅ Comfort Over Complexity - minimal CI that serves core need       │
 │                                                                             │
 │  ✅ COMPLETED (CONTINUED)                                                  │
-│    53. ✅ Project-Centric CLI Implementation - hej init/start/debug commands│
+│    53. ✅ Project-Centric CLI Implementation - hygge init/start/debug commands│
 │    54. ✅ Project Discovery - automatic hygge.yml detection in directory tree│
 │    55. ✅ Flow Directory Loading - structured flows/ directory with entities/│
 │    56. ✅ Entity Defaults Inheritance - flow-level defaults applied to entities│
