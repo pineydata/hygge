@@ -2,7 +2,7 @@
 """
 hygge CLI - Comfortable data movement framework command-line interface.
 
-This module provides the `hej` command-line interface for hygge projects.
+This module provides the `hygge` command-line interface for hygge projects.
 """
 
 import asyncio
@@ -19,7 +19,7 @@ from hygge.utility.logger import get_logger
 
 @click.group()
 @click.version_option()
-def hej():
+def hygge():
     """
     hygge - comfortable data movement framework
 
@@ -28,13 +28,8 @@ def hej():
     pass
 
 
-@hej.command()
-@click.option(
-    "--project-name",
-    "-n",
-    default=None,
-    help="Name of the hygge project (defaults to current directory name)",
-)
+@hygge.command()
+@click.argument("project_name")
 @click.option(
     "--flows-dir",
     "-d",
@@ -45,24 +40,29 @@ def hej():
     "--force",
     "-f",
     is_flag=True,
-    help="Overwrite existing hygge.yml if it exists",
+    help="Overwrite existing project directory if it exists",
 )
-def init(project_name: Optional[str], flows_dir: str, force: bool):
-    """Initialize a new hygge project."""
+def init(project_name: str, flows_dir: str, force: bool):
+    """Initialize a new hygge project in a new directory.
+
+    PROJECT_NAME: Name of the project and directory to create
+    """
     logger = get_logger("hygge.cli.init")
 
     current_dir = Path.cwd()
+    project_dir = current_dir / project_name
 
-    # Determine project name
-    if project_name is None:
-        project_name = current_dir.name
-
-    # Check if hygge.yml already exists
-    hygge_file = current_dir / "hygge.yml"
-    if hygge_file.exists() and not force:
-        click.echo(f"❌ hygge.yml already exists in {current_dir}")
+    # Check if project directory already exists
+    if project_dir.exists() and not force:
+        click.echo(
+            f"❌ Project directory '{project_name}' already exists in " f"{current_dir}"
+        )
         click.echo("Use --force to overwrite it")
         sys.exit(1)
+
+    # Create project directory
+    project_dir.mkdir(exist_ok=True)
+    click.echo(f"✅ Created project directory: {project_dir}")
 
     # Create hygge.yml
     hygge_content = f"""name: "{project_name}"
@@ -74,11 +74,12 @@ options:
   continue_on_error: false
 """
 
+    hygge_file = project_dir / "hygge.yml"
     hygge_file.write_text(hygge_content)
     click.echo(f"✅ Created hygge.yml for project '{project_name}'")
 
     # Create flows directory
-    flows_path = current_dir / flows_dir
+    flows_path = project_dir / flows_dir
     flows_path.mkdir(exist_ok=True)
     click.echo("✅ Created flows directory: {}".format(flows_path))
 
@@ -128,14 +129,18 @@ source_config:
 
     click.echo("\n🎉 hygge project initialized successfully!")
     click.echo("\nNext steps:")
-    click.echo("  1. Edit {} to configure your data sources".format(flow_file))
-    click.echo("  2. Update paths in flow.yml to point to your actual data locations")
-    click.echo("  3. Run: hej start")
+    click.echo(f"  1. cd {project_name}")
+    click.echo(
+        f"  2. Edit {flow_file.relative_to(project_dir)} to configure your "
+        "data sources"
+    )
+    click.echo("  3. Update paths in flow.yml to point to your actual data locations")
+    click.echo("  4. Run: hygge start")
 
-    logger.info(f"Initialized hygge project '{project_name}' in {current_dir}")
+    logger.info(f"Initialized hygge project '{project_name}' in {project_dir}")
 
 
-@hej.command()
+@hygge.command()
 @click.option(
     "--flow",
     "-f",
@@ -178,7 +183,7 @@ def start(flow: Optional[str], verbose: bool):
         sys.exit(1)
 
 
-@hej.command()
+@hygge.command()
 def debug():
     """Debug hygge project configuration and show detailed information."""
     logger = get_logger("hygge.cli.debug")
@@ -214,4 +219,4 @@ def debug():
 
 
 if __name__ == "__main__":
-    hej()
+    hygge()
