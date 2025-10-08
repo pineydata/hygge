@@ -6,11 +6,17 @@ authors = [
     {name = "Nick Teff", email = "nick@pineydata.com"},
 ]
 dependencies = [
-    "polars>=0.19.0",
-    "pyyaml>=6.0.1",
-    "hatchling>=1.21.0",
+    "polars>=1.21.0",
+    "pydantic>=2.6.1",
+    "pyyaml>=6.0.2",
+    "tenacity>=9.0.0",
+    "colorama>=0.4.6",
+    "click>=8.0.0",
 ]
 requires-python = ">=3.11"
+
+[project.scripts]
+hej = "hygge.cli:hej"
 
 [build-system]
 requires = ["hatchling"]

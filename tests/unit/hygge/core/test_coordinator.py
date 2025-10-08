@@ -5,6 +5,7 @@ These tests focus on testing actual behavior rather than complex mocking.
 They verify that the registry pattern works correctly with real configurations.
 """
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -15,6 +16,9 @@ from hygge.core.coordinator import Coordinator, CoordinatorConfig, validate_conf
 from hygge.core.flow import FlowConfig
 
 # Import Parquet implementations to register them
+from hygge.homes.parquet.home import ParquetHome, ParquetHomeConfig  # noqa: F401
+from hygge.stores.parquet.store import ParquetStore, ParquetStoreConfig  # noqa: F401
+from hygge.utility.exceptions import ConfigError
 
 
 class TestCoordinatorConfig:
@@ -310,6 +314,368 @@ class TestCoordinatorIntegration:
             assert flow.store.config.compression == "snappy"
         finally:
             Path(config_file).unlink(missing_ok=True)
+
+
+class TestProjectCentricCoordinator:
+    """Test project-centric functionality in Coordinator."""
+
+    def test_project_discovery_finds_hygge_yml(self):
+        """Test that project discovery finds hygge.yml in current directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            # Change to temp directory
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                coordinator = Coordinator()
+                assert coordinator.config_path.resolve() == hygge_file.resolve()
+                assert coordinator.project_config["name"] == "test_project"
+                assert coordinator.project_config["flows_dir"] == "flows"
+            finally:
+                os.chdir(original_cwd)
+
+    def test_project_discovery_finds_hygge_yml_in_parent(self):
+        """Test that project discovery finds hygge.yml in parent directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create hygge.yml in parent
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            # Create subdirectory
+            sub_dir = temp_path / "subdir"
+            sub_dir.mkdir()
+
+            # Change to subdirectory
+            original_cwd = Path.cwd()
+            os.chdir(sub_dir)
+
+            try:
+                coordinator = Coordinator()
+                assert coordinator.config_path.resolve() == hygge_file.resolve()
+                assert coordinator.project_config["name"] == "test_project"
+            finally:
+                os.chdir(original_cwd)
+
+    def test_project_discovery_raises_error_when_no_hygge_yml(self):
+        """Test that project discovery raises error when no hygge.yml found."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Change to empty temp directory
+            original_cwd = Path.cwd()
+            os.chdir(temp_dir)
+
+            try:
+                with pytest.raises(ConfigError, match="No hygge.yml found"):
+                    Coordinator()
+            finally:
+                os.chdir(original_cwd)
+
+    def test_load_project_flows(self):
+        """Test loading flows from flows/ directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create project structure
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            # Create flows directory
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            # Create first flow
+            flow1_dir = flows_dir / "salesforce_to_lake"
+            flow1_dir.mkdir()
+
+            flow1_file = flow1_dir / "flow.yml"
+            flow1_file.write_text(
+                """
+name: "salesforce_to_lake"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+defaults:
+  key_column: "Id"
+  batch_size: 10000
+"""
+            )
+
+            # Create entities directory for first flow
+            entities1_dir = flow1_dir / "entities"
+            entities1_dir.mkdir()
+
+            account_file = entities1_dir / "account.yml"
+            account_file.write_text(
+                """
+name: "Account"
+columns:
+  - Id
+  - Name
+  - Type
+"""
+            )
+
+            contact_file = entities1_dir / "contact.yml"
+            contact_file.write_text(
+                """
+name: "Contact"
+columns:
+  - Id
+  - FirstName
+  - LastName
+"""
+            )
+
+            # Create second flow (no entities)
+            flow2_dir = flows_dir / "warehouse_to_parquet"
+            flow2_dir.mkdir()
+
+            flow2_file = flow2_dir / "flow.yml"
+            flow2_file.write_text(
+                """
+name: "warehouse_to_parquet"
+home:
+  type: "parquet"
+  path: "data/warehouse"
+store:
+  type: "parquet"
+  path: "data/output"
+"""
+            )
+
+            # Change to temp directory
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                coordinator = Coordinator()
+                coordinator._load_config()
+
+                # Verify flows were loaded
+                assert len(coordinator.config.flows) == 2
+                assert "salesforce_to_lake" in coordinator.config.flows
+                assert "warehouse_to_parquet" in coordinator.config.flows
+
+                # Verify first flow has entities
+                flow1_config = coordinator.config.flows["salesforce_to_lake"]
+                assert flow1_config.entities is not None
+                assert len(flow1_config.entities) == 2
+
+                # Check entity names
+                entity_names = [entity["name"] for entity in flow1_config.entities]
+                assert "Account" in entity_names
+                assert "Contact" in entity_names
+
+                # Verify second flow has no entities
+                flow2_config = coordinator.config.flows["warehouse_to_parquet"]
+                assert flow2_config.entities is None
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_load_project_flows_with_custom_flows_dir(self):
+        """Test loading flows from custom flows directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create hygge.yml with custom flows_dir
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "my_flows"
+"""
+            )
+
+            # Create custom flows directory
+            flows_dir = temp_path / "my_flows"
+            flows_dir.mkdir()
+
+            # Create flow
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+"""
+            )
+
+            # Change to temp directory
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                coordinator = Coordinator()
+                coordinator._load_config()
+
+                # Verify flow was loaded from custom directory
+                assert len(coordinator.config.flows) == 1
+                assert "test_flow" in coordinator.config.flows
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_load_project_flows_raises_error_when_no_flows_dir(self):
+        """Test that error is raised when flows directory doesn't exist."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "nonexistent_flows"
+"""
+            )
+
+            # Change to temp directory
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                coordinator = Coordinator()
+                with pytest.raises(ConfigError, match="Flows directory not found"):
+                    coordinator._load_config()
+            finally:
+                os.chdir(original_cwd)
+
+    def test_load_project_flows_raises_error_when_no_flows(self):
+        """Test that error is raised when no flows found in directory."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            # Create empty flows directory
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            # Change to temp directory
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                coordinator = Coordinator()
+                with pytest.raises(ConfigError, match="No flows found in directory"):
+                    coordinator._load_config()
+            finally:
+                os.chdir(original_cwd)
+
+    def test_entity_defaults_inheritance(self):
+        """Test that entities inherit defaults from flow config."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create project structure
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+defaults:
+  key_column: "Id"
+  batch_size: 5000
+  schema: "test_schema"
+"""
+            )
+
+            entities_dir = flow_dir / "entities"
+            entities_dir.mkdir()
+
+            entity_file = entities_dir / "test_entity.yml"
+            entity_file.write_text(
+                """
+name: "TestEntity"
+columns:
+  - Id
+  - Name
+# Override batch_size
+source_config:
+  batch_size: 10000
+"""
+            )
+
+            # Change to temp directory
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                coordinator = Coordinator()
+                coordinator._load_config()
+
+                # Verify entity inherited defaults
+                flow_config = coordinator.config.flows["test_flow"]
+                entity = flow_config.entities[0]
+
+                # Should inherit from defaults
+                assert entity["key_column"] == "Id"
+                assert entity["schema"] == "test_schema"
+
+                # Should override batch_size
+                assert entity["source_config"]["batch_size"] == 10000
+
+            finally:
+                os.chdir(original_cwd)
 
 
 if __name__ == "__main__":
