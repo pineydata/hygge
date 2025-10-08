@@ -1,90 +1,65 @@
 # hygge Next Conversation Prompt
 
-## Current Status: Phase 1 CI/CD Complete ✅
+## Current Status: Project-Centric CLI Implementation foundations ✅
 
-We've successfully set up a simple, focused CI/CD pipeline that demonstrates hygge's core philosophy:
+We've successfully implemented a project-centric CLI that transforms hygge from a library into a framework:
 
-- **Comfort**: Simple test verification without unnecessary complexity
-- **Simplicity**: One workflow file that does exactly what's needed
-- **Reliability**: Automated testing ensures hygge remains trustworthy
-- **Flow**: Fast feedback keeps development smooth and frictionless
+- **Comfort**: `hej init` creates projects with sensible defaults and clear guidance
+- **Simplicity**: `hej start` starts flows with automatic project discovery
+- **Reliability**: `hej debug` provides clear error messages and configuration validation
+- **Flow**: Project structure matches how people actually work with data tools
 
-The CI setup shows hygge's true value: **making development feel natural and comfortable** while ensuring reliability.
+The CLI implementation shows hygge's true value: **making data movement feel natural and comfortable** while providing enterprise-grade project management.
 
-## Next Development Phase: Enhancing hygge's Core Mission 🏠
+## Next Development Phase: POC Verification - End-to-End Testing 🧪
 
-With CI/CD foundation complete, we can now focus on what makes hygge special - **comfortable, reliable data movement**. The technical implementation (registry pattern, CI/CD, etc.) serves this mission, but the mission is what matters.
+With CLI implementation complete, we can now focus on proving hygge works with real data movement scenarios. This is the critical step that transforms hygge from a framework prototype into a production-ready tool.
 
-### Option A: CI/CD for Reliable Development 🔧
-**Focus**: Ensuring hygge remains comfortable and reliable as it grows
-
-**Benefits**:
-- **Reliability**: Prevents breaking changes that disrupt the comfortable experience
-- **Comfort**: Automated testing means developers can trust hygge "just works"
-- **Flow**: Fast feedback keeps development smooth and frictionless
-- **Quality**: Consistent experience across all hygge features
-
-**Why This Serves hygge's Mission**:
-- **Comfort**: Developers can confidently use hygge without fear of surprises
-- **Reliability**: Robust testing ensures hygge behaves predictably
-- **Flow**: Automated validation keeps development smooth
-
-### Option B: Multi-Entity Processing for Real-World Comfort 🚀
-**Focus**: Making hygge handle real data scenarios comfortably
+### POC Verification: Proving hygge Works with Real Data 🎯
+**Focus**: Validating hygge handles actual data movement scenarios reliably
 
 **Benefits**:
-- **Comfort**: Process multiple tables/datasets without complex configuration
-- **Simplicity**: One flow configuration handles multiple entities naturally
-- **Flow**: Parallel processing makes data movement efficient and smooth
-- **Real-World Usage**: Matches how people actually work with data
+- **Confidence**: Verify the parquet-to-parquet example works end-to-end
+- **Comfort**: Know that hygge can handle real data without surprises
+- **Reliability**: Test with actual parquet files and realistic data volumes
+- **Flow**: Ensure data movement is smooth and efficient in practice
 
 **Why This Serves hygge's Mission**:
-- **Comfort**: Handle complex data scenarios without complexity
-- **Simplicity**: One configuration, multiple entities - that's hygge
-- **Flow**: Parallel processing keeps data moving smoothly
+- **Comfort**: Developers can trust hygge works with real data
+- **Reliability**: Proves the framework handles actual workloads
+- **Flow**: Validates that data movement feels natural in practice
 
-## Decision Framework: What Makes hygge More Comfortable? 🤔
+### POC Verification Success Metrics 🎯
 
-### Choose CI/CD if:
-- **Reliability Matters**: Want hygge to be rock-solid and predictable
-- **Team Development**: Multiple people contributing to hygge
-- **Production Ready**: Planning to use hygge in real data pipelines
-- **Comfort Through Confidence**: Developers need to trust hygge won't break
+**Comfort Through Confidence**:
+- **"hygge works with real data"** - proven, tested behavior
+- **"I can trust hygge"** - validated with actual workloads
+- **"Data movement feels reliable"** - tested with realistic scenarios
 
-### Choose Multi-Entity Flow if:
-- **Real-World Usage**: Need to handle multiple tables/datasets comfortably
-- **Simplicity at Scale**: Want one configuration to handle complex scenarios
-- **Performance Comfort**: Need efficient processing of large datasets
-- **Natural Data Patterns**: Processing multiple entities is how people work
+### What POC Verification Involves 📋
 
-## hygge's Core Question: What Makes Data Movement More Comfortable? 🏠
+1. **End-to-End Testing**: Run complete parquet-to-parquet workflows using CLI
+2. **Real Data Validation**: Test with actual parquet files and realistic schemas
+3. **Performance Testing**: Validate efficiency with larger datasets
+4. **Error Scenario Testing**: Verify graceful handling of real-world issues
+5. **Integration Verification**: Ensure all components work together seamlessly
+6. **User Experience Validation**: Confirm CLI commands work smoothly in practice
 
-Both options serve hygge's mission, but in different ways:
+## Current Achievement: Project-Centric CLI Complete ✅
 
-### CI/CD = Comfort Through Reliability
-- **"hygge won't surprise me"** - predictable, tested behavior
-- **"I can trust hygge"** - robust validation and quality gates
-- **"Development feels smooth"** - fast feedback and automated checks
+**Phase 2 Complete**: We've successfully implemented **Project-Centric CLI** because:
 
-### Multi-Entity Flow = Comfort Through Simplicity
-- **"hygge handles complexity for me"** - one config, multiple entities
-- **"Data movement feels natural"** - matches real-world usage patterns
-- **"hygge scales with my needs"** - grows comfortably with data complexity
-
-## Current Achievement: CI/CD Foundation Complete ✅
-
-**Phase 1 Complete**: We've successfully implemented **CI/CD** because:
-
-1. **Foundation of Comfort**: Reliability is the foundation of comfort ✅
-2. **Trust Enables Flow**: When hygge is trustworthy, data movement feels natural ✅
-3. **Prevents Discomfort**: Automated testing prevents surprises that break the cozy experience ✅
-4. **Enables Growth**: Solid foundation allows hygge to grow without losing its comfort ✅
+1. **Foundation of Comfort**: Project structure makes hygge feel like a professional tool ✅
+2. **Trust Enables Flow**: CLI commands work predictably and guide users naturally ✅
+3. **Prevents Discomfort**: Clear error messages and project discovery prevent confusion ✅
+4. **Enables Growth**: Project structure scales with data complexity ✅
 
 ### What We Built
-- **Simple Test Verification**: One workflow that runs tests on PRs and pushes to main
-- **Coverage Monitoring**: Shows 89% coverage without enforcing gates
-- **Python 3.11 Compatibility**: Ensures consistent testing environment
-- **Comfort Over Complexity**: Minimal CI that serves the core need without overhead
+- **Project Discovery**: Automatic `hygge.yml` detection with dbt-style error messages
+- **Flow Directory Structure**: Organized `flows/` with `entities/` subdirectories
+- **Entity Defaults Inheritance**: Flow-level defaults applied to individual entities
+- **CLI Commands**: `hej init`, `hej start`, `hej debug` with comprehensive testing
+- **Clean Project Structure**: No runtime artifacts, data stays external
 
 ## hygge's True Success Metrics 🎯
 
@@ -103,11 +78,21 @@ Both options serve hygge's mission, but in different ways:
 - **"Visible progress"**: Clear understanding of what's happening
 - **"Efficient processing"**: Fast, optimized data movement
 
-## Ready to Enhance hygge's Comfort 🏠
+## Ready for POC Verification: Making hygge Production-Ready 🏠
 
-The CI/CD setup shows hygge working as intended - **comfortable, reliable development**. Combined with the parquet-to-parquet example, we now have both reliable development practices and working data movement. We can choose the path that best serves hygge's mission of making data feel at home.
+The CLI implementation shows hygge working as intended - **comfortable, reliable project management**. Combined with the registry pattern and parquet-to-parquet example, we now have a complete framework foundation.
 
-**Goal**: Make hygge even more comfortable and reliable for real-world data movement.
+**Next Goal**: Prove hygge works reliably with real data movement scenarios.
+
+### Immediate Next Steps 🚀
+
+1. **Create Realistic Test Data**: Generate larger parquet files with real-world schemas
+2. **Run End-to-End Workflows**: Use `hej init`, `hej start` with actual data
+3. **Test Error Scenarios**: Verify graceful handling of missing files, permissions, etc.
+4. **Validate Performance**: Test with larger datasets to ensure efficiency
+5. **Document Findings**: Record any issues or improvements needed
+
+This approach follows hygge's philosophy: **comfort through confidence**. Once we prove hygge works reliably with real data, adding new data sources will feel natural and safe.
 
 ---
 
