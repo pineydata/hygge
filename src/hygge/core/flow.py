@@ -4,6 +4,9 @@ Flow manages the movement of data from a single data set between Home to Store.
 Implements a producer-consumer pattern to efficiently move data batches
 from a source (Home) to a destination (Store), with proper error handling,
 retries, and state management.
+
+hygge is built on Polars + PyArrow for data movement.
+Flows orchestrate the movement of Polars DataFrames from Home to Store.
 """
 import asyncio
 from typing import Any, Dict, Optional, Union

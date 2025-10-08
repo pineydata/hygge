@@ -5,6 +5,9 @@ A Store is a data destination that can receive and persist data.
 This is an abstract base class that defines the interface
 that all specific Store implementations must follow.
 
+hygge is built on Polars + PyArrow for data movement.
+All stores accept Polars DataFrames for efficient, columnar data writing.
+
 Example:
     ```python
     class MyStore(Store, store_type="my_type"):
@@ -18,6 +21,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Dict, Optional, Type, Union
 
+import polars as pl
 from pydantic import BaseModel, Field, field_validator
 
 from hygge.utility.logger import get_logger
@@ -87,7 +91,7 @@ class Store(ABC):
         self.start_time = None
         self.logger = get_logger(f"hygge.store.{self.__class__.__name__}")
 
-    async def write(self, data: Any) -> None:
+    async def write(self, data: pl.DataFrame) -> None:
         """
         Write data to this store.
 
@@ -97,7 +101,7 @@ class Store(ABC):
         - Tracks progress and performance
 
         Args:
-            data: Data to write (typically a polars DataFrame)
+            data: Polars DataFrame to write
         """
         try:
             if self.start_time is None:
@@ -119,12 +123,7 @@ class Store(ABC):
                 self.current_df = data
             else:
                 # Combine with existing data
-                import polars as pl
-
-                if isinstance(data, pl.DataFrame) and isinstance(
-                    self.current_df, pl.DataFrame
-                ):
-                    self.current_df = pl.concat([self.current_df, data])
+                self.current_df = pl.concat([self.current_df, data])
 
             # Write if buffer is full
             result = None
@@ -230,27 +229,24 @@ class Store(ABC):
             self.logger.error(f"Failed to flush buffer for {self.name}: {str(e)}")
             raise
 
-    def _combine_buffered_data(self) -> Any:
+    def _combine_buffered_data(self) -> pl.DataFrame:
         """
-        Combine buffered data into a single dataset.
+        Combine buffered data into a single Polars DataFrame.
 
         This method can be overridden by subclasses to provide
         custom data combination logic.
 
         Returns:
-            Combined data ready for writing
+            Combined Polars DataFrame ready for writing
         """
-        # Default implementation assumes polars DataFrames
         if len(self.data_buffer) == 1:
             return self.data_buffer[0]
         else:
             # Combine multiple DataFrames
-            import polars as pl
-
             return pl.concat(self.data_buffer)
 
     @abstractmethod
-    async def _save(self, data: Any, path: Optional[str] = None) -> None:
+    async def _save(self, data: pl.DataFrame, path: Optional[str] = None) -> None:
         """
         Save data to the underlying store.
 
@@ -258,7 +254,7 @@ class Store(ABC):
         the actual data persistence logic.
 
         Args:
-            data: Combined data to save
+            data: Polars DataFrame to save
             path: Optional path for the data (for file-based stores)
         """
         pass

@@ -5,6 +5,9 @@ A Home is a data source that can provide data in batches.
 This is an abstract base class that defines the interface
 that all specific Home implementations must follow.
 
+hygge is built on Polars + PyArrow for data movement.
+All homes yield Polars DataFrames for efficient, columnar data processing.
+
 Example:
     ```python
     class MyHome(Home, home_type="my_type"):
@@ -17,6 +20,7 @@ import asyncio
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator, Dict, Optional, Type, Union
 
+import polars as pl
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from hygge.utility.logger import get_logger
@@ -74,7 +78,7 @@ class Home(ABC):
         self.start_time = None
         self.logger = get_logger(f"hygge.home.{self.__class__.__name__}")
 
-    async def read(self) -> AsyncIterator[Any]:
+    async def read(self) -> AsyncIterator[pl.DataFrame]:
         """
         Read data from this home.
 
@@ -84,7 +88,7 @@ class Home(ABC):
         - Performance logging
 
         Yields:
-            Data batches from the underlying data source
+            Polars DataFrame batches from the underlying data source
         """
         try:
             total_rows = 0
@@ -102,7 +106,7 @@ class Home(ABC):
             raise
 
     @abstractmethod
-    async def _get_batches(self) -> AsyncIterator[Any]:
+    async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
         """
         Get data batches from the underlying data source.
 
@@ -110,7 +114,7 @@ class Home(ABC):
         the actual data reading logic.
 
         Yields:
-            Data batches from the underlying data source
+            Polars DataFrame batches from the underlying data source
         """
         pass
 

@@ -48,8 +48,14 @@
 │    45. ✅ Multi-Entity Demonstration - shows processing multiple entities   │
 │    46. ✅ Sequence Counter Fix - continues from existing files              │
 │    47. ✅ Directory Structure - clean tmp/final organization               │
+│    48. ✅ Polars + PyArrow Commitment - firm technology choice (Oct 2025)  │
+│    49. ✅ Type System Overhaul - all base classes use pl.DataFrame         │
+│    50. ✅ Removed Generic Abstractions - no more hedging with Any types    │
+│    51. ✅ Documentation Updates - emphasized Polars in README and CLAUDE.md│
+│    52. ✅ Requirements Clarity - added SQLAlchemy for future SQL homes     │
 │                                                                             │
 │  ⏳ PENDING (UPDATED PRIORITY ORDER)                                       │
+│     0. SQL Home Implementation - next priority for MS SQL Server client    │
 │     1. POC Verification - test end-to-end parquet-to-parquet workflows    │
 │     2. Integration test execution - verify real data movement scenarios     │
 │     3. Sample configuration testing - validate YAML examples work         │
@@ -70,18 +76,18 @@
 │                           HYGGE FRAMEWORK STATUS                            │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
-│  🏗️ CORE ARCHITECTURE: REGISTRY PATTERN IMPLEMENTED ✅                    │
+│  🏗️ CORE ARCHITECTURE: POLARS + PYARROW COMMITTED ✅                      │
+│     ✅ Firm Polars + PyArrow commitment - foundation, not suggestion       │
+│     ✅ Type System - all base classes use pl.DataFrame explicitly         │
 │     ✅ Registry Pattern - scalable HomeConfig/StoreConfig system           │
 │     ✅ ABC Integration - automatic registration with __init_subclass__     │
 │     ✅ Dynamic Instantiation - type-safe object creation methods           │
 │     ✅ Pydantic Integration - seamless configuration parsing               │
 │     ✅ Factory Elimination - registry pattern handles all instantiation   │
-│     ✅ Type Safety - full validation with clear error messages           │
-│     ✅ Scalability Foundation - easy to add new Home/Store types          │
 │     ✅ ParquetHome and ParquetStore with registry integration              │
-│     ✅ End-to-End Testing - 158 tests passing, comprehensive coverage     │
-│     ⚠️  Only handles single-file parquet sources                           │
-│     ❌ No real-world connection management                                  │
+│     ✅ End-to-End Testing - 163 tests passing, comprehensive coverage     │
+│     ⚠️  Only handles parquet sources (SQL homes coming next)              │
+│     ❌ No real-world database connection management yet                    │
 │                                                                             │
 │  🔧 PATH MANAGEMENT: WORKING BUT LIMITED                                    │
 │     ✅ Staging/final directory separation implemented                      │
