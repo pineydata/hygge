@@ -26,6 +26,24 @@ class ColorFormatter(logging.Formatter):
     }
 
     def format(self, record):
+        # Extract flow name from logger name
+        # (e.g., hygge.flow.dividends_lots -> dividends_lots)
+        # and format it in white
+        if record.name.startswith("hygge.flow."):
+            flow_name = record.name.replace("hygge.flow.", "")
+            # Remove .home or .store suffix if present
+            if ".home" in flow_name:
+                flow_name = flow_name.replace(".home", "")
+            elif ".store" in flow_name:
+                flow_name = flow_name.replace(".store", "")
+
+            # Add white-colored flow name to record with trailing space
+            white = colorama.Fore.WHITE
+            reset = colorama.Style.RESET_ALL
+            record.flow_name = f"{white}[{flow_name}]{reset} "
+        else:
+            record.flow_name = ""
+
         # Add color to levelname if it exists in our color mapping
         if record.levelname in self.COLORS:
             color = self.COLORS[record.levelname]
@@ -75,11 +93,12 @@ class HyggeLogger:
             log_dir.mkdir(exist_ok=True)
 
             # File handler
+            # (also use ColorFormatter for flow name extraction)
             log_file = log_dir / "hygge.log"
             file_handler = logging.FileHandler(log_file, encoding="utf-8")
             file_handler.setLevel(logging.DEBUG)
-            file_formatter = logging.Formatter(
-                "%(asctime)s  %(message)s", datefmt="%H:%M:%S"
+            file_formatter = ColorFormatter(
+                "%(asctime)s  %(flow_name)s%(message)s", datefmt="%H:%M:%S"
             )
             file_handler.setFormatter(file_formatter)
 
@@ -87,7 +106,7 @@ class HyggeLogger:
             console_handler = logging.StreamHandler(sys.stdout)
             console_handler.setLevel(logging.DEBUG)
             color_formatter = ColorFormatter(
-                "%(asctime)s  %(message)s", datefmt="%H:%M:%S"
+                "%(asctime)s  %(flow_name)s%(message)s", datefmt="%H:%M:%S"
             )
             console_handler.setFormatter(color_formatter)
 

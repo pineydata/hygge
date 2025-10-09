@@ -19,6 +19,8 @@ from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 
 from .flow import Flow, FlowConfig
+from .home import Home
+from .store import Store
 
 
 def validate_config(config: Dict[str, Any]) -> List[str]:
@@ -263,26 +265,85 @@ To get started, run:
 
         for flow_name, flow_config in self.config.flows.items():
             try:
-                # Get home and store instances from FlowConfig
-                home = flow_config.home_instance
-                store = flow_config.store_instance
+                # Check if entities are defined
+                if flow_config.entities and len(flow_config.entities) > 0:
+                    # Create one flow per entity
+                    num_entities = len(flow_config.entities)
+                    self.logger.debug(
+                        f"Creating flows for {num_entities} entities in {flow_name}"
+                    )
+                    for entity in flow_config.entities:
+                        entity_name = entity.get("name")
+                        if not entity_name:
+                            raise ConfigError(
+                                f"Entity in flow {flow_name} missing 'name' field"
+                            )
 
-                # Create flow with options
-                flow_options = flow_config.options.copy()
-                flow_options.update(
-                    {
-                        "queue_size": flow_config.queue_size,
-                        "timeout": flow_config.timeout,
-                    }
-                )
+                        # Create entity-specific flow
+                        entity_flow_name = f"{flow_name}_{entity_name}"
+                        self._create_entity_flow(
+                            entity_flow_name, flow_config, entity_name
+                        )
+                else:
+                    # Create single flow without entities
+                    home = flow_config.home_instance
+                    store = flow_config.store_instance
 
-                flow = Flow(flow_name, home, store, flow_options)
-                self.flows.append(flow)
+                    # Create flow with options
+                    flow_options = flow_config.options.copy()
+                    flow_options.update(
+                        {
+                            "queue_size": flow_config.queue_size,
+                            "timeout": flow_config.timeout,
+                        }
+                    )
 
-                self.logger.debug(f"Created flow: {flow_name}")
+                    flow = Flow(flow_name, home, store, flow_options)
+                    self.flows.append(flow)
+
+                    self.logger.debug(f"Created flow: {flow_name}")
 
             except Exception as e:
                 raise ConfigError(f"Failed to create flow {flow_name}: {str(e)}")
+
+    def _create_entity_flow(
+        self, flow_name: str, flow_config: FlowConfig, entity_name: str
+    ) -> None:
+        """Create a flow for a specific entity with entity subdirectories."""
+        # Get the original config from home/store instances
+        home_config = (
+            flow_config.home_instance.config
+            if hasattr(flow_config.home_instance, "config")
+            else None
+        )
+        store_config = (
+            flow_config.store_instance.config
+            if hasattr(flow_config.store_instance, "config")
+            else None
+        )
+
+        if not home_config or not store_config:
+            raise ConfigError(
+                "Cannot create entity flow: home/store configs not accessible"
+            )
+
+        # Create new home and store instances with entity_name
+        home = Home.create(f"{flow_name}_home", home_config, entity_name)
+        store = Store.create(f"{flow_name}_store", store_config, flow_name, entity_name)
+
+        # Create flow with options
+        flow_options = flow_config.options.copy()
+        flow_options.update(
+            {
+                "queue_size": flow_config.queue_size,
+                "timeout": flow_config.timeout,
+            }
+        )
+
+        flow = Flow(flow_name, home, store, flow_options)
+        self.flows.append(flow)
+
+        self.logger.debug(f"Created entity flow: {flow_name} for entity: {entity_name}")
 
     async def _run_flows(self) -> None:
         """Run all flows in parallel."""

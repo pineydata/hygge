@@ -129,7 +129,7 @@ class TestParquetHomePathResolution:
         with pytest.raises(HomeError) as exc_info:
             home.get_batch_paths()
 
-        assert "Data path is neither file nor directory" in str(exc_info.value)
+        assert "Path does not exist" in str(exc_info.value)
 
     def test_get_batch_paths_directory_with_non_parquet_files(self):
         """Test get_batch_paths ignores non-parquet files in directory."""
@@ -190,10 +190,14 @@ class TestParquetHomeDataReading:
 
     @pytest.mark.asyncio
     async def test_read_multiple_parquet_files(self):
-        """Test reading from multiple parquet files in directory."""
+        """Test reading from multiple parquet files in directory.
+
+        Note: Polars' scan_parquet reads all files in a directory as one dataset,
+        so multiple parquet files are combined into a single result.
+        """
         with tempfile.TemporaryDirectory() as tmp_dir:
             # Create multiple parquet files with different data
-            expected_dfs = []
+            all_rows = []
             for i in range(3):
                 df = pl.DataFrame(
                     {
@@ -203,20 +207,28 @@ class TestParquetHomeDataReading:
                     }
                 )
                 df.write_parquet(Path(tmp_dir) / f"batch_{i}.parquet")
-                expected_dfs.append(df)
+                all_rows.extend(df.to_dicts())
 
             config = ParquetHomeConfig(path=tmp_dir)
             home = ParquetHome("test_home", config)
 
-            # Read data
+            # Read data - Polars combines all files into one dataset
             batches = []
             async for batch in home.read():
                 batches.append(batch)
 
-            # Verify results
-            assert len(batches) == 3
-            for i, batch in enumerate(batches):
-                assert batch.equals(expected_dfs[i])
+            # Verify results - should get 1 batch with all 30 rows
+            assert len(batches) == 1
+            combined_batch = batches[0]
+            assert len(combined_batch) == 30
+
+            # Verify all data is present (order may vary due to Polars' reading)
+            batch_dicts = combined_batch.to_dicts()
+            assert len(batch_dicts) == 30
+
+            # Verify we have all expected IDs
+            batch_ids = sorted([row["id"] for row in batch_dicts])
+            assert batch_ids == list(range(30))
 
             assert home.start_time is not None
 

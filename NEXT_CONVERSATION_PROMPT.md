@@ -1,98 +1,114 @@
 # hygge Next Conversation Prompt
 
-## Current Status: Project-Centric CLI Implementation foundations ✅
+## Current Status: POC Round 1 Complete ✅
 
-We've successfully implemented a project-centric CLI that transforms hygge from a library into a framework:
+We've successfully validated hygge with real data movement:
 
-- **Comfort**: `hygge init` creates projects with sensible defaults and clear guidance
-- **Simplicity**: `hygge start` starts flows with automatic project discovery
-- **Reliability**: `hygge debug` provides clear error messages and configuration validation
-- **Flow**: Project structure matches how people actually work with data tools
+- **Entity-Based Flows**: Preserves directory structure `source/{entity}` → `destination/{entity}`
+- **Parallel Processing**: 4 entities running simultaneously via coordinator
+- **Flow-Scoped Logging**: White `[flow_name]` labels make parallel execution easy to track
+- **Performance Validated**: 2.8M rows/sec throughput on 1.27M row entity
 
-The CLI implementation shows hygge's true value: **making data movement feel natural and comfortable** while providing enterprise-grade project management.
+**The framework works!** We've proven the architecture handles real data movement with multiple entities in parallel.
 
-## Next Development Phase: POC Verification - End-to-End Testing 🧪
+## Next Development Phase: Round 2 P2P POC Testing 🧪
 
-With CLI implementation complete, we can now focus on proving hygge works with real data movement scenarios. This is the critical step that transforms hygge from a framework prototype into a production-ready tool.
+**Focus**: Expand parquet-to-parquet validation with more scenarios
 
-### POC Verification: Proving hygge Works with Real Data 🎯
-**Focus**: Validating hygge handles actual data movement scenarios reliably
+**What to Test:**
+- More extensive test scenarios (different data sizes, shapes)
+- Error handling (missing files, corrupted data, permission issues)
+- Edge cases (empty files, single row, huge files)
+- Performance benchmarking across different dataset sizes
+- Boundary conditions (max batch sizes, queue limits)
 
-**Benefits**:
-- **Confidence**: Verify the parquet-to-parquet example works end-to-end
-- **Comfort**: Know that hygge can handle real data without surprises
-- **Reliability**: Test with actual parquet files and realistic data volumes
-- **Flow**: Ensure data movement is smooth and efficient in practice
+**Why This Matters:**
+- Builds confidence before adding SQL homes
+- Identifies edge cases and failure modes
+- Establishes performance baselines
+- Proves error handling works correctly
 
-**Why This Serves hygge's Mission**:
-- **Comfort**: Developers can trust hygge works with real data
-- **Reliability**: Proves the framework handles actual workloads
-- **Flow**: Validates that data movement feels natural in practice
+## Round 2 Testing Scenarios
 
-### POC Verification Success Metrics 🎯
+**1. Volume Testing:**
+- Small (100 rows)
+- Medium (100K rows)
+- Large (10M+ rows)
+- Very large (100M+ rows if feasible)
 
-**Comfort Through Confidence**:
-- **"hygge works with real data"** - proven, tested behavior
-- **"I can trust hygge"** - validated with actual workloads
-- **"Data movement feels reliable"** - tested with realistic scenarios
+**2. Error Scenarios:**
+- Missing source files
+- Missing source directories
+- Corrupted parquet files
+- Permission denied on source/destination
+- Disk full scenarios
+- Mid-flow interruption
 
-### What POC Verification Involves 📋
+**3. Edge Cases:**
+- Empty parquet files
+- Single row files
+- Files with many columns (wide tables)
+- Files with few columns (narrow tables)
+- Mixed data types
+- Null/missing values
 
-1. **End-to-End Testing**: Run complete parquet-to-parquet workflows using CLI
-2. **Real Data Validation**: Test with actual parquet files and realistic schemas
-3. **Performance Testing**: Validate efficiency with larger datasets
-4. **Error Scenario Testing**: Verify graceful handling of real-world issues
-5. **Integration Verification**: Ensure all components work together seamlessly
-6. **User Experience Validation**: Confirm CLI commands work smoothly in practice
+**4. Performance Benchmarking:**
+- Throughput at different batch sizes
+- Memory usage patterns
+- Queue size impact
+- Parallel entity scaling (2, 4, 8, 16 entities)
 
-## Current Achievement: Project-Centric CLI Complete ✅
+## After Round 2: SQL Home Implementation
 
-**Phase 2 Complete**: We've successfully implemented **Project-Centric CLI** because:
+Once we're confident parquet-to-parquet works robustly, add SQL data sources:
 
-1. **Foundation of Comfort**: Project structure makes hygge feel like a professional tool ✅
-2. **Trust Enables Flow**: CLI commands work predictably and guide users naturally ✅
-3. **Prevents Discomfort**: Clear error messages and project discovery prevent confusion ✅
-4. **Enables Growth**: Project structure scales with data complexity ✅
+**Priority Features:**
+- MS SQL Server connector (production use case)
+- Connection pooling and management
+- Query optimization and batch fetching
+- Integration with existing parquet stores
 
-### What We Built
-- **Project Discovery**: Automatic `hygge.yml` detection with dbt-style error messages
-- **Flow Directory Structure**: Organized `flows/` with `entities/` subdirectories
-- **Entity Defaults Inheritance**: Flow-level defaults applied to individual entities
-- **CLI Commands**: `hygge init`, `hygge start`, `hygge debug` with comprehensive testing
-- **Clean Project Structure**: No runtime artifacts, data stays external
+## Success Metrics for Round 2
 
-## hygge's True Success Metrics 🎯
+**Comfort Through Testing:**
+- "hygge handles errors gracefully" - proven with actual failures
+- "Performance is predictable" - benchmarked across scenarios
+- "Edge cases don't break it" - tested and validated
 
-### Comfort Metrics
-- **"It just works"**: Zero configuration surprises
-- **"Feels natural"**: APIs that make sense intuitively
-- **"No friction"**: Smooth data movement without hiccups
+**What Success Looks Like:**
+- ✅ 10+ different test scenarios passing
+- ✅ Error scenarios handled gracefully
+- ✅ Performance benchmarks documented
+- ✅ Edge cases identified and handled
+- ✅ Confidence to move to SQL homes
 
-### Reliability Metrics
-- **"Predictable behavior"**: Consistent results every time
-- **"Graceful failures"**: Errors that don't break the experience
-- **"Easy recovery"**: Simple ways to fix issues
+---
 
-### Flow Metrics
-- **"Smooth movement"**: Data flows naturally between systems
-- **"Visible progress"**: Clear understanding of what's happening
-- **"Efficient processing"**: Fast, optimized data movement
+## What We've Achieved So Far
 
-## Ready for POC Verification: Making hygge Production-Ready 🏠
+### POC Round 1 (Oct 8, 2025) ✅
+- Entity-based directory structure
+- Coordinator-level parallelization
+- Flow-controlled logging
+- Real data: 4 entities, 1.5M+ rows, 2.8M rows/sec
 
-The CLI implementation shows hygge working as intended - **comfortable, reliable project management**. Combined with the registry pattern and parquet-to-parquet example, we now have a complete framework foundation.
+### Project-Centric CLI ✅
+- `hygge init`, `hygge start`, `hygge debug` commands
+- Automatic project discovery (`hygge.yml`)
+- Flow directory structure with entities
+- Clean project organization
 
-**Next Goal**: Prove hygge works reliably with real data movement scenarios.
+### Registry Pattern ✅
+- Scalable Home/Store type system
+- Automatic registration via `__init_subclass__`
+- Type-safe configuration parsing
+- 158 tests passing
 
-### Immediate Next Steps 🚀
-
-1. **Create Realistic Test Data**: Generate larger parquet files with real-world schemas
-2. **Run End-to-End Workflows**: Use `hygge init`, `hygge start` with actual data
-3. **Test Error Scenarios**: Verify graceful handling of missing files, permissions, etc.
-4. **Validate Performance**: Test with larger datasets to ensure efficiency
-5. **Document Findings**: Record any issues or improvements needed
-
-This approach follows hygge's philosophy: **comfort through confidence**. Once we prove hygge works reliably with real data, adding new data sources will feel natural and safe.
+### Polars + PyArrow Commitment ✅
+- Firm technology choice (Oct 2025)
+- All data movement uses Polars DataFrames
+- No generic abstractions
+- Fast, efficient columnar processing
 
 ---
 

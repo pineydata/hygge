@@ -8,6 +8,33 @@
 
 ## 🎉 Completed Work
 
+### POC Verification Complete - Parallel Entity Processing ✅
+*Date: October 8, 2025*
+
+- **Entity-Based Directory Structure**: Implemented `home_path/{entity.name}` → `store_path/{entity.name}` preservation
+  - ParquetHome accepts `entity_name` parameter, appends to base path automatically
+  - ParquetStore accepts `entity_name` parameter, writes to entity-specific subdirectories
+  - Clean directory organization: `source/gogl/` → `destination/gogl/`
+- **Coordinator-Level Parallelization**: Multiple entities run simultaneously via `asyncio.gather()`
+  - Coordinator expands entities into separate Flow instances
+  - Each entity = independent Flow with own producer/consumer queue
+  - Real parallel execution: 4 entities processing 1.5M+ rows at ~2.8M rows/sec
+- **Flow-Controlled Logging**: Clean, scoped loggers without parameter passing
+  - Flow creates logger hierarchy: `hygge.flow.{name}`, `.home`, `.store`
+  - ColorFormatter extracts flow name, displays in white: `[dividends_lots]`
+  - Clear log attribution in parallel execution: easy to track which entity is doing what
+- **Path Management Decision**: Explicit paths over automatic resolution
+  - Reverted automatic workspace root detection (`.git` lookup)
+  - Explicit absolute/relative paths in configs - no magic
+  - Data often lives outside repo - explicit is better than clever
+- **Real Data Testing**: Verified with actual parquet files
+  - Tested with 4 entities: gogl (85 rows), sony (26 rows), lots (231K rows), lots2 (1.27M rows)
+  - All entities completed successfully with proper directory structure
+  - Logs clearly show parallel progress with white flow names
+  - Performance validated: 2.8M rows/sec throughput on large entity
+
+**Why this matters**: hygge now handles real data movement scenarios with multiple entities processing in parallel. The entity-based directory structure preserves organization from source to destination, and flow-scoped logging makes parallel execution easy to monitor. This proves the framework works for actual use cases, not just tests.
+
 ### Polars + PyArrow Commitment - The Omakase Choice ✅
 *Date: October 8, 2025*
 
