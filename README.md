@@ -72,7 +72,7 @@ Orchestrates multiple flows with care:
 ```python
 # Automatic project discovery
 coordinator = Coordinator()
-await coordinator.run()  # Everything works together
+await coordinator.run()  # Runs all flows in parallel
 
 # Or specify config explicitly (for testing/scripting)
 coordinator = Coordinator(config_path="custom_config.yml")

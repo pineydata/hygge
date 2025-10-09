@@ -273,10 +273,10 @@ To get started, run:
                         f"Creating flows for {num_entities} entities in {flow_name}"
                     )
                     for entity in flow_config.entities:
-                        # Handle simple string entities (new pattern)
+                        # Handle simple string entities (landing zone pattern)
                         if isinstance(entity, str):
                             entity_name = entity
-                        # Handle dict entities (legacy project-centric pattern)
+                        # Handle dict entities (project-centric pattern)
                         elif isinstance(entity, dict):
                             entity_name = entity.get("name")
                             if not entity_name:
