@@ -8,6 +8,35 @@
 
 ## 🎉 Completed Work
 
+### Entity Pattern Implementation Complete ✅
+
+- **Landing Zone Pattern**: Implemented entity pattern for real-world landing zone scenarios
+  - One flow definition handles multiple entities: `entities: [users, orders, products]`
+  - Each entity flows to its own destination: `landing_zone/{entity}/` → `data_lake/{entity}/`
+  - All entity flows run in parallel via existing Coordinator behavior
+- **Opinionated Structure**: Entity directories are THE pattern (not "a pattern with edge cases")
+  - Expected structure: `landing_zone/users/*.parquet` → `data_lake/users/`
+  - Clean entity names: `entities: [users, orders]` (no file extensions)
+  - Polars efficiently reads all files in entity directories
+- **Comprehensive Testing**: 8 test scenarios covering all behaviors
+  - Basic entity pattern with 3 entities
+  - Custom options applied to all entities
+  - Parallel execution verification
+  - Error handling for missing files
+  - Mixed entity + regular flows
+  - Minimal syntax validation
+  - Implementation coverage for single files (not documented)
+- **Documentation & Examples**: Complete user-facing materials
+  - `samples/entity_pattern.yaml` - shows expected pattern
+  - `examples/entity_pattern_example.py` - runnable demo
+  - Updated README with correct method names (`coordinator.run()`)
+- **Non-Breaking Change**: Existing configs continue to work
+  - New `entities` field is optional
+  - Both string entities (landing zone) and dict entities (project-centric) supported
+  - Maintains backward compatibility
+
+**Why this matters**: Real-world landing zones have multiple entities that need to flow to separate destinations. Instead of defining 3 separate flows, users can now define one flow with entities. This is exactly the kind of "comfort over configuration" feature that makes hygge feel natural and reliable.
+
 ### POC Verification Complete - Parallel Entity Processing ✅
 *Date: October 8, 2025*
 
