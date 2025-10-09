@@ -1,0 +1,452 @@
+"""
+Integration test for entity-based flow pattern.
+
+Tests the real-world scenario where multiple entities in a landing zone
+need to flow to separate destinations.
+
+Expected structure (entity directories):
+    landing_zone/
+      ├── users/
+      │   ├── batch_001.parquet
+      │   └── batch_002.parquet
+      ├── orders/
+      │   └── data.parquet
+      └── products/
+          └── data.parquet
+
+Instead of defining 3 separate flows, user can define one flow with entities:
+
+    flows:
+      landing_to_lake:
+        home: landing_zone/
+        store: data_lake/
+        entities:
+          - users
+          - orders
+          - products
+
+Following hygge's philosophy:
+- Explicit over magic (no auto-discovery)
+- DRY (don't repeat paths)
+- Opinionated structure (entity directories)
+"""
+import shutil
+import tempfile
+from pathlib import Path
+
+import polars as pl
+import pytest
+import yaml
+
+from hygge import Coordinator
+
+
+@pytest.fixture
+def landing_zone_setup():
+    """
+    Create a realistic landing zone scenario.
+
+    Expected pattern: home_path/{entity}/*.parquet (directories with parquet files)
+    """
+    temp_dir = tempfile.mkdtemp()
+    temp_path = Path(temp_dir)
+
+    # Create landing zone directory
+    landing_zone = temp_path / "landing_zone"
+    landing_zone.mkdir()
+
+    # Create data lake directory
+    data_lake = temp_path / "data_lake"
+    data_lake.mkdir()
+
+    # Create entity directories with parquet files (expected pattern)
+    users_dir = landing_zone / "users"
+    users_dir.mkdir()
+
+    # Split users data across multiple files (realistic!)
+    users_df1 = pl.DataFrame(
+        {
+            "user_id": range(0, 500),
+            "name": [f"user_{i}" for i in range(0, 500)],
+            "email": [f"user{i}@example.com" for i in range(0, 500)],
+        }
+    )
+    users_df1.write_parquet(users_dir / "batch_001.parquet")
+
+    users_df2 = pl.DataFrame(
+        {
+            "user_id": range(500, 1000),
+            "name": [f"user_{i}" for i in range(500, 1000)],
+            "email": [f"user{i}@example.com" for i in range(500, 1000)],
+        }
+    )
+    users_df2.write_parquet(users_dir / "batch_002.parquet")
+
+    # Orders entity with multiple files
+    orders_dir = landing_zone / "orders"
+    orders_dir.mkdir()
+
+    orders_df1 = pl.DataFrame(
+        {
+            "order_id": range(0, 1000),
+            "user_id": [i % 1000 for i in range(0, 1000)],
+            "amount": [i * 10.5 for i in range(0, 1000)],
+        }
+    )
+    orders_df1.write_parquet(orders_dir / "batch_001.parquet")
+
+    orders_df2 = pl.DataFrame(
+        {
+            "order_id": range(1000, 2000),
+            "user_id": [i % 1000 for i in range(1000, 2000)],
+            "amount": [i * 10.5 for i in range(1000, 2000)],
+        }
+    )
+    orders_df2.write_parquet(orders_dir / "batch_002.parquet")
+
+    # Products entity with single file in directory
+    products_dir = landing_zone / "products"
+    products_dir.mkdir()
+
+    products_df = pl.DataFrame(
+        {
+            "product_id": range(500),
+            "name": [f"product_{i}" for i in range(500)],
+            "price": [i * 5.0 for i in range(500)],
+        }
+    )
+    products_df.write_parquet(products_dir / "data.parquet")
+
+    yield {
+        "temp_path": temp_path,
+        "landing_zone": landing_zone,
+        "data_lake": data_lake,
+        "expected_rows": {
+            "users": 1000,
+            "orders": 2000,
+            "products": 500,
+        },
+    }
+
+    shutil.rmtree(temp_dir)
+
+
+@pytest.fixture
+def landing_zone_edge_case():
+    """
+    Single parquet files scenario (for implementation coverage).
+
+    Tests that single files work, though directories are the expected pattern.
+    """
+    temp_dir = tempfile.mkdtemp()
+    temp_path = Path(temp_dir)
+
+    landing_zone = temp_path / "landing_zone"
+    landing_zone.mkdir()
+
+    data_lake = temp_path / "data_lake"
+    data_lake.mkdir()
+
+    # Single parquet files (not directories)
+    users_df = pl.DataFrame(
+        {
+            "user_id": range(1000),
+            "name": [f"user_{i}" for i in range(1000)],
+        }
+    )
+    users_df.write_parquet(landing_zone / "users.parquet")
+
+    orders_df = pl.DataFrame(
+        {
+            "order_id": range(500),
+            "amount": [i * 10.5 for i in range(500)],
+        }
+    )
+    orders_df.write_parquet(landing_zone / "orders.parquet")
+
+    yield {
+        "temp_path": temp_path,
+        "landing_zone": landing_zone,
+        "data_lake": data_lake,
+        "expected_rows": {
+            "users": 1000,
+            "orders": 500,
+        },
+    }
+
+    shutil.rmtree(temp_dir)
+
+
+class TestEntityPattern:
+    """Test entity-based flow pattern for landing zone scenarios."""
+
+    @pytest.mark.asyncio
+    async def test_entity_pattern_basic(self, landing_zone_setup):
+        """Test basic entity pattern with multiple entities in one flow definition."""
+        setup = landing_zone_setup
+
+        # Create config with entity pattern
+        config_content = {
+            "flows": {
+                "landing_to_lake": {
+                    "home": str(setup["landing_zone"]),
+                    "store": str(setup["data_lake"]),
+                    "entities": ["users", "orders", "products"],
+                }
+            }
+        }
+
+        config_file = setup["temp_path"] / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_content, f)
+
+        # Run coordinator
+        coordinator = Coordinator(str(config_file))
+        await coordinator.run()
+
+        # Verify each entity created its own output directory
+        users_output = setup["data_lake"] / "users"
+        orders_output = setup["data_lake"] / "orders"
+        products_output = setup["data_lake"] / "products"
+
+        assert users_output.exists(), "Users output directory should exist"
+        assert orders_output.exists(), "Orders output directory should exist"
+        assert products_output.exists(), "Products output directory should exist"
+
+        # Verify data integrity for each entity
+        users_files = list(users_output.glob("*.parquet"))
+        orders_files = list(orders_output.glob("*.parquet"))
+        products_files = list(products_output.glob("*.parquet"))
+
+        assert len(users_files) > 0, "Users output files should exist"
+        assert len(orders_files) > 0, "Orders output files should exist"
+        assert len(products_files) > 0, "Products output files should exist"
+
+        # Verify row counts match
+        total_users = sum(len(pl.read_parquet(f)) for f in users_files)
+        total_orders = sum(len(pl.read_parquet(f)) for f in orders_files)
+        total_products = sum(len(pl.read_parquet(f)) for f in products_files)
+
+        assert total_users == setup["expected_rows"]["users"]
+        assert total_orders == setup["expected_rows"]["orders"]
+        assert total_products == setup["expected_rows"]["products"]
+
+    @pytest.mark.asyncio
+    async def test_entity_pattern_with_custom_options(self, landing_zone_setup):
+        """Test entity pattern with custom flow options."""
+        setup = landing_zone_setup
+
+        # Config with custom options that apply to all entities
+        config_content = {
+            "flows": {
+                "landing_to_lake": {
+                    "home": {
+                        "path": str(setup["landing_zone"]),
+                        "options": {"batch_size": 500},
+                    },
+                    "store": {
+                        "path": str(setup["data_lake"]),
+                        "options": {"batch_size": 1000, "compression": "gzip"},
+                    },
+                    "entities": ["users", "orders"],
+                    "options": {"queue_size": 5},
+                }
+            }
+        }
+
+        config_file = setup["temp_path"] / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_content, f)
+
+        coordinator = Coordinator(str(config_file))
+        await coordinator.run()
+
+        # Verify outputs exist
+        users_output = setup["data_lake"] / "users"
+        orders_output = setup["data_lake"] / "orders"
+
+        assert users_output.exists()
+        assert orders_output.exists()
+
+        # Verify data was written
+        assert len(list(users_output.glob("*.parquet"))) > 0
+        assert len(list(orders_output.glob("*.parquet"))) > 0
+
+    @pytest.mark.asyncio
+    async def test_entity_pattern_parallel_execution(self, landing_zone_setup):
+        """Test that entities run in parallel (existing Coordinator behavior)."""
+        setup = landing_zone_setup
+
+        config_content = {
+            "flows": {
+                "landing_to_lake": {
+                    "home": str(setup["landing_zone"]),
+                    "store": str(setup["data_lake"]),
+                    "entities": ["users", "orders", "products"],
+                }
+            }
+        }
+
+        config_file = setup["temp_path"] / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_content, f)
+
+        coordinator = Coordinator(str(config_file))
+        await coordinator.run()
+
+        # With parallel execution, all 3 entities should complete successfully
+        # Verify all outputs exist
+        assert (setup["data_lake"] / "users").exists()
+        assert (setup["data_lake"] / "orders").exists()
+        assert (setup["data_lake"] / "products").exists()
+
+    @pytest.mark.asyncio
+    async def test_entity_pattern_missing_file(self, landing_zone_setup):
+        """Test error handling when an entity file doesn't exist."""
+        setup = landing_zone_setup
+
+        # Reference an entity that doesn't exist
+        config_content = {
+            "flows": {
+                "landing_to_lake": {
+                    "home": str(setup["landing_zone"]),
+                    "store": str(setup["data_lake"]),
+                    "entities": ["users", "nonexistent_entity"],
+                }
+            }
+        }
+
+        config_file = setup["temp_path"] / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_content, f)
+
+        coordinator = Coordinator(str(config_file))
+
+        # Should raise an error for missing file
+        with pytest.raises(Exception):  # Will be HomeError or FileNotFoundError
+            await coordinator.run()
+
+    @pytest.mark.asyncio
+    async def test_entity_pattern_mixed_with_regular_flows(self, landing_zone_setup):
+        """Test that entity pattern can coexist with regular flow definitions."""
+        setup = landing_zone_setup
+
+        # Create an additional standalone parquet file
+        standalone_df = pl.DataFrame(
+            {"id": range(100), "value": [f"standalone_{i}" for i in range(100)]}
+        )
+        standalone_file = setup["temp_path"] / "standalone.parquet"
+        standalone_df.write_parquet(standalone_file)
+
+        # Mix entity pattern with regular flow
+        config_content = {
+            "flows": {
+                "landing_to_lake": {
+                    "home": str(setup["landing_zone"]),
+                    "store": str(setup["data_lake"]),
+                    "entities": ["users", "orders"],
+                },
+                "standalone_flow": {
+                    "home": str(standalone_file),
+                    "store": str(setup["data_lake"] / "standalone"),
+                },
+            }
+        }
+
+        config_file = setup["temp_path"] / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_content, f)
+
+        coordinator = Coordinator(str(config_file))
+        await coordinator.run()
+
+        # Verify entity flows worked
+        assert (setup["data_lake"] / "users").exists()
+        assert (setup["data_lake"] / "orders").exists()
+
+        # Verify regular flow worked
+        assert (setup["data_lake"] / "standalone").exists()
+        standalone_files = list((setup["data_lake"] / "standalone").glob("*.parquet"))
+        assert len(standalone_files) > 0
+        total_rows = sum(len(pl.read_parquet(f)) for f in standalone_files)
+        assert total_rows == 100
+
+    @pytest.mark.asyncio
+    async def test_entity_pattern_simple_syntax(self, landing_zone_setup):
+        """Test the simplest possible entity pattern syntax."""
+        setup = landing_zone_setup
+
+        # Minimal syntax - just paths and entities
+        config_content = {
+            "flows": {
+                "landing_to_lake": {
+                    "home": str(setup["landing_zone"]),
+                    "store": str(setup["data_lake"]),
+                    "entities": ["users"],  # Just one entity to keep it simple
+                }
+            }
+        }
+
+        config_file = setup["temp_path"] / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_content, f)
+
+        coordinator = Coordinator(str(config_file))
+        await coordinator.run()
+
+        # Should just work with minimal config
+        users_output = setup["data_lake"] / "users"
+        assert users_output.exists()
+        users_files = list(users_output.glob("*.parquet"))
+        assert len(users_files) > 0
+
+        total_rows = sum(len(pl.read_parquet(f)) for f in users_files)
+        assert total_rows == setup["expected_rows"]["users"]
+
+    @pytest.mark.asyncio
+    async def test_entity_pattern_edge_case_single_files(self, landing_zone_edge_case):
+        """
+        Test implementation coverage: single parquet files instead of directories.
+
+        This works but isn't the documented pattern. Kept for implementation coverage.
+        """
+        setup = landing_zone_edge_case
+
+        # Config pointing to single files: landing_zone/users.parquet
+        config_content = {
+            "flows": {
+                "landing_to_lake": {
+                    "home": str(setup["landing_zone"]),
+                    "store": str(setup["data_lake"]),
+                    # Include .parquet extension for single files
+                    "entities": ["users.parquet", "orders.parquet"],
+                }
+            }
+        }
+
+        config_file = setup["temp_path"] / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_content, f)
+
+        coordinator = Coordinator(str(config_file))
+        await coordinator.run()
+
+        # Verify output - each entity creates its own directory
+        # users.parquet → data_lake/users.parquet/
+        # orders.parquet → data_lake/orders.parquet/
+
+        users_output = setup["data_lake"] / "users.parquet"
+        orders_output = setup["data_lake"] / "orders.parquet"
+
+        assert users_output.exists(), "Users output directory should exist"
+        assert orders_output.exists(), "Orders output directory should exist"
+
+        # Count rows in final locations only (exclude tmp directory)
+        users_files = list(users_output.glob("*.parquet"))
+        orders_files = list(orders_output.glob("*.parquet"))
+
+        total_users = sum(len(pl.read_parquet(f)) for f in users_files)
+        total_orders = sum(len(pl.read_parquet(f)) for f in orders_files)
+
+        assert total_users == setup["expected_rows"]["users"]
+        assert total_orders == setup["expected_rows"]["orders"]

@@ -70,8 +70,13 @@ await flow.start()  # Data moves comfortably
 Orchestrates multiple flows with care:
 
 ```python
-coordinator = Coordinator("flows.yml")
-await coordinator.start()  # Everything works together
+# Automatic project discovery
+coordinator = Coordinator()
+await coordinator.run()  # Everything works together
+
+# Or specify config explicitly (for testing/scripting)
+coordinator = Coordinator(config_path="custom_config.yml")
+await coordinator.run()
 ```
 
 ## Design Principles
@@ -96,29 +101,101 @@ await coordinator.start()  # Everything works together
    - Explicit configuration over implicit behavior
    - Clear logging and progress tracking
 
-## Simple, Comfortable Configuration
+## Quick Start
 
-hygge makes data movement feel natural with simple YAML configuration:
+### Initialize a New Project
 
-```yaml
-flows:
-  users_to_parquet:
-    home:
-      type: parquet
-      path: data/users.parquet
-    store:
-      type: parquet
-      path: data/lake/users
-    # That's it! Everything else uses smart defaults
+```bash
+hygge init my-project
+cd my-project
 ```
 
-### Quick Start
+This creates a comfortable project structure:
+```
+my-project/
+├── hygge.yml           # Project configuration
+└── flows/              # Flow definitions
+    └── example_flow/
+        ├── flow.yml    # Flow configuration
+        └── entities/   # Entity definitions
+            └── users.yml
+```
 
-1. Copy a sample configuration from the `samples/` directory
-2. Update the paths to your data
-3. Run: `python -m hygge.coordinator your_config.yaml`
+### Configure Your Flow
 
-See the `samples/` directory for working examples and the `examples/` directory for programmatic usage.
+Edit `flows/example_flow/flow.yml` to point to your data:
+
+```yaml
+name: "example_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+
+defaults:
+  key_column: "id"
+  batch_size: 10000
+```
+
+Add or edit entities in `flows/example_flow/entities/` to define what data to move:
+
+```yaml
+name: "users"
+columns:
+  - id
+  - name
+  - email
+  - created_at
+```
+
+### Run Your Flows
+
+```bash
+# Start all flows
+hygge start
+
+# Debug your configuration
+hygge debug
+
+# Get help
+hygge --help
+```
+
+That's it! hygge discovers your project structure and makes your data feel at home.
+
+See the `samples/` directory for configuration examples and the `examples/` directory for programmatic usage.
+
+## CLI Reference
+
+### `hygge init PROJECT_NAME`
+
+Initialize a new hygge project with a comfortable structure:
+
+```bash
+hygge init my-project
+hygge init my-project --flows-dir pipelines  # Custom flows directory name
+hygge init my-project --force                 # Overwrite existing project
+```
+
+### `hygge start`
+
+Start all flows in the current project:
+
+```bash
+hygge start              # Run all flows
+hygge start --verbose    # Enable detailed logging
+hygge start --flow NAME  # Run specific flow (coming soon)
+```
+
+### `hygge debug`
+
+Validate and inspect your project configuration:
+
+```bash
+hygge debug  # Shows project details and discovered flows
+```
 
 ## Extensibility
 
