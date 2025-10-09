@@ -251,8 +251,8 @@ class FlowConfig(BaseModel):
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional flow options"
     )
-    entities: Optional[List[Dict[str, Any]]] = Field(
-        default=None, description="Entity definitions for this flow"
+    entities: Optional[Union[List[str], List[Dict[str, Any]]]] = Field(
+        default=None, description="Entity names or definitions for this flow"
     )
 
     @field_validator("home", mode="before")

@@ -273,10 +273,19 @@ To get started, run:
                         f"Creating flows for {num_entities} entities in {flow_name}"
                     )
                     for entity in flow_config.entities:
-                        entity_name = entity.get("name")
-                        if not entity_name:
+                        # Handle simple string entities (landing zone pattern)
+                        if isinstance(entity, str):
+                            entity_name = entity
+                        # Handle dict entities (project-centric pattern)
+                        elif isinstance(entity, dict):
+                            entity_name = entity.get("name")
+                            if not entity_name:
+                                raise ConfigError(
+                                    f"Entity in flow {flow_name} missing 'name' field"
+                                )
+                        else:
                             raise ConfigError(
-                                f"Entity in flow {flow_name} missing 'name' field"
+                                f"Entity must be string or dict, got {type(entity)}"
                             )
 
                         # Create entity-specific flow
