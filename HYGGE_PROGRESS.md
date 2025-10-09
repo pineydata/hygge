@@ -36,7 +36,6 @@
 - Integration with parquet stores
 
 **Later:**
-- Integration test updates for entity features
 - Sample configuration validation
 - Documentation updates
 - Branch protection setup
@@ -48,6 +47,7 @@
 - Parallel entity processing ✅
 - Entity directory structure ✅
 - Flow-scoped logging ✅
+- Entity pattern for landing zones ✅
 
 **Missing:**
 - SQL data sources
