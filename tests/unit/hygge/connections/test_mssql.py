@@ -120,9 +120,9 @@ def test_convert_token_to_bytes(mssql_connection):
     assert isinstance(token_bytes, bytes)
 
     # Should have length prefix (4 bytes) + encoded content
-    # "test_token" = 10 chars * 2 bytes each (zero-padded) = 20 bytes
-    # Plus 4-byte length prefix = 24 bytes total
-    assert len(token_bytes) == 24
+    # Length should be 4-byte prefix + 2 bytes per character in token
+    expected_length = 4 + len(token.token) * 2
+    assert len(token_bytes) == expected_length
 
 
 def test_build_connection_string(mssql_connection):
