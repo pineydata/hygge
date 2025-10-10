@@ -102,29 +102,53 @@ class MssqlHome(Home, home_type="mssql"):
             query = self._build_query()
             self.logger.debug(f"Executing query: {query[:100]}...")
 
-            # Read data with Polars in batches (blocking - wrap in thread)
-            # Note: We read the full result here and batch in memory
-            # This is simple and works for most cases. For huge tables,
-            # we'd need streaming cursor support in future versions.
-            df = await asyncio.to_thread(pl.read_database, query, self._connection)
-
-            total_rows = len(df)
-            if total_rows == 0:
-                self.logger.warning("No data returned from query")
-                return
-
-            # Yield data in batches
+            # Let Polars handle the batching efficiently
             batch_size = self.options.get("batch_size", 10_000)
-            num_batches = (total_rows + batch_size - 1) // batch_size
+            row_multiplier = self.options.get(
+                "row_multiplier", 100_000
+            )  # Progress logging interval
+            batch_num = 0
+            total_rows = 0
+            start_time = asyncio.get_event_loop().time()
 
-            self.logger.debug(f"{total_rows:,} rows, yielding {num_batches} batches")
+            self.logger.debug(
+                f"Starting batched extraction with batch_size={batch_size:,}"
+            )
 
-            for batch_idx in range(num_batches):
-                offset = batch_idx * batch_size
-                batch_df = df.slice(offset, batch_size)
+            # Use Polars' built-in batching - much cleaner than manual OFFSET/FETCH
+            for batch_df in await asyncio.to_thread(
+                lambda: pl.read_database(
+                    query, self._connection, iter_batches=True, batch_size=batch_size
+                )
+            ):
+                batch_rows = len(batch_df)
+                batch_num += 1
+                total_rows += batch_rows
+
+                # Progress logging every N rows (like ELK)
+                if total_rows % row_multiplier == 0:
+                    elapsed = asyncio.get_event_loop().time() - start_time
+                    rows_per_sec = total_rows / elapsed if elapsed > 0 else 0
+                    self.logger.info(
+                        f"Extracted {total_rows:,} rows in {elapsed:.1f}s "
+                        f"({rows_per_sec:.0f} rows/sec)"
+                    )
+                else:
+                    self.logger.debug(f"Batch {batch_num}: {batch_rows:,} rows")
 
                 if len(batch_df) > 0:
                     yield batch_df
+
+            # Final stats
+            if batch_num == 0:
+                self.logger.warning(f"No data returned from query: {query}")
+            else:
+                total_time = asyncio.get_event_loop().time() - start_time
+                rows_per_sec = total_rows / total_time if total_time > 0 else 0
+                self.logger.success(
+                    f"Completed: {total_rows:,} total rows in {total_time:.1f}s "
+                    f"({rows_per_sec:.0f} rows/sec) across {batch_num} batches"
+                )
 
         except Exception as e:
             raise HomeError(f"Failed to read from MSSQL: {str(e)}")
@@ -233,6 +257,9 @@ class MssqlHomeConfig(HomeConfig, BaseHomeConfig, config_type="mssql"):
     # Batching
     batch_size: int = Field(
         default=10_000, ge=1, description="Number of rows to read at once"
+    )
+    row_multiplier: int = Field(
+        default=100_000, ge=1000, description="Progress logging interval (rows)"
     )
 
     # Additional options
