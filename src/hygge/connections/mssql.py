@@ -222,9 +222,12 @@ class MssqlConnection(BaseConnection):
 
     def _convert_token_to_bytes(self, token: AccessToken) -> bytes:
         """
-        Convert Azure AD token to MS Windows byte string format.
+        Convert Azure AD token to MS Windows byte string format required by SQL Server.
 
-        This is the format SQL Server expects for Azure AD tokens.
+        SQL Server expects the access token to be provided as a length-prefixed, UTF-8 encoded
+        byte string with each character interleaved with a zero byte (similar to UTF-16LE encoding),
+        as described in the Microsoft documentation for ODBC Azure Active Directory authentication.
+        See: https://learn.microsoft.com/en-us/sql/connect/odbc/using-azure-active-directory?view=sql-server-ver16#access-token-authentication
 
         Args:
             token: Azure AD access token
