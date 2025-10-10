@@ -1,7 +1,7 @@
 """
 Shared constants and default configurations for database connections.
 
-This module contains Pydantic models for default values used across different
+This module contains configuration models for default values used across different
 connection types to ensure consistency, validation, and avoid duplication.
 """
 
