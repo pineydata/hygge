@@ -117,9 +117,11 @@ class MssqlHome(Home, home_type="mssql"):
 
             # Use Polars' built-in batching - much cleaner than manual OFFSET/FETCH
             for batch_df in await asyncio.to_thread(
-                lambda: pl.read_database(
-                    query, self._connection, iter_batches=True, batch_size=batch_size
-                )
+                pl.read_database,
+                query,
+                self._connection,
+                iter_batches=True,
+                batch_size=batch_size,
             ):
                 batch_rows = len(batch_df)
                 batch_num += 1
