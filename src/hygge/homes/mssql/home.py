@@ -10,7 +10,18 @@ from typing import Any, AsyncIterator, Dict, Optional
 import polars as pl
 from pydantic import Field, model_validator
 
-from hygge.connections import ConnectionPool, MssqlConnection
+from hygge.connections import (
+    ConnectionPool,
+    MssqlConnection,
+)
+from hygge.connections.constants import (
+    MSSQL_DEFAULT_BATCH_SIZE,
+    MSSQL_DEFAULT_DRIVER,
+    MSSQL_DEFAULT_ENCRYPT,
+    MSSQL_DEFAULT_ROW_MULTIPLIER,
+    MSSQL_DEFAULT_TIMEOUT,
+    MSSQL_DEFAULT_TRUST_CERT,
+)
 from hygge.core.home import BaseHomeConfig, Home, HomeConfig
 from hygge.utility.exceptions import HomeError
 
@@ -249,19 +260,25 @@ class MssqlHomeConfig(HomeConfig, BaseHomeConfig, config_type="mssql"):
     query: Optional[str] = Field(None, description="Custom SQL query (overrides table)")
 
     # Connection options
-    driver: str = Field(
-        default="ODBC Driver 18 for SQL Server", description="ODBC driver name"
+    driver: str = Field(default=MSSQL_DEFAULT_DRIVER, description="ODBC driver name")
+    encrypt: str = Field(default=MSSQL_DEFAULT_ENCRYPT, description="Enable encryption")
+    trust_cert: str = Field(
+        default=MSSQL_DEFAULT_TRUST_CERT, description="Trust server certificate"
     )
-    encrypt: str = Field(default="Yes", description="Enable encryption")
-    trust_cert: str = Field(default="Yes", description="Trust server certificate")
-    timeout: int = Field(default=30, ge=1, description="Connection timeout in seconds")
+    timeout: int = Field(
+        default=MSSQL_DEFAULT_TIMEOUT, ge=1, description="Connection timeout in seconds"
+    )
 
     # Batching
     batch_size: int = Field(
-        default=10_000, ge=1, description="Number of rows to read at once"
+        default=MSSQL_DEFAULT_BATCH_SIZE,
+        ge=1,
+        description="Number of rows to read at once",
     )
     row_multiplier: int = Field(
-        default=100_000, ge=1000, description="Progress logging interval (rows)"
+        default=MSSQL_DEFAULT_ROW_MULTIPLIER,
+        ge=1000,
+        description="Progress logging interval (rows)",
     )
 
     # Additional options

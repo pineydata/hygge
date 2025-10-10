@@ -10,6 +10,7 @@ Key components:
 - MssqlConnection: MS SQL Server connection factory (Azure AD support)
 """
 from .base import BaseConnection
+from .constants import get_mssql_batching_defaults, get_mssql_defaults
 from .mssql import MssqlConnection
 from .pool import ConnectionPool
 
@@ -17,4 +18,6 @@ __all__ = [
     "BaseConnection",
     "ConnectionPool",
     "MssqlConnection",
+    "get_mssql_defaults",
+    "get_mssql_batching_defaults",
 ]
