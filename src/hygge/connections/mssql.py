@@ -235,12 +235,8 @@ class MssqlConnection(BaseConnection):
         Returns:
             Token in MS Windows byte string format
         """
-        # Convert token string to bytes
-        value = bytes(token.token, "UTF-8")
-
-        # Interleave with zeros (MS Windows format)
-        encoded_bytes = bytes(chain.from_iterable(zip(value, repeat(0))))
-
+        # Encode token string as UTF-16LE (per Microsoft documentation)
+        encoded_bytes = token.token.encode("utf-16-le")
         # Pack with length prefix
         return struct.pack("<i", len(encoded_bytes)) + encoded_bytes
 
