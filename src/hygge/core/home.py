@@ -217,7 +217,7 @@ class BaseHomeConfig(BaseModel):
     @classmethod
     def validate_type(cls, v):
         """Validate home type."""
-        valid_types = ["parquet", "sql"]
+        valid_types = ["parquet", "sql", "mssql"]
         if v not in valid_types:
             raise ValueError(f"Home type must be one of {valid_types}, got '{v}'")
         return v

@@ -8,6 +8,66 @@
 
 ## 🎉 Completed Work
 
+### SQL Homes with Connection Pooling Complete ✅
+*Date: October 10, 2025*
+
+- **MSSQL Home Implementation**: Full MS SQL Server support with Azure AD authentication
+  - `connections/` subsystem: BaseConnection, ConnectionPool, MssqlConnection
+  - `homes/mssql/` implementation: MssqlHome with entity support
+  - Ported proven byte string pattern from Microsoft/dbt-fabric
+  - Token caching with 5-minute expiry buffer
+  - All blocking operations wrapped in `asyncio.to_thread()`
+
+- **Connection Pooling**: asyncio.Queue-based pooling for efficient concurrent access
+  - Pre-creates N connections at startup
+  - Acquire/release lifecycle with blocking behavior
+  - Health checks on connection acquisition
+  - Proper cleanup on shutdown
+  - Pool-level metrics (size, available)
+
+- **Coordinator Integration**: Pools managed at coordinator level
+  - `connections:` YAML section for named pools
+  - Pool creation at startup, cleanup on shutdown
+  - Pools shared across flows and entities
+  - Support for both pooled and dedicated connections
+
+- **Configuration Patterns**: Multiple ways to configure MSSQL sources
+  - Named connections: Reference shared pool by name
+  - Direct connections: Inline server/database parameters
+  - Table extraction: `table: dbo.users`
+  - Custom queries: `query: SELECT * FROM {entity}`
+  - Entity substitution: `{entity}` in table names and queries
+
+- **Comprehensive Testing**: 18 unit tests covering all functionality
+  - ConnectionPool: acquire/release, blocking, concurrent access (7 tests)
+  - MssqlConnection: token caching, refresh, byte conversion, async wrapping (11 tests)
+  - Mock-based tests - no real database required
+  - All tests passing in 1.38s
+
+- **Documentation & Samples**: Complete user-facing materials
+  - `samples/mssql_to_parquet.yaml` - Single table example
+  - `samples/mssql_entity_pattern.yaml` - Multiple tables (10-200+)
+  - `samples/mssql_custom_query.yaml` - Custom SQL queries
+  - Updated `samples/README.md` with MSSQL docs and prerequisites
+  - Updated main `README.md` with Data Sources section
+  - `.llm/sql_implementation_summary.md` - Complete technical summary
+
+- **Key Design Decisions**:
+  - Application-level pooling (not pyodbc.pooling) for full async control
+  - Instance-based token cache (thread-safe, no lock contention)
+  - Async + thread pool pattern for 200+ concurrent flows
+  - No BaseSqlHome yet - extract when adding second database (Rails principle)
+  - Simple pool implementation (v0.1.x) - add health monitoring in v0.2.x
+
+- **Technology Stack**:
+  - pyodbc for SQL Server connectivity
+  - Azure AD authentication via DefaultAzureCredential
+  - Polars for data batching and movement
+  - Connection pooling via asyncio.Queue
+  - All dependencies already in requirements.txt
+
+**Why this matters**: hygge can now extract data from MS SQL Server with Azure AD authentication and efficient connection pooling. The entity pattern supports extracting 10-200+ tables with a single flow definition. Connection pooling prevents exhausting SQL Server connection limits and enables true parallel extraction. This is the foundation for moving real production data from SQL databases to data lakes.
+
 ### Entity Pattern Implementation Complete ✅
 
 - **Landing Zone Pattern**: Implemented entity pattern for real-world landing zone scenarios

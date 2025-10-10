@@ -167,6 +167,54 @@ That's it! hygge discovers your project structure and makes your data feel at ho
 
 See the `samples/` directory for configuration examples and the `examples/` directory for programmatic usage.
 
+## Data Sources
+
+hygge supports multiple data sources with a simple, consistent API.
+
+### Parquet Files
+
+```yaml
+home:
+  type: parquet
+  path: data/source
+```
+
+### MS SQL Server
+
+Extract data from MS SQL Server with Azure AD authentication and connection pooling:
+
+```yaml
+connections:
+  my_database:
+    type: mssql
+    server: myserver.database.windows.net
+    database: mydatabase
+    pool_size: 8  # Concurrent connections
+
+flows:
+  users_to_parquet:
+    home:
+      type: mssql
+      connection: my_database
+      table: dbo.users
+    store:
+      type: parquet
+      path: data/users
+```
+
+**Features:**
+- Azure AD authentication (Managed Identity, Azure CLI, Service Principal)
+- Connection pooling for efficient concurrent access
+- Entity pattern for extracting 10-200+ tables
+- Custom SQL queries supported
+
+**Prerequisites:**
+- ODBC Driver 18 for SQL Server (`brew install msodbcsql18` on macOS)
+- Azure AD authentication configured
+- Database permissions granted to your identity
+
+See `samples/mssql_*.yaml` for complete examples.
+
 ## CLI Reference
 
 ### `hygge init PROJECT_NAME`

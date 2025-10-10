@@ -1,0 +1,40 @@
+# Single MS SQL Server Table to Parquet
+#
+# This example extracts a single table from MS SQL Server
+# and writes it to a parquet file.
+#
+# Prerequisites:
+# - ODBC Driver 18 for SQL Server installed
+# - Azure AD authentication configured (Azure CLI or Managed Identity)
+# - Appropriate permissions on the SQL Server database
+
+connections:
+  my_database:
+    type: mssql
+    server: myserver.database.windows.net
+    database: mydatabase
+    pool_size: 4  # Number of concurrent connections
+
+    # Optional: Override defaults
+    # driver: "ODBC Driver 18 for SQL Server"
+    # encrypt: "Yes"
+    # trust_cert: "Yes"
+    # timeout: 30
+
+flows:
+  users_to_parquet:
+    home:
+      type: mssql
+      connection: my_database  # References connection above
+      table: dbo.users         # Table to extract
+
+      # Optional: Override batch size
+      # batch_size: 10000
+
+    store:
+      type: parquet
+      path: data/users
+
+      # Optional: Parquet options
+      # options:
+      #   compression: snappy
