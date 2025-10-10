@@ -6,6 +6,10 @@ without requiring actual database connections or mocking.
 """
 import pytest
 
+from hygge.connections.constants import (
+    MSSQL_BATCHING_DEFAULTS,
+    MSSQL_CONNECTION_DEFAULTS,
+)
 from hygge.homes.mssql import MssqlHome, MssqlHomeConfig
 
 
@@ -74,11 +78,11 @@ class TestMssqlHomeConfig:
     def test_config_defaults(self):
         """Test config default values."""
         config = MssqlHomeConfig(type="mssql", connection="test_db", table="dbo.users")
-        assert config.driver == "ODBC Driver 18 for SQL Server"
-        assert config.encrypt == "Yes"
-        assert config.trust_cert == "Yes"
-        assert config.timeout == 30
-        assert config.batch_size == 10_000
+        assert config.driver == MSSQL_CONNECTION_DEFAULTS.driver
+        assert config.encrypt == MSSQL_CONNECTION_DEFAULTS.encrypt
+        assert config.trust_cert == MSSQL_CONNECTION_DEFAULTS.trust_cert
+        assert config.timeout == MSSQL_CONNECTION_DEFAULTS.timeout
+        assert config.batch_size == MSSQL_BATCHING_DEFAULTS.batch_size
 
     def test_config_custom_options(self):
         """Test config with custom options."""
@@ -120,13 +124,13 @@ class TestMssqlHomeConfig:
             database="testdb",
             table="dbo.users",
             driver="Custom Driver",
-            encrypt="Yes",
+            encrypt=MSSQL_CONNECTION_DEFAULTS.encrypt,
             trust_cert="No",
             timeout=45,
         )
         conn_opts = config.get_connection_options()
         assert conn_opts["driver"] == "Custom Driver"
-        assert conn_opts["encrypt"] == "Yes"
+        assert conn_opts["encrypt"] == MSSQL_CONNECTION_DEFAULTS.encrypt
         assert conn_opts["trust_cert"] == "No"
         assert conn_opts["timeout"] == 45
 
