@@ -1,19 +1,43 @@
 """
-Shared constants for database connections.
+Shared constants and default configurations for database connections.
 
-This module contains default values and constants used across different
-connection types to ensure consistency and avoid duplication.
+This module contains Pydantic models for default values used across different
+connection types to ensure consistency, validation, and avoid duplication.
 """
 
-# MSSQL Connection Defaults
-MSSQL_DEFAULT_DRIVER = "ODBC Driver 18 for SQL Server"
-MSSQL_DEFAULT_ENCRYPT = "Yes"
-MSSQL_DEFAULT_TRUST_CERT = "Yes"
-MSSQL_DEFAULT_TIMEOUT = 30
+from pydantic import BaseModel, Field
 
-# MSSQL Batching Defaults
-MSSQL_DEFAULT_BATCH_SIZE = 10_000
-MSSQL_DEFAULT_ROW_MULTIPLIER = 100_000
+
+class MssqlConnectionDefaults(BaseModel):
+    """Default MSSQL connection configuration."""
+
+    driver: str = Field(
+        default="ODBC Driver 18 for SQL Server",
+        description="ODBC driver name for SQL Server connections",
+    )
+    encrypt: str = Field(
+        default="Yes", description="Enable encryption for SQL Server connections"
+    )
+    trust_cert: str = Field(
+        default="Yes", description="Trust server certificate for SQL Server connections"
+    )
+    timeout: int = Field(default=30, ge=1, description="Connection timeout in seconds")
+
+
+class MssqlBatchingDefaults(BaseModel):
+    """Default MSSQL batching configuration."""
+
+    batch_size: int = Field(
+        default=10_000, ge=1, description="Number of rows to read per batch"
+    )
+    row_multiplier: int = Field(
+        default=100_000, ge=1000, description="Progress logging interval (rows)"
+    )
+
+
+# Singleton instances for easy access
+MSSQL_CONNECTION_DEFAULTS = MssqlConnectionDefaults()
+MSSQL_BATCHING_DEFAULTS = MssqlBatchingDefaults()
 
 
 def get_mssql_defaults() -> dict:
@@ -23,12 +47,7 @@ def get_mssql_defaults() -> dict:
     Returns:
         Dictionary with default MSSQL connection options
     """
-    return {
-        "driver": MSSQL_DEFAULT_DRIVER,
-        "encrypt": MSSQL_DEFAULT_ENCRYPT,
-        "trust_cert": MSSQL_DEFAULT_TRUST_CERT,
-        "timeout": MSSQL_DEFAULT_TIMEOUT,
-    }
+    return MSSQL_CONNECTION_DEFAULTS.model_dump()
 
 
 def get_mssql_batching_defaults() -> dict:
@@ -38,7 +57,4 @@ def get_mssql_batching_defaults() -> dict:
     Returns:
         Dictionary with default MSSQL batching options
     """
-    return {
-        "batch_size": MSSQL_DEFAULT_BATCH_SIZE,
-        "row_multiplier": MSSQL_DEFAULT_ROW_MULTIPLIER,
-    }
+    return MSSQL_BATCHING_DEFAULTS.model_dump()

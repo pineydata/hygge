@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-from hygge.connections import ConnectionPool, MssqlConnection
+from hygge.connections import MSSQL_CONNECTION_DEFAULTS, ConnectionPool, MssqlConnection
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 
@@ -286,15 +286,18 @@ To get started, run:
                 conn_type = conn_config.get("type")
 
                 if conn_type == "mssql":
-                    default_driver = "ODBC Driver 18 for SQL Server"
+                    # Use shared defaults to avoid duplication
+                    defaults = MSSQL_CONNECTION_DEFAULTS
                     factory = MssqlConnection(
                         server=conn_config.get("server"),
                         database=conn_config.get("database"),
                         options={
-                            "driver": conn_config.get("driver", default_driver),
-                            "encrypt": conn_config.get("encrypt", "Yes"),
-                            "trust_cert": conn_config.get("trust_cert", "Yes"),
-                            "timeout": conn_config.get("timeout", 30),
+                            "driver": conn_config.get("driver", defaults.driver),
+                            "encrypt": conn_config.get("encrypt", defaults.encrypt),
+                            "trust_cert": conn_config.get(
+                                "trust_cert", defaults.trust_cert
+                            ),
+                            "timeout": conn_config.get("timeout", defaults.timeout),
                         },
                     )
                 else:

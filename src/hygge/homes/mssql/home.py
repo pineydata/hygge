@@ -15,12 +15,8 @@ from hygge.connections import (
     MssqlConnection,
 )
 from hygge.connections.constants import (
-    MSSQL_DEFAULT_BATCH_SIZE,
-    MSSQL_DEFAULT_DRIVER,
-    MSSQL_DEFAULT_ENCRYPT,
-    MSSQL_DEFAULT_ROW_MULTIPLIER,
-    MSSQL_DEFAULT_TIMEOUT,
-    MSSQL_DEFAULT_TRUST_CERT,
+    MSSQL_BATCHING_DEFAULTS,
+    MSSQL_CONNECTION_DEFAULTS,
 )
 from hygge.core.home import BaseHomeConfig, Home, HomeConfig
 from hygge.utility.exceptions import HomeError
@@ -260,23 +256,30 @@ class MssqlHomeConfig(HomeConfig, BaseHomeConfig, config_type="mssql"):
     query: Optional[str] = Field(None, description="Custom SQL query (overrides table)")
 
     # Connection options
-    driver: str = Field(default=MSSQL_DEFAULT_DRIVER, description="ODBC driver name")
-    encrypt: str = Field(default=MSSQL_DEFAULT_ENCRYPT, description="Enable encryption")
+    driver: str = Field(
+        default=MSSQL_CONNECTION_DEFAULTS.driver, description="ODBC driver name"
+    )
+    encrypt: str = Field(
+        default=MSSQL_CONNECTION_DEFAULTS.encrypt, description="Enable encryption"
+    )
     trust_cert: str = Field(
-        default=MSSQL_DEFAULT_TRUST_CERT, description="Trust server certificate"
+        default=MSSQL_CONNECTION_DEFAULTS.trust_cert,
+        description="Trust server certificate",
     )
     timeout: int = Field(
-        default=MSSQL_DEFAULT_TIMEOUT, ge=1, description="Connection timeout in seconds"
+        default=MSSQL_CONNECTION_DEFAULTS.timeout,
+        ge=1,
+        description="Connection timeout in seconds",
     )
 
     # Batching
     batch_size: int = Field(
-        default=MSSQL_DEFAULT_BATCH_SIZE,
+        default=MSSQL_BATCHING_DEFAULTS.batch_size,
         ge=1,
         description="Number of rows to read at once",
     )
     row_multiplier: int = Field(
-        default=MSSQL_DEFAULT_ROW_MULTIPLIER,
+        default=MSSQL_BATCHING_DEFAULTS.row_multiplier,
         ge=1000,
         description="Progress logging interval (rows)",
     )
