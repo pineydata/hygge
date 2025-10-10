@@ -1,0 +1,61 @@
+# MS SQL Server with Custom Query
+#
+# This example shows using custom SQL queries instead of
+# simple table extraction.
+#
+# Use cases:
+# - Complex joins
+# - Filtered extracts (WHERE clauses)
+# - Aggregations
+# - Parameterized queries with entity substitution
+
+connections:
+  analytics_db:
+    type: mssql
+    server: analytics.database.windows.net
+    database: warehouse
+    pool_size: 4
+
+flows:
+  # Simple custom query
+  active_users:
+    home:
+      type: mssql
+      connection: analytics_db
+      query: |
+        SELECT
+          user_id,
+          email,
+          created_at,
+          last_login
+        FROM dbo.users
+        WHERE status = 'active'
+          AND last_login >= DATEADD(day, -30, GETDATE())
+
+    store:
+      type: parquet
+      path: data/active_users
+
+  # Entity pattern with custom query
+  monthly_metrics:
+    home:
+      type: mssql
+      connection: analytics_db
+      query: |
+        SELECT
+          metric_date,
+          metric_name,
+          metric_value,
+          '{entity}' as entity_name
+        FROM dbo.metrics_{entity}
+        WHERE metric_date >= DATEADD(month, -1, GETDATE())
+
+    store:
+      type: parquet
+      path: data/metrics
+
+    # {entity} in query will be substituted
+    entities:
+      - sales
+      - marketing
+      - support

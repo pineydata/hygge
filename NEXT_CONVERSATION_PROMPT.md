@@ -1,34 +1,52 @@
 # hygge Next Conversation Prompt
 
-## Current Status: POC Round 1 Complete ✅
+## Current Status: SQL Homes Implementation Complete ✅
 
-We've successfully validated hygge with real data movement:
+We've successfully implemented MS SQL Server support with connection pooling:
 
-- **Entity-Based Flows**: Preserves directory structure `source/{entity}` → `destination/{entity}`
-- **Parallel Processing**: 4 entities running simultaneously via coordinator
-- **Flow-Scoped Logging**: White `[flow_name]` labels make parallel execution easy to track
-- **Performance Validated**: 2.8M rows/sec throughput on 1.27M row entity
+- **MSSQL Home**: Full SQL Server support with Azure AD authentication
+- **Connection Pooling**: asyncio.Queue-based pooling for efficient concurrent access
+- **Entity Pattern**: Extract 10-200+ tables with single flow definition
+- **18 Unit Tests Passing**: All connection pooling and MSSQL logic validated
+- **Complete Documentation**: Samples, README updates, prerequisites guide
 
-**The framework works!** We've proven the architecture handles real data movement with multiple entities in parallel.
+**Ready for integration testing!** Core implementation is complete and unit tested. Now ready to validate with real SQL Server.
 
-## Next Development Phase: Round 2 P2P POC Testing 🧪
+## Next Development Phase: SQL Home Integration Testing 🧪
 
-**Focus**: Expand parquet-to-parquet validation with more scenarios
+**Focus**: Validate MSSQL implementation with real SQL Server, then expand parquet testing
 
-**What to Test:**
-- More extensive test scenarios (different data sizes, shapes)
-- Error handling (missing files, corrupted data, permission issues)
-- Edge cases (empty files, single row, huge files)
-- Performance benchmarking across different dataset sizes
-- Boundary conditions (max batch sizes, queue limits)
+**Priority: SQL Home Integration Testing**
+
+**Test 1: Single Table Extraction**
+- Use `samples/mssql_to_parquet.yaml` as template
+- Extract 1 table from SQL Server to parquet
+- Verify: Azure AD auth works, data integrity, connection release
+
+**Test 2: Entity Pattern (10 tables)**
+- Use `samples/mssql_entity_pattern.yaml` as template
+- Extract 10 tables with `pool_size: 3`
+- Verify: Connection reuse, no leaks, directory structure
+
+**Test 3: Scale Test (30-50 tables)**
+- Extract 30-50 tables with `pool_size: 5`
+- Measure: Memory usage (<500MB target), pooling efficiency (>80% overhead reduction)
+- Monitor: SQL Server connection count with DMVs
+
+**Prerequisites:**
+- ODBC Driver 18 installed (`brew install msodbcsql18`)
+- Azure AD authentication configured (`az login`)
+- SQL Server access with appropriate permissions
 
 **Why This Matters:**
-- Builds confidence before adding SQL homes
-- Identifies edge cases and failure modes
-- Establishes performance baselines
-- Proves error handling works correctly
+- Validates the core SQL extraction use case
+- Proves connection pooling prevents connection exhaustion
+- Establishes baseline for extracting hundreds of tables
+- Real-world validation before scaling to 200+ tables
 
-## Round 2 Testing Scenarios
+## After SQL Testing: Round 2 P2P Testing
+
+**Parquet Testing Scenarios:**
 
 **1. Volume Testing:**
 - Small (100 rows)
@@ -58,33 +76,49 @@ We've successfully validated hygge with real data movement:
 - Queue size impact
 - Parallel entity scaling (2, 4, 8, 16 entities)
 
-## After Round 2: SQL Home Implementation
+## After Integration Testing: Future Enhancements
 
-Once we're confident parquet-to-parquet works robustly, add SQL data sources:
+Once SQL homes are validated with real data:
 
-**Priority Features:**
-- MS SQL Server connector (production use case)
-- Connection pooling and management
-- Query optimization and batch fetching
-- Integration with existing parquet stores
+**v0.2.x - Additional Databases:**
+- PostgresHome with connection pooling
+- DuckDbHome (if needed)
+- Connection health checks and monitoring
+- turbodbc support (if build issues resolved)
 
-## Success Metrics for Round 2
+**v0.3.x - SQL Stores:**
+- MssqlStore for SQL Server destinations
+- PostgresStore
+- Reuse connection pooling infrastructure
 
-**Comfort Through Testing:**
-- "hygge handles errors gracefully" - proven with actual failures
-- "Performance is predictable" - benchmarked across scenarios
-- "Edge cases don't break it" - tested and validated
+## Success Metrics
 
-**What Success Looks Like:**
+**SQL Integration Testing:**
+- ✅ Single table extracts successfully
+- ✅ Azure AD authentication works reliably
+- ✅ Connection pooling reduces overhead >80%
+- ✅ 50+ tables extract with <500MB memory
+- ✅ No connection leaks or SQL Server errors
+- ✅ Entity pattern creates correct directory structure
+
+**Parquet Testing:**
 - ✅ 10+ different test scenarios passing
 - ✅ Error scenarios handled gracefully
 - ✅ Performance benchmarks documented
 - ✅ Edge cases identified and handled
-- ✅ Confidence to move to SQL homes
 
 ---
 
 ## What We've Achieved So Far
+
+### SQL Homes Implementation (Oct 10, 2025) ✅
+- MS SQL Server home with Azure AD authentication
+- Connection pooling (asyncio.Queue-based)
+- Entity pattern for 10-200+ tables
+- Ported proven Microsoft/dbt-fabric patterns
+- 18 unit tests passing
+- Complete documentation and samples
+- Ready for integration testing
 
 ### POC Round 1 (Oct 8, 2025) ✅
 - Entity-based directory structure
@@ -102,7 +136,7 @@ Once we're confident parquet-to-parquet works robustly, add SQL data sources:
 - Scalable Home/Store type system
 - Automatic registration via `__init_subclass__`
 - Type-safe configuration parsing
-- 158 tests passing
+- 176 tests passing (158 core + 18 connections)
 
 ### Polars + PyArrow Commitment ✅
 - Firm technology choice (Oct 2025)

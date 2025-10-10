@@ -18,6 +18,7 @@ from .core import Coordinator, Flow, Home, HomeConfig, Store, StoreConfig
 #   from .stores.s3 import S3Store, S3StoreConfig  # noqa: F401
 # Import implementations to register them
 from .homes import ParquetHome, ParquetHomeConfig  # noqa: F401
+from .homes.mssql import MssqlHome, MssqlHomeConfig  # noqa: F401
 from .stores import ParquetStore, ParquetStoreConfig  # noqa: F401
 
 __all__ = [

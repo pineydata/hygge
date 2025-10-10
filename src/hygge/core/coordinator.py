@@ -3,8 +3,9 @@ Coordinator orchestrates data flows based on configuration.
 
 The coordinator's single responsibility is to:
 1. Read and parse configuration templates
-2. Orchestrate flows in parallel
-3. Handle flow-level error management
+2. Manage connection pools for database sources
+3. Orchestrate flows in parallel
+4. Handle flow-level error management
 
 Home and Store instantiation is delegated to Flow.
 """
@@ -15,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+from hygge.connections import MSSQL_CONNECTION_DEFAULTS, ConnectionPool, MssqlConnection
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 
@@ -53,6 +55,7 @@ class Coordinator:
         self.flows: List[Flow] = []
         self.options: Dict[str, Any] = {}
         self.project_config: Dict[str, Any] = {}
+        self.connection_pools: Dict[str, ConnectionPool] = {}  # Named connection pools
         self.logger = get_logger("hygge.coordinator")
 
         # Load project config if we found hygge.yml
@@ -103,14 +106,22 @@ To get started, run:
         """Run all configured flows."""
         self.logger.info(f"Starting coordinator with config: {self.config_path}")
 
-        # Load and validate configuration
-        self._load_config()
+        try:
+            # Load and validate configuration
+            self._load_config()
 
-        # Create flows
-        self._create_flows()
+            # Initialize connection pools
+            await self._initialize_connection_pools()
 
-        # Run flows in parallel
-        await self._run_flows()
+            # Create flows
+            self._create_flows()
+
+            # Run flows in parallel
+            await self._run_flows()
+
+        finally:
+            # Clean up connection pools
+            await self._cleanup_connection_pools()
 
     def _load_config(self) -> None:
         """Load and validate configuration from file or directory."""
@@ -164,8 +175,9 @@ To get started, run:
         if not flows:
             raise ConfigError(f"No flows found in directory: {flows_dir}")
 
-        # Create coordinator config
-        self.config = CoordinatorConfig(flows=flows)
+        # Create coordinator config with connections if present
+        connections = self.project_config.get("connections", {})
+        self.config = CoordinatorConfig(flows=flows, connections=connections)
 
         # Load global options from project config
         self.options = self.project_config.get("options", {})
@@ -259,6 +271,77 @@ To get started, run:
 
         self.logger.info(f"Loaded directory configuration with {len(flows)} flows")
 
+    async def _initialize_connection_pools(self) -> None:
+        """Initialize connection pools from configuration."""
+        if not self.config or not self.config.connections:
+            self.logger.debug("No connections configured, skipping pool initialization")
+            return
+
+        num_conns = len(self.config.connections)
+        self.logger.info(f"Initializing {num_conns} connection pools")
+
+        for conn_name, conn_config in self.config.connections.items():
+            try:
+                # Create connection factory based on type
+                conn_type = conn_config.get("type")
+
+                if conn_type == "mssql":
+                    # Use shared defaults to avoid duplication
+                    defaults = MSSQL_CONNECTION_DEFAULTS
+                    factory = MssqlConnection(
+                        server=conn_config.get("server"),
+                        database=conn_config.get("database"),
+                        options={
+                            "driver": conn_config.get("driver", defaults.driver),
+                            "encrypt": conn_config.get("encrypt", defaults.encrypt),
+                            "trust_cert": conn_config.get(
+                                "trust_cert", defaults.trust_cert
+                            ),
+                            "timeout": conn_config.get("timeout", defaults.timeout),
+                        },
+                    )
+                else:
+                    raise ConfigError(f"Unknown connection type: {conn_type}")
+
+                # Create pool
+                pool_size = conn_config.get("pool_size", 5)
+                pool = ConnectionPool(
+                    name=conn_name, connection_factory=factory, pool_size=pool_size
+                )
+
+                # Initialize pool (pre-create connections)
+                await pool.initialize()
+
+                # Store pool
+                self.connection_pools[conn_name] = pool
+
+                self.logger.success(
+                    f"Initialized pool '{conn_name}' with {pool_size} connections"
+                )
+
+            except Exception as e:
+                raise ConfigError(
+                    f"Failed to initialize connection pool '{conn_name}': {str(e)}"
+                )
+
+    async def _cleanup_connection_pools(self) -> None:
+        """Clean up all connection pools."""
+        if not self.connection_pools:
+            return
+
+        num_pools = len(self.connection_pools)
+        self.logger.info(f"Cleaning up {num_pools} connection pools")
+
+        for pool_name, pool in self.connection_pools.items():
+            try:
+                await pool.close()
+                self.logger.debug(f"Closed pool '{pool_name}'")
+            except Exception as e:
+                self.logger.warning(f"Error closing pool '{pool_name}': {str(e)}")
+
+        self.connection_pools.clear()
+        self.logger.success("All connection pools cleaned up")
+
     def _create_flows(self) -> None:
         """Create Flow instances from configuration."""
         self.flows = []
@@ -336,8 +419,27 @@ To get started, run:
                 "Cannot create entity flow: home/store configs not accessible"
             )
 
+        # Get pool if home references a named connection
+        pool = None
+        if hasattr(home_config, "connection") and home_config.connection:
+            pool = self.connection_pools.get(home_config.connection)
+            if pool is None and home_config.connection is not None:
+                conn_name = home_config.connection
+                self.logger.warning(
+                    f"Connection '{conn_name}' referenced but not found"
+                )
+
         # Create new home and store instances with entity_name
-        home = Home.create(f"{flow_name}_home", home_config, entity_name)
+        # Pass pool to home if it's an MssqlHome
+        from hygge.homes.mssql import MssqlHome
+
+        if home_config.type == "mssql":
+            home = MssqlHome(
+                f"{flow_name}_home", home_config, pool=pool, entity_name=entity_name
+            )
+        else:
+            home = Home.create(f"{flow_name}_home", home_config, entity_name)
+
         store = Store.create(f"{flow_name}_store", store_config, flow_name, entity_name)
 
         # Create flow with options
@@ -394,6 +496,9 @@ class CoordinatorConfig(BaseModel):
     """Main configuration model for hygge."""
 
     flows: Dict[str, FlowConfig] = Field(..., description="Flow configurations")
+    connections: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict, description="Named connection pool configurations"
+    )
 
     @field_validator("flows")
     @classmethod
