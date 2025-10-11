@@ -1,25 +1,76 @@
 # hygge Next Conversation Prompt
 
-## Current Status: SQL Homes Implementation MERGED ✅
+## Current Status: MSSQL Store Implementation COMPLETE ✅
 
-We've successfully implemented and merged MS SQL Server support with connection pooling:
+We've successfully implemented MS SQL Server STORE (write) support with parallel batch writes:
 
-- **MSSQL Home**: Full SQL Server support with Azure AD authentication
-- **Connection Pooling**: asyncio.Queue-based pooling for efficient concurrent access
-- **Entity Pattern**: Extract 10-200+ tables with single flow definition
-- **23 Unit Tests Passing**: All connection pooling and MSSQL logic validated
-- **Complete Documentation**: Samples, README updates, prerequisites guide
-- **Pydantic Models**: Shared constants with validation and documentation
-- **ELK-Style Progress Tracking**: Rows/sec metrics and performance monitoring
-- **Polars Streaming**: Efficient `iter_batches` implementation for large tables
+**Bidirectional SQL Connectivity:**
+- **MSSQL Home**: Read FROM SQL Server (Oct 10) ✅
+- **MSSQL Store**: Write TO SQL Server (Oct 11) ✅
+- **Connection Pooling**: Shared across sources and destinations ✅
+- **Entity Pattern**: Works for both reading and writing ✅
 
-**Ready for integration testing!** Core implementation is complete, tested, and merged. Now ready to validate with real SQL Server.
+**MSSQL Store Features:**
+- Parallel batch writes: 8 concurrent workers (optimal for modern SQL Server)
+- Optimal defaults: 102,400 batch size (CCI direct-to-compressed threshold)
+- Expected: 250k-300k rows/sec on CCI/Heap tables
+- Extensible design: `direct_insert` (current), `temp_swap`/`merge` (future)
+- Connection pooling integration with coordinator
 
-## Next Development Phase: SQL Home Integration Testing 🧪
+**Architecture Improvements:**
+- Separated home vs store constants (50k vs 102k batch sizes)
+- Made staging directories optional (database stores don't need file staging)
+- DRY helper method for pool injection (eliminated 24 lines of duplication)
+- Clean, extensible write strategy pattern
 
-**Focus**: Validate MSSQL implementation with real SQL Server, then expand parquet testing
+**Complete Bootstrap Pattern:**
+- Load test data: parquet → Azure SQL (MssqlStore)
+- Test reading: Azure SQL → parquet (MssqlHome)
+- Round-trip validation workflow
+- Use hygge to test hygge! 🏠
 
-**Priority: SQL Home Integration Testing**
+## Next Development Phase: MSSQL Store Testing 🧪
+
+**Focus**: Bootstrap test data into Azure SQL, validate round-trip
+
+**Priority 0: MSSQL Store Testing with Azure SQL**
+
+**Step 1: Set up Azure SQL Database**
+- Create Basic or Serverless tier database
+- Configure firewall rules (allow Azure services + your IP)
+- Create test table: `dbo.hygge_test_roundtrip`
+
+**Step 2: Load Test Data (Bootstrap!)**
+- Use `samples/parquet_to_mssql_test.yaml` or `examples/parquet_to_mssql_example.py`
+- Load parquet file into Azure SQL using MssqlStore
+- Verify: Data written successfully, no connection leaks
+- Measure: Throughput (target 250k+ rows/sec)
+
+**Step 3: Full Round-Trip Test**
+- Read data back: Azure SQL → parquet (MssqlHome)
+- Compare: Original parquet vs round-trip parquet
+- Verify: Data integrity, schema preservation, row counts match
+
+**Step 4: Integration Test**
+- Run `tests/integration/test_parquet_to_mssql_roundtrip.py`
+- Validates: ParquetHome → MssqlStore → MssqlHome → ParquetStore
+- Proves: Both directions work correctly
+
+**Prerequisites:**
+- Azure SQL Database created
+- ODBC Driver 18 installed
+- Azure AD authentication configured
+- Environment variables set: `AZURE_SQL_SERVER`, `AZURE_SQL_DATABASE`
+
+**Why This Matters:**
+- Validates MSSQL Store implementation with real database
+- Proves bidirectional SQL connectivity works
+- Establishes baseline for write performance
+- Enables testing MSSQL Home by loading test data first!
+
+## Priority 1: SQL Home Integration Testing
+
+Once MSSQL Store is validated, test reading from SQL Server:
 
 **Test 1: Single Table Extraction**
 - Use `samples/mssql_to_parquet.yaml` as template
@@ -36,18 +87,7 @@ We've successfully implemented and merged MS SQL Server support with connection 
 - Measure: Memory usage (<500MB target), pooling efficiency (>80% overhead reduction)
 - Monitor: SQL Server connection count with DMVs
 
-**Prerequisites:**
-- ODBC Driver 18 installed (`brew install msodbcsql18`)
-- Azure AD authentication configured (`az login`)
-- SQL Server access with appropriate permissions
-
-**Why This Matters:**
-- Validates the core SQL extraction use case
-- Proves connection pooling prevents connection exhaustion
-- Establishes baseline for extracting hundreds of tables
-- Real-world validation before scaling to 200+ tables
-
-## After SQL Testing: Round 2 P2P Testing
+## Priority 2: Round 2 P2P Testing
 
 **Parquet Testing Scenarios:**
 
@@ -79,24 +119,45 @@ We've successfully implemented and merged MS SQL Server support with connection 
 - Queue size impact
 - Parallel entity scaling (2, 4, 8, 16 entities)
 
-## After Integration Testing: Future Enhancements
+## Future Roadmap
 
-Once SQL homes are validated with real data:
+**v0.2.x - DuckDB (Next Priority!):**
+- DuckDbStore (bootstrap pattern: write test data first)
+- DuckDbHome (read and validate test data)
+- Local analytical engine for parquet files
+- SQL interface to file-based data
+- Perfect for local development and testing
 
-**v0.2.x - Additional Databases:**
-- PostgresHome with connection pooling
-- DuckDbHome (if needed)
+**v0.2.x - API Sources:**
+- REST API home (generic HTTP/JSON sources)
+- API authentication patterns (OAuth, API keys, tokens)
+- Pagination and rate limiting
+- Response parsing and transformation to DataFrames
+
+**v0.2.x/v0.3.x - Salesforce Integration:**
+- Salesforce API home
+- SOQL query support
+- Bulk API for large extracts
+- OAuth authentication
+- Real-world SaaS data source
+
+**v0.3.x - PostgreSQL & Advanced:**
+- PostgresStore (bootstrap pattern: write first)
+- PostgresHome (read and validate)
+- MSSQL Store write strategies: `temp_swap` (atomic swap), `merge` (upsert)
 - Connection health checks and monitoring
-- turbodbc support (if build issues resolved)
-
-**v0.3.x - SQL Stores:**
-- MssqlStore for SQL Server destinations
-- PostgresStore
-- Reuse connection pooling infrastructure
+- Cloud storage support (S3, Azure Blob, GCS)
 
 ## Success Metrics
 
-**SQL Integration Testing:**
+**MSSQL Store Testing (Priority 0):**
+- ✅ Test data loads successfully into Azure SQL
+- ✅ Connection pooling works with parallel writes
+- ✅ Achieves 250k+ rows/sec throughput
+- ✅ Round-trip data integrity verified
+- ✅ No connection leaks or errors
+
+**SQL Home Integration Testing (Priority 1):**
 - ✅ Single table extracts successfully
 - ✅ Azure AD authentication works reliably
 - ✅ Connection pooling reduces overhead >80%
@@ -104,7 +165,7 @@ Once SQL homes are validated with real data:
 - ✅ No connection leaks or SQL Server errors
 - ✅ Entity pattern creates correct directory structure
 
-**Parquet Testing:**
+**Parquet Testing (Priority 2):**
 - ✅ 10+ different test scenarios passing
 - ✅ Error scenarios handled gracefully
 - ✅ Performance benchmarks documented
@@ -114,12 +175,23 @@ Once SQL homes are validated with real data:
 
 ## What We've Achieved So Far
 
-### SQL Homes Implementation (Dec 2024) ✅
+### MSSQL Store Implementation (Oct 11, 2025) ✅
+- MS SQL Server store with parallel batch writes
+- Connection pooling integration with coordinator
+- Extensible write strategy design (direct_insert implemented, temp_swap/merge planned)
+- Optimal defaults: 102,400 batch size, 8 workers
+- Expected: 250k-300k rows/sec on CCI/Heap
+- Smart constants separated (home vs store)
+- Clean architecture improvements
+- Complete examples, tests, and documentation
+- **READY** - Ready for Azure SQL testing
+
+### SQL Homes Implementation (Oct 10, 2025) ✅
 - MS SQL Server home with Azure AD authentication
 - Connection pooling (asyncio.Queue-based)
 - Entity pattern for 10-200+ tables
 - Ported proven Microsoft/dbt-fabric patterns
-- 23 unit tests passing
+- 18 unit tests passing
 - Complete documentation and samples
 - Pydantic models for shared constants
 - ELK-style progress tracking with rows/sec metrics
