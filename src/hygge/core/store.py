@@ -169,8 +169,8 @@ class Store(ABC):
 
                     staging_path = Path(staging_path_str)
                     # Generate final path
-                    if hasattr(self, "get_final_directory"):
-                        final_dir = self.get_final_directory()
+                    final_dir = self.get_final_directory()
+                    if final_dir is not None:
                         final_path = final_dir / staging_path.name
                         await self._move_to_final(staging_path, final_path)
 
@@ -223,8 +223,8 @@ class Store(ABC):
             path = None
             if hasattr(self, "get_next_filename"):
                 filename = await self.get_next_filename()
-                if hasattr(self, "get_staging_directory"):
-                    staging_dir = self.get_staging_directory()
+                staging_dir = self.get_staging_directory()
+                if staging_dir is not None:
                     path = str(staging_dir / filename)
 
             # Write to underlying store
@@ -271,23 +271,23 @@ class Store(ABC):
         """
         pass
 
-    @abstractmethod
-    def get_staging_directory(self) -> "Path":
+    def get_staging_directory(self) -> Optional["Path"]:
         """
         Get the staging directory for temporary files.
 
-        This method must be implemented by subclasses for file-based stores.
+        Optional: Only needed for file-based stores that use staging.
+        Database stores can return None.
         """
-        pass
+        return None
 
-    @abstractmethod
-    def get_final_directory(self) -> "Path":
+    def get_final_directory(self) -> Optional["Path"]:
         """
         Get the final directory for completed files.
 
-        This method must be implemented by subclasses for file-based stores.
+        Optional: Only needed for file-based stores that use staging.
+        Database stores can return None.
         """
-        pass
+        return None
 
     async def _stage(self) -> None:
         """
@@ -309,8 +309,8 @@ class Store(ABC):
         path = None
         if hasattr(self, "get_next_filename"):
             filename = await self.get_next_filename()
-            if hasattr(self, "get_staging_directory"):
-                staging_dir = self.get_staging_directory()
+            staging_dir = self.get_staging_directory()
+            if staging_dir is not None:
                 path = str(staging_dir / filename)
 
         await self._save(combined_data, path)

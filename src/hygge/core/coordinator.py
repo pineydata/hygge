@@ -342,6 +342,30 @@ To get started, run:
         self.connection_pools.clear()
         self.logger.success("All connection pools cleaned up")
 
+    def _inject_store_pool(self, store: Store, store_config) -> None:
+        """
+        Inject connection pool into stores that need it (e.g., MSSQL).
+
+        Args:
+            store: Store instance to inject pool into
+            store_config: Store configuration with connection reference
+        """
+        if not hasattr(store, "set_pool"):
+            return
+
+        if not hasattr(store_config, "connection"):
+            return
+
+        if not store_config.connection:
+            return
+
+        pool = self.connection_pools.get(store_config.connection)
+        if pool:
+            store.set_pool(pool)
+        else:
+            conn_name = store_config.connection
+            self.logger.warning(f"Connection '{conn_name}' referenced but not found")
+
     def _create_flows(self) -> None:
         """Create Flow instances from configuration."""
         self.flows = []
@@ -380,6 +404,9 @@ To get started, run:
                     # Create single flow without entities
                     home = flow_config.home_instance
                     store = flow_config.store_instance
+
+                    # Inject connection pool into stores that need it
+                    self._inject_store_pool(store, store.config)
 
                     # Create flow with options
                     flow_options = flow_config.options.copy()
@@ -441,6 +468,9 @@ To get started, run:
             home = Home.create(f"{flow_name}_home", home_config, entity_name)
 
         store = Store.create(f"{flow_name}_store", store_config, flow_name, entity_name)
+
+        # Inject connection pool into stores that need it
+        self._inject_store_pool(store, store_config)
 
         # Create flow with options
         flow_options = flow_config.options.copy()

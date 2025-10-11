@@ -1,16 +1,19 @@
 # hygge Next Conversation Prompt
 
-## Current Status: SQL Homes Implementation Complete ✅
+## Current Status: SQL Homes Implementation MERGED ✅
 
-We've successfully implemented MS SQL Server support with connection pooling:
+We've successfully implemented and merged MS SQL Server support with connection pooling:
 
 - **MSSQL Home**: Full SQL Server support with Azure AD authentication
 - **Connection Pooling**: asyncio.Queue-based pooling for efficient concurrent access
 - **Entity Pattern**: Extract 10-200+ tables with single flow definition
-- **18 Unit Tests Passing**: All connection pooling and MSSQL logic validated
+- **23 Unit Tests Passing**: All connection pooling and MSSQL logic validated
 - **Complete Documentation**: Samples, README updates, prerequisites guide
+- **Pydantic Models**: Shared constants with validation and documentation
+- **ELK-Style Progress Tracking**: Rows/sec metrics and performance monitoring
+- **Polars Streaming**: Efficient `iter_batches` implementation for large tables
 
-**Ready for integration testing!** Core implementation is complete and unit tested. Now ready to validate with real SQL Server.
+**Ready for integration testing!** Core implementation is complete, tested, and merged. Now ready to validate with real SQL Server.
 
 ## Next Development Phase: SQL Home Integration Testing 🧪
 
@@ -111,14 +114,17 @@ Once SQL homes are validated with real data:
 
 ## What We've Achieved So Far
 
-### SQL Homes Implementation (Oct 10, 2025) ✅
+### SQL Homes Implementation (Dec 2024) ✅
 - MS SQL Server home with Azure AD authentication
 - Connection pooling (asyncio.Queue-based)
 - Entity pattern for 10-200+ tables
 - Ported proven Microsoft/dbt-fabric patterns
-- 18 unit tests passing
+- 23 unit tests passing
 - Complete documentation and samples
-- Ready for integration testing
+- Pydantic models for shared constants
+- ELK-style progress tracking with rows/sec metrics
+- Polars streaming with `iter_batches` for memory efficiency
+- **MERGED** - Ready for integration testing
 
 ### POC Round 1 (Oct 8, 2025) ✅
 - Entity-based directory structure
@@ -136,7 +142,7 @@ Once SQL homes are validated with real data:
 - Scalable Home/Store type system
 - Automatic registration via `__init_subclass__`
 - Type-safe configuration parsing
-- 176 tests passing (158 core + 18 connections)
+- 205 tests passing (158 core + 47 connections/mssql)
 
 ### Polars + PyArrow Commitment ✅
 - Firm technology choice (Oct 2025)

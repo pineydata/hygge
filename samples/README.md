@@ -10,10 +10,20 @@ Copy and modify these sample configurations for your data flows.
 
 ## Available Samples
 
+### Basic Flows
 - **`minimal_flow.yaml`** - Absolute minimum configuration (Rails spirit!)
 - **`simple_parquet_flow.yaml`** - Basic parquet-to-parquet flow
 - **`multiple_flows.yaml`** - Multiple flows with mixed configurations
 - **`advanced_home_store.yaml`** - Full home/store configuration examples
+
+### MSSQL Flows
+- **`mssql_to_parquet.yaml`** - Read from MSSQL, write to parquet
+- **`mssql_custom_query.yaml`** - MSSQL with custom SQL queries
+- **`mssql_entity_pattern.yaml`** - MSSQL with entity pattern
+- **`parquet_to_mssql_test.yaml`** - Load test data into Azure SQL (NEW!)
+
+### Entity Pattern
+- **`entity_pattern.yaml`** - Entity-based flow for multiple tables
 
 ## Configuration Structure
 

@@ -15,8 +15,8 @@ from hygge.connections import (
     MssqlConnection,
 )
 from hygge.connections.constants import (
-    MSSQL_BATCHING_DEFAULTS,
     MSSQL_CONNECTION_DEFAULTS,
+    MSSQL_HOME_BATCHING_DEFAULTS,
 )
 from hygge.core.home import BaseHomeConfig, Home, HomeConfig
 from hygge.utility.exceptions import HomeError
@@ -274,12 +274,12 @@ class MssqlHomeConfig(HomeConfig, BaseHomeConfig, config_type="mssql"):
 
     # Batching
     batch_size: int = Field(
-        default=MSSQL_BATCHING_DEFAULTS.batch_size,
+        default=MSSQL_HOME_BATCHING_DEFAULTS.batch_size,
         ge=1,
         description="Number of rows to read at once",
     )
     row_multiplier: int = Field(
-        default=MSSQL_BATCHING_DEFAULTS.row_multiplier,
+        default=MSSQL_HOME_BATCHING_DEFAULTS.row_multiplier,
         ge=1000,
         description="Progress logging interval (rows)",
     )
