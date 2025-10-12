@@ -8,14 +8,14 @@ import asyncio
 from typing import Any, Dict, Optional
 
 import polars as pl
-from pydantic import Field, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from hygge.connections import ConnectionPool, MssqlConnection
 from hygge.connections.constants import (
     MSSQL_CONNECTION_DEFAULTS,
     MSSQL_STORE_BATCHING_DEFAULTS,
 )
-from hygge.core.store import BaseStoreConfig, Store, StoreConfig
+from hygge.core.store import Store, StoreConfig
 from hygge.utility.exceptions import StoreError
 
 
@@ -236,10 +236,11 @@ class MssqlStore(Store, store_type="mssql"):
             placeholders = ",".join(["?"] * len(columns))
             column_list = ",".join([f"[{col}]" for col in columns])
 
-            sql = f"INSERT INTO {self.table} ({column_list})"
+            # Build SQL: INSERT INTO table WITH (hints) (columns) VALUES (?)
+            sql = f"INSERT INTO {self.table}"
             if self.table_hints:
                 sql += f" WITH ({self.table_hints})"
-            sql += f" VALUES ({placeholders})"
+            sql += f" ({column_list}) VALUES ({placeholders})"
 
             # Convert DataFrame to list of tuples for executemany
             values = [tuple(row) for row in df.iter_rows()]
@@ -317,7 +318,7 @@ class MssqlStore(Store, store_type="mssql"):
             )
 
 
-class MssqlStoreConfig(StoreConfig, BaseStoreConfig, config_type="mssql"):
+class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
     """
     Configuration for MS SQL Server store with extensible write strategies.
 
@@ -351,6 +352,9 @@ class MssqlStoreConfig(StoreConfig, BaseStoreConfig, config_type="mssql"):
         ```
     """
 
+    # Store type
+    type: str = Field(default="mssql", description="Store type")
+
     # Connection options (mutually exclusive with server/database)
     connection: Optional[str] = Field(
         None, description="Named connection pool reference"
@@ -380,11 +384,11 @@ class MssqlStoreConfig(StoreConfig, BaseStoreConfig, config_type="mssql"):
         description="Connection timeout in seconds",
     )
 
-    # Performance settings (optimized for CCI/Heap)
+    # Performance settings (optimized for CCI/Heap, but allow smaller for testing)
     batch_size: int = Field(
         default=MSSQL_STORE_BATCHING_DEFAULTS.batch_size,
-        ge=1000,
-        description="Rows per batch (102,400 optimal for CCI direct-to-compressed)",
+        ge=1,
+        description="Rows per batch (102,400 optimal for CCI)",
     )
     parallel_workers: int = Field(
         default=MSSQL_STORE_BATCHING_DEFAULTS.parallel_workers,
