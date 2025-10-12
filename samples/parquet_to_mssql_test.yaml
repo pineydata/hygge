@@ -1,0 +1,52 @@
+# Parquet to MSSQL - Load test data into Azure SQL
+#
+# This flow loads parquet test data into Azure SQL Server.
+# Perfect for bootstrapping test databases using hygge!
+#
+# Usage:
+#   1. Set environment variable: AZURE_SQL_CONNECTION
+#   2. Create target table in Azure SQL (see SQL below)
+#   3. Run: hygge run samples/parquet_to_mssql_test.yaml
+#
+# Connection string format:
+# export AZURE_SQL_CONNECTION="mssql+pyodbc://username:password@server.database.windows.net:1433/database?driver=ODBC+Driver+18+for+SQL+Server&Encrypt=yes&TrustServerCertificate=no"
+#
+# Or use named connection in hygge.yml:
+# connections:
+#   azure_test:
+#     type: mssql
+#     server: yourserver.database.windows.net
+#     database: yourdatabase
+#     pool:
+#       min_size: 2
+#       max_size: 10
+
+# SQL to create test table:
+# CREATE TABLE dbo.test_users (
+#     id INT PRIMARY KEY,
+#     name NVARCHAR(100),
+#     email NVARCHAR(100),
+#     created_at DATETIME2
+# );
+
+connections:
+  azure_test:
+    type: mssql
+    server: ${AZURE_SQL_SERVER}  # e.g., yourserver.database.windows.net
+    database: ${AZURE_SQL_DATABASE}  # e.g., hygge-test
+    pool:
+      min_size: 2
+      max_size: 10  # 8 workers + 2 buffer
+
+flows:
+  load_test_data:
+    home:
+      type: parquet
+      path: data/users.parquet  # Your test parquet file
+
+    store:
+      type: mssql
+      connection: azure_test
+      table: dbo.test_users
+      # Optimal defaults: batch_size=102400, parallel_workers=8
+      # Add table_hints: "TABLOCK" for staging tables with exclusive access

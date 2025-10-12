@@ -1,14 +1,29 @@
 # hygge Examples
 
-Simple examples demonstrating hygge's registry pattern and parquet-to-parquet data movement.
+Simple examples demonstrating hygge's registry pattern and data movement workflows.
 
-## Quick Start
+## Available Examples
 
-Run the complete example:
+### `parquet_example.py`
+Basic parquet-to-parquet data movement with registry pattern.
 
 ```bash
 python examples/parquet_example.py
 ```
+
+### `parquet_to_mssql_example.py` (NEW!)
+Load test data from parquet into Azure SQL Server.
+
+```bash
+# Set environment variables first
+export AZURE_SQL_SERVER="yourserver.database.windows.net"
+export AZURE_SQL_DATABASE="yourdatabase"
+
+python examples/parquet_to_mssql_example.py
+```
+
+### `entity_pattern_example.py`
+Demonstrates entity pattern for processing multiple tables.
 
 ## What It Does
 

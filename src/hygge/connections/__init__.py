@@ -13,8 +13,12 @@ from .base import BaseConnection
 from .constants import (
     MSSQL_BATCHING_DEFAULTS,
     MSSQL_CONNECTION_DEFAULTS,
+    MSSQL_HOME_BATCHING_DEFAULTS,
+    MSSQL_STORE_BATCHING_DEFAULTS,
     get_mssql_batching_defaults,
     get_mssql_defaults,
+    get_mssql_home_defaults,
+    get_mssql_store_defaults,
 )
 from .mssql import MssqlConnection
 from .pool import ConnectionPool
@@ -25,6 +29,10 @@ __all__ = [
     "MssqlConnection",
     "MSSQL_CONNECTION_DEFAULTS",
     "MSSQL_BATCHING_DEFAULTS",
+    "MSSQL_HOME_BATCHING_DEFAULTS",
+    "MSSQL_STORE_BATCHING_DEFAULTS",
     "get_mssql_defaults",
     "get_mssql_batching_defaults",
+    "get_mssql_home_defaults",
+    "get_mssql_store_defaults",
 ]
