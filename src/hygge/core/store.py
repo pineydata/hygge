@@ -159,18 +159,18 @@ class Store(ABC):
             await self._flush_buffer()
 
         # Move staged files to final location for file-based stores
-        if hasattr(self, "_move_staged_files_to_final"):
-            await self._move_staged_files_to_final()
-        elif hasattr(self, "saved_paths") and hasattr(self, "_move_to_final"):
-            # Move staged files to final location
-            for staging_path_str in self.saved_paths:
-                if staging_path_str:
-                    from pathlib import Path
+        if self.uses_file_staging:
+            if hasattr(self, "_move_staged_files_to_final"):
+                await self._move_staged_files_to_final()
+            elif hasattr(self, "saved_paths") and hasattr(self, "_move_to_final"):
+                # Move staged files to final location
+                for staging_path_str in self.saved_paths:
+                    if staging_path_str:
+                        from pathlib import Path
 
-                    staging_path = Path(staging_path_str)
-                    # Generate final path
-                    final_dir = self.get_final_directory()
-                    if final_dir is not None:
+                        staging_path = Path(staging_path_str)
+                        final_dir = self.get_final_directory()
+                        # final_dir is guaranteed non-None for file-based stores
                         final_path = final_dir / staging_path.name
                         await self._move_to_final(staging_path, final_path)
 
@@ -221,11 +221,11 @@ class Store(ABC):
 
             # Generate path for file-based stores
             path = None
-            if hasattr(self, "get_next_filename"):
+            if self.uses_file_staging and hasattr(self, "get_next_filename"):
                 filename = await self.get_next_filename()
                 staging_dir = self.get_staging_directory()
-                if staging_dir is not None:
-                    path = str(staging_dir / filename)
+                # staging_dir is guaranteed non-None for file-based stores
+                path = str(staging_dir / filename)
 
             # Write to underlying store
             await self._save(data_to_write, path)
@@ -271,6 +271,16 @@ class Store(ABC):
         """
         pass
 
+    @property
+    def uses_file_staging(self) -> bool:
+        """
+        Whether this store uses file-based staging.
+
+        File-based stores (parquet, csv, etc.) return True.
+        Database stores (mssql, postgres, etc.) return False.
+        """
+        return self.get_staging_directory() is not None
+
     def get_staging_directory(self) -> Optional["Path"]:
         """
         Get the staging directory for temporary files.
@@ -307,11 +317,11 @@ class Store(ABC):
 
         # Generate path for file-based stores
         path = None
-        if hasattr(self, "get_next_filename"):
+        if self.uses_file_staging and hasattr(self, "get_next_filename"):
             filename = await self.get_next_filename()
             staging_dir = self.get_staging_directory()
-            if staging_dir is not None:
-                path = str(staging_dir / filename)
+            # staging_dir is guaranteed non-None for file-based stores
+            path = str(staging_dir / filename)
 
         await self._save(combined_data, path)
 

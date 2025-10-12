@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 import polars as pl
 from pydantic import BaseModel, Field, model_validator
 
-from hygge.connections import ConnectionPool, MssqlConnection
+from hygge.connections import ConnectionPool
 from hygge.connections.constants import (
     MSSQL_CONNECTION_DEFAULTS,
     MSSQL_STORE_BATCHING_DEFAULTS,
@@ -142,19 +142,19 @@ class MssqlStore(Store, store_type="mssql"):
         - Append-only workflows
         - When using TABLOCK hint
 
-
         Args:
             df: Polars DataFrame to write
+
+        Raises:
+            StoreError: If no connection pool is configured
         """
-        # Ensure we have a connection pool
+        # Connection pool is required
         if not self.pool:
-            # No pool - create dedicated connection for testing/simple cases
-            self.logger.warning(
-                "No connection pool configured - creating dedicated connection. "
-                "For production, use connection pools in coordinator."
+            raise StoreError(
+                f"Connection pool required for {self.name}. "
+                f"Call store.set_pool(pool) before writing or ensure coordinator "
+                f"creates connection pool from configuration."
             )
-            await self._write_single_connection(df)
-            return
 
         # Split DataFrame into chunks for parallel writing
         chunk_size = max(1, len(df) // self.parallel_workers)
@@ -255,44 +255,6 @@ class MssqlStore(Store, store_type="mssql"):
 
         finally:
             cursor.close()
-
-    async def _write_single_connection(self, df: pl.DataFrame) -> None:
-        """
-        Write data using a single dedicated connection (no pool).
-
-        Used for testing or simple cases without coordinator.
-
-        Args:
-            df: Polars DataFrame to write
-
-        Raises:
-            StoreError: If write fails
-        """
-        connection = None
-        try:
-            # Create dedicated connection
-            self.logger.debug("Creating dedicated connection (no pool)")
-            factory = MssqlConnection(
-                server=self.config.server,
-                database=self.config.database,
-                options=self.config.get_connection_options(),
-            )
-            connection = await factory.get_connection()
-
-            # Write using fast_executemany
-            await asyncio.to_thread(self._insert_batch, connection, df)
-
-            self.batches_written += 1
-            self.rows_written += len(df)
-            self.logger.success(f"Wrote {len(df):,} rows to {self.table}")
-
-        except Exception as e:
-            self.logger.error(f"Failed to write with dedicated connection: {str(e)}")
-            raise StoreError(f"Failed to write: {str(e)}")
-
-        finally:
-            if connection:
-                await asyncio.to_thread(connection.close)
 
     async def close(self) -> None:
         """

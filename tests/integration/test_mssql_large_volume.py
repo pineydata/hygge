@@ -30,7 +30,6 @@ async def test_large_volume_write(tmp_path):
     """Test high-throughput writes with 500K rows (~5 batches)."""
 
     # Create larger test dataset (500K rows)
-    print("\n📊 Generating 500,000 test rows...")
     test_data = pl.DataFrame(
         {
             "id": list(range(1, 500001)),
@@ -44,17 +43,7 @@ async def test_large_volume_write(tmp_path):
     # Write to parquet
     source_file = tmp_path / "large_test_data.parquet"
     test_data.write_parquet(source_file)
-    file_size_mb = source_file.stat().st_size / (1024 * 1024)
-
-    print(f"✓ Created test data: {len(test_data):,} rows")
-    print(f"✓ Parquet file: {file_size_mb:.2f} MB")
-    print()
-
-    # Create larger table schema
     test_table = "dbo.hygge_large_volume_test"
-    print(f"📝 Target table: {test_table}")
-    print("   (Ensure table exists - see test docstring for SQL)")
-    print()
 
     # Setup connection pool with more connections for parallel writes
     factory = MssqlConnection(
@@ -87,12 +76,6 @@ async def test_large_volume_write(tmp_path):
         mssql_store = MssqlStore("mssql_large_store", store_config)
         mssql_store.set_pool(pool)
 
-        print("🚀 Writing to Azure SQL with TABLOCK (serial writes):")
-        print("   Batch size: 102,400 rows")
-        print("   Parallel workers: 1 (required for TABLOCK)")
-        print("   Table hints: TABLOCK (exclusive table lock)")
-        print()
-
         # Load data
         total_rows = 0
         async for batch in source_home.read():
@@ -100,19 +83,6 @@ async def test_large_volume_write(tmp_path):
             total_rows += len(batch)
 
         await mssql_store.close()
-
-        print()
-        print("✅ SUCCESS!")
-        print(f"   Total rows written: {total_rows:,}")
-        print(f"   Data size: {file_size_mb:.2f} MB")
-        print()
-        print("📊 Performance Analysis:")
-        print("   Check logs above for throughput (rows/sec)")
-        print("   Target: 250,000+ rows/sec")
-        print()
-        print("Verify in Azure Portal:")
-        print(f"   SELECT COUNT(*) FROM {test_table};")
-        print(f"   -- Should return: {total_rows:,}")
 
         # Validation
         assert total_rows == 500000, f"Expected 500,000 rows, got {total_rows:,}"

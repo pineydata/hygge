@@ -34,8 +34,6 @@ async def test_parquet_to_mssql_write(tmp_path):
     source_file = tmp_path / "test_data.parquet"
     test_data.write_parquet(source_file)
 
-    print(f"\n✓ Created test data: {len(test_data)} rows")
-
     # Setup connection pool
     factory = MssqlConnection(
         server=os.getenv("AZURE_SQL_SERVER"),
@@ -72,17 +70,10 @@ async def test_parquet_to_mssql_write(tmp_path):
             await mssql_store.write(batch)
             batch_count += 1
             total_rows += len(batch)
-            print(f"  Batch {batch_count}: {len(batch)} rows")
 
         await mssql_store.close()
 
-        print(f"\n✓ Wrote {total_rows} rows in {batch_count} batches")
-        print(f"✓ Table: {test_table}")
-        print("\nVerify in Azure Portal:")
-        print(f"  SELECT COUNT(*) FROM {test_table};")
-        print(f"  SELECT TOP 10 * FROM {test_table};")
-
-        # Basic validation - no errors means success
+        # Validation
         assert batch_count > 0, "No batches written"
         assert total_rows == 100, f"Expected 100 rows, got {total_rows}"
 
