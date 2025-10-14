@@ -1,18 +1,18 @@
 # Architecture Decision Records
 
-## ADR-001: Remove Auto-Create Tables Feature
+## ADR-001: Auto-Create Tables with Clean Architecture
 
-**Date:** October 12, 2025
+**Date:** October 14, 2025
 **Status:** Accepted
-**Context:** Path A (validation) complete, reconsidering architecture
+**Context:** Initial implementation had architectural coupling, needed clean separation
 
 ### Decision
 
-Remove auto-magic table creation feature. Use Polars native inference instead. Build explicit codegen tool on future branch.
+Keep auto-create tables feature but implement with clean architecture (no Home/Store coupling). Use DataFrame schema directly for table creation.
 
 ### Context
 
-We built automatic table creation with custom schema inference:
+We initially built automatic table creation with custom schema inference that required Home/Store coupling:
 - Sample data from home
 - Infer SQL types from Polars types
 - Size strings with buffer factors
@@ -31,57 +31,63 @@ store.set_home(home)
 - Version control schemas
 - Full user control
 
-**Option 2:** Polars native `write_database()` ← **CHOSEN (interim)**
+**Option 2:** Polars native `write_database()` (interim approach)
 - Built-in inference
 - No custom code
 - No coupling
 
-**Option 3:** Keep auto-create as-is
-- Convenient but opaque
-- Architectural coupling
-- Data engineers want control
+**Option 3:** Keep auto-create with clean architecture ← **CHOSEN**
+- Convenient and reliable
+- No Home/Store coupling
+- Uses DataFrame schema directly
 
 ### Decision Rationale
 
 1. **Architectural clean separation:**
    Home and Store should be independent. `set_home()` broke this.
 
-2. **Data engineer mindset:**
-   Users want explicit control over schemas, not auto-magic.
+2. **User needs:**
+   Users want auto-create convenience without architectural complexity.
 
-3. **Simplicity:**
-   Polars already does inference. Don't reinvent it.
+3. **DataFrame schema is sufficient:**
+   Polars DataFrames contain complete type information, no need to sample from Home.
 
-4. **Future path clear:**
-   Codegen tool (Option 1) will come on separate feature branch.
+4. **Conservative defaults:**
+   Use safe type mappings (NVARCHAR(4000), BIGINT, etc.) that work for most cases.
 
 ### Consequences
 
 **Positive:**
-- ✅ Clean architecture (no coupling)
-- ✅ Simpler codebase (~500 lines removed)
-- ✅ Clear path forward (codegen)
-- ✅ Better aligns with data engineer expectations
+- ✅ Clean architecture (no Home/Store coupling)
+- ✅ Auto-create tables work automatically
+- ✅ Conservative type mapping (safe defaults)
+- ✅ Safe index name generation
+- ✅ Users don't need to write CREATE TABLE statements
 
 **Negative:**
-- ❌ Users must create tables manually (for now)
+- ❌ Conservative type sizing (NVARCHAR(4000) for all strings)
 - ❌ No custom string sizing heuristics
-- ❌ Time spent on feature that was removed
+- ❌ Users may need to ALTER tables for optimization
 
 **Mitigation:**
-- Polars `write_database()` handles basic inference
-- Codegen tool coming on next feature branch
-- Learning experience on architecture decisions
+- Conservative defaults work for 90% of cases
+- Users can ALTER tables after creation if needed
+- Future: Optional codegen tool for custom schemas
 
 ### Implementation
 
-**Removed:**
-- `src/hygge/stores/mssql/schema_inference.py` (410 lines)
-- Schema inference integration in `MssqlStore`
-- `set_home()` method
-- Home wiring in `Flow`
-- Config fields: `schema_inference`, `schema_overrides`, `if_exists`
-- Tests for inference (48+ tests)
+**Removed (architectural coupling):**
+- `set_home()` method and Home wiring in `Flow`
+- Complex schema inference from Home samples
+- Home/Store architectural dependency
+
+**Implemented (clean architecture):**
+- Table existence checking via INFORMATION_SCHEMA
+- Direct DataFrame schema → SQL type mapping
+- Safe index name generation (replaces invalid characters)
+- `if_exists` config: fail (default), append, replace
+- Conservative type defaults: String→NVARCHAR(4000), Int64→BIGINT, etc.
+- 24 comprehensive unit tests
 
 **Kept:**
 - Core MSSQL write functionality
@@ -89,18 +95,16 @@ store.set_home(home)
 - Parallel batch writes
 - Performance optimizations
 
-**Added:**
-- `ARCHITECTURE_DECISIONS.md` - This ADR
-
 ### References
 
-- User feedback: "This feels like a shoehorn..."
+- User feedback: "This feels like a shoehorn..." (original coupling approach)
+- User feedback: "We are a small team that is not looking to buy another tool. Make this the tool. I don't want to spend my time writing 70, 80, 90 create statements."
 - ROADMAP.md: Phase 1 Entity-First Architecture
 
 ### Follow-up
 
-- [ ] Move to Path 2: State Management (next)
-- [ ] Consider codegen tool on future branch (optional)
+- [ ] Move to Phase 1: Entity-First Architecture (next)
+- [ ] Consider optional codegen tool for custom schema generation
 
 ---
 

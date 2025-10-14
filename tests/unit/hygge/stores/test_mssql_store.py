@@ -133,6 +133,27 @@ class TestPolarsTypeMapping:
             assert result == "NVARCHAR(MAX)"
             mock_logger.warning.assert_called_once()
 
+    def test_safe_index_name_generation(self):
+        """Test that index names are generated safely from table names."""
+        # Test index name generation logic directly
+        table_name = "Users"
+        safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in table_name)
+        assert safe_name == "Users"
+
+        # Test table name with special characters
+        table_name = "My-Table.123"
+        safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in table_name)
+        if safe_name and not (safe_name[0].isalpha() or safe_name[0] == "_"):
+            safe_name = f"idx_{safe_name}"
+        assert safe_name == "My_Table_123"
+
+        # Test table name starting with number
+        table_name = "123Table"
+        safe_name = "".join(c if c.isalnum() or c == "_" else "_" for c in table_name)
+        if safe_name and not (safe_name[0].isalpha() or safe_name[0] == "_"):
+            safe_name = f"idx_{safe_name}"
+        assert safe_name == "idx_123Table"
+
 
 class TestTableCreation:
     """Test auto-table creation functionality."""
@@ -216,6 +237,7 @@ class TestTableCreation:
             or "[created_at] NVARCHAR(MAX) NULL" in ddl_call
         )
         assert "CLUSTERED COLUMNSTORE" in ddl_call
+        assert "CCI_Test" in ddl_call  # Safe index name
 
     @pytest.mark.asyncio
     async def test_ensure_table_exists_creates_new_table(self):
@@ -345,4 +367,3 @@ class TestTableCreation:
             # Second call - should NOT check again (early return)
             await self.store._ensure_table_exists(df)
             assert table_exists_calls == 1  # Still 1, not 2
-

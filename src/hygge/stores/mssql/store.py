@@ -86,7 +86,7 @@ class MssqlStore(Store, store_type="mssql"):
         self.rows_written = 0
 
         # Auto-create table support
-        self.if_exists = merged_options.get("if_exists", "fail")
+        self.if_exists = config.if_exists
         self._table_checked = False
         self._table_created = False
 
@@ -386,10 +386,23 @@ class MssqlStore(Store, store_type="mssql"):
 
         # Create DDL - Always use Clustered Columnstore Index (analytics-optimized)
         column_defs = ",\n    ".join(columns)
+
+        # Generate safe index name from table name
+        table_name = self.table.split(".")[-1].strip("[]")
+        # Replace invalid SQL identifier characters with underscores
+        safe_index_name = "".join(
+            c if c.isalnum() or c == "_" else "_" for c in table_name
+        )
+        # Ensure it starts with a letter or underscore
+        if safe_index_name and not (
+            safe_index_name[0].isalpha() or safe_index_name[0] == "_"
+        ):
+            safe_index_name = f"idx_{safe_index_name}"
+
         ddl = f"""
 CREATE TABLE {self.table} (
     {column_defs},
-    INDEX CCI__{self.table.split('.')[-1].strip('[]')} CLUSTERED COLUMNSTORE
+    INDEX CCI_{safe_index_name} CLUSTERED COLUMNSTORE
 );
 """
 
@@ -633,7 +646,6 @@ class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
             "batch_size": self.batch_size,
             "parallel_workers": self.parallel_workers,
             "table_hints": self.table_hints,
-            "if_exists": self.if_exists,
         }
         options.update(self.options)
         return options
