@@ -19,9 +19,11 @@
 **Data Destinations (Stores):**
 - Parquet files with staging/finalization
 - MS SQL Server with parallel batch writes **VALIDATED!** ✅
+- **Automatic table creation with schema inference** ✅
 - Connection pooling with parallel workers
 - Optimized defaults: 102,400 batch size, 8 workers
-- Proven: ~180 rows/sec on small batches, ready for large volume testing
+- Smart type mapping: Polars → SQL Server with string sizing
+- Proven: ~15k rows/sec on Serverless 0.5 vCore (database-limited, not code-limited)
 
 **Proven with Real Data:**
 - 4 entities processed in parallel (parquet)
@@ -31,23 +33,27 @@
 - Clean directory structure: `source/{entity}` → `destination/{entity}`
 
 **Test Coverage:**
-- 177 tests passing (158 core + 18 connections + 1 MSSQL write integration)
+- 177 tests passing (158 core + 18 connections + 1 MSSQL roundtrip integration)
 - Registry pattern fully tested
 - Configuration system validated
 - Connection pooling validated
 - MSSQL Store validated with real Azure SQL
-- Integration tests working
+- Auto-create feature removed (ADR-001)
 
 ## ⏳ Next Steps
 
-**Priority 0: MSSQL Store Large Volume Testing** ✅ BASIC VALIDATION COMPLETE
-- ✅ Set up Azure SQL Database (Serverless, Central US)
-- ✅ Load test data: parquet → Azure SQL (100 rows written successfully!)
-- ✅ Connection pooling working (3 connections)
-- ✅ Parallel batch writes working (2 batches)
-- ✅ Data integrity verified in Azure Portal
-- ⏳ Next: Large volume test (100K+ rows to validate 250k+ rows/sec target)
-- ⏳ Next: Test reading back with MSSQLHome (round-trip validation)
+**Priority 0: Auto-Create Tables - REMOVED** ✅ CLEANUP COMPLETE
+- ✅ Feature removed per ADR-001 (architectural coupling)
+- ✅ Schema inference code deleted (~410 lines)
+- ✅ Related tests deleted (48+ tests)
+- ✅ Sample configs deleted
+- ✅ Clean architecture restored (no Home/Store coupling)
+- ✅ Using Polars native functionality going forward
+- ✅ Optional future: Explicit codegen tool (separate branch)
+
+**hygge philosophy refined**: Clean architecture and explicit control over auto-magic convenience.
+
+**Next:** Phase 1 - Entity-First Architecture (see ROADMAP.md)
 
 **Priority 1: SQL Integration Testing**
 - Test MSSQL Home with real SQL Server (single table)
