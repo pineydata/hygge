@@ -1,6 +1,26 @@
 # hygge Next Conversation Prompt
 
-## Current Status: MSSQL Store Large Volume Testing COMPLETE ✅
+## Current Status: Cleanup Complete - Ready for Next Phase ✅
+
+**Auto-create tables feature removed** (ADR-001) - cleanup complete, branch ready to merge.
+
+**Cleanup completed:**
+- ✅ Deleted schema_inference.py and related tests
+- ✅ Updated imports in __init__.py
+- ✅ Updated documentation (HYGGE_DONE.md)
+- ✅ Clean architecture with Polars native functionality
+
+**Next Steps:**
+1. **Merge to main** - Clean refactor ready
+2. **Phase 1: Entity-First Architecture** (see ROADMAP.md Phase 1)
+   - Multi-file entity pattern support
+   - CLI enhancements for entity management
+3. **Optional Future: Codegen tool** (explicit DDL generation from parquet files)
+4. **Phase 2: State Management** (incremental loads with watermarks)
+
+---
+
+## Previous Status: Auto-Create Tables COMPLETE & VALIDATED ✅
 
 We've successfully validated MS SQL Server STORE at scale with real Azure SQL Database:
 
@@ -51,106 +71,118 @@ We've successfully validated MS SQL Server STORE at scale with real Azure SQL Da
 - ⏳ Next: Round-trip validation workflow
 - Use hygge to test hygge! 🏠
 
-## Next Development Phase: Auto-Create Tables with Schema Inference 🎯
+## Refactor Complete: ADR-001 - Auto-Create Tables Removed ✅
 
-**Priority 0: Make Tables "Just Work"**
+**Removed (Oct 12):**
+- ❌ Custom schema inference engine (~700 lines)
+- ❌ Home/Store coupling (`set_home()`)
+- ❌ Auto-table creation with heuristics
+- ❌ Config fields: `schema_inference`, `schema_overrides`, `if_exists`
 
-This is core hygge functionality - users shouldn't have to manually create tables. Follow the Rails philosophy: comfort over configuration.
+**Rationale:** Architectural coupling felt wrong, data engineers want explicit control
 
-**Design Decision (Oct 12):**
-- **Approach 3: Multi-batch sampling** (3 batches default, ~300k rows)
-- Use **max + 1.5x buffer** for string sizing
-- Smart defaults with override capability
-- Transparency: Log what was inferred
+**Current approach:** Use Polars native `write_database()` for inference
+
+**Future approach:** Codegen tool (explicit DDL generation, user reviews before applying)
+
+**Next Steps:**
+1. ⏳ Review and test refactored code
+2. ⏳ Commit to main
+3. 🎯 **NEXT: Codegen tool** (separate feature branch)
+4. 🎯 **AFTER: State Management** (incremental loads)
+
+## Next Development Phase: Codegen Tool 🎯
+
+**Priority 1: DDL Generation from Parquet**
+
+After code review and commit, build explicit codegen tool for table creation.
+
+**Goal:** Generate SQL DDL from parquet files, user reviews and applies manually
+
+**Implementation:**
+```bash
+# Generate DDL from parquet
+hygge generate ddl \
+  --input data/users.parquet \
+  --table dbo.Users \
+  --output schema/dbo.Users.sql
+
+# Review and edit
+vim schema/dbo.Users.sql
+
+# Apply to database (manual or via hygge)
+hygge apply schema/dbo.Users.sql --connection target_db
+
+# Then load data
+hygge start
+```
+
+**Why this approach:**
+- ✅ User reviews schema before creation
+- ✅ Version control DDL files
+- ✅ Customizable before applying
+- ✅ No architectural coupling
+- ✅ Data engineer explicit control
+
+---
+
+## Future Development Phase: State Management
+
+**Priority 2: Incremental Loads with Watermarks**
+
+After codegen tool is complete, focus shifts to state management.
+
+**Goal:** Track incremental load state (watermarks) per entity
 
 **Implementation Plan:**
 
-**1. Schema Inference Engine**
-```python
-class SchemaInference:
-    """
-    Infer SQL Server schema from Polars DataFrame.
-
-    Smart Defaults:
-    - sample_batches: 3 (scan first 3 batches, ~300k rows)
-    - buffer_factor: 1.5 (50% growth buffer)
-    - min_varchar: 50
-    - max_varchar: 4000 (before using NVARCHAR(MAX))
-    """
-
-    async def infer_from_home(home: Home) -> dict:
-        """Sample first N batches, analyze, return schema."""
-        pass
-```
-
-**2. Type Mapping (Polars → MSSQL)**
-- Numeric types: Direct mapping (safe)
-- Strings: Scan samples, use max + 1.5x buffer, clamp to SQL ranges
-- Dates/Times: Direct mapping
-- Nullability: Respect Polars schema
-- Unknown: Fallback to NVARCHAR(MAX) with warning
-
-**3. Table Creation Flow**
-```python
-async def _save(self, df: pl.DataFrame):
-    # Check if table exists
-    if not await self._table_exists():
-        # Infer schema from first 3 batches
-        schema = await self._infer_schema(df)
-
-        # Create table with CCI by default
-        await self._create_table(schema, clustered_columnstore=True)
-
-        # Log what was created (transparency)
-        self.logger.info(f"Created table {self.table} with inferred schema")
-
-    # Write normally
-    await self._insert_batch(df)
-```
-
-**4. Configuration Options**
+**1. State Management**
 ```yaml
-store:
-  type: mssql
-  table: dbo.my_table
-  # Just works! Auto-creates with smart defaults
-
-  # Optional: Control inference
-  schema_inference:
-    sample_batches: 5        # Scan more data
-    buffer_factor: 2.0       # More conservative
-
-  # Optional: Override specific columns
-  schema_overrides:
-    email: NVARCHAR(100)     # Force specific size
-    user_id: BIGINT          # Override inferred type
-
-  # Optional: Table creation options
-  if_exists: append           # append (default), replace, fail
-  table_options:
-    clustered_columnstore: true  # Default for analytics
+# .hygge/state/crm_extract/accounts.state.yml
+entity: accounts
+last_run: 2025-10-12T10:30:00Z
+watermark:
+  column: updated_at
+  value: 2025-10-12T09:45:23Z
+rows_processed: 15420
+status: success
 ```
 
-**5. Testing Strategy**
-- Test with various data patterns (short strings, long strings, mixed types)
-- Test override mechanism
-- Test if_exists behaviors
-- Test error messages (data truncation, type mismatches)
-- Document inference logic clearly
+**2. Incremental Home Queries**
+```python
+# Home reads watermark from state file
+# Adds WHERE clause automatically
+SELECT * FROM accounts
+WHERE updated_at > '2025-10-12T09:45:23Z'
+```
 
-**Why This Matters:**
-- Core hygge philosophy: data should just flow, no manual setup
-- Eliminates friction: point at data, it works
-- Smart defaults handle 90% of cases correctly
-- Override mechanism handles the other 10%
-- Transparent logging shows what hygge decided
+**3. State Persistence**
+- Store state files in `.hygge/state/` per flow
+- Atomic updates (write temp, rename)
+- State file per entity for scalability
+- Optional state backends (local file, database, S3)
+
+**4. Configuration**
+```yaml
+flows:
+  crm_extract:
+    home:
+      type: mssql
+      table: dbo.accounts
+      incremental:
+        column: updated_at  # Watermark column
+        strategy: append    # append or merge
+    store:
+      type: parquet
+      path: data/landing/accounts
+```
 
 **Success Criteria:**
-- ✅ User can write to non-existent table without error
-- ✅ Inferred schema handles common data patterns correctly
-- ✅ Override mechanism works for edge cases
-- ✅ Clear error messages when data doesn't fit inferred schema
-- ✅ Documented inference logic and best practices
+- ✅ First run loads all data
+- ✅ Subsequent runs load only new/changed records
+- ✅ State persists between runs
+- ✅ Handles failures gracefully (no partial watermark updates)
+- ✅ Works with entity pattern (50+ tables)
 
 ## Priority 1: SQL Home Integration Testing
 

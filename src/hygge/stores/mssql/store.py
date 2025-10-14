@@ -85,6 +85,11 @@ class MssqlStore(Store, store_type="mssql"):
         self.batches_written = 0
         self.rows_written = 0
 
+        # Auto-create table support
+        self.if_exists = config.if_exists
+        self._table_checked = False
+        self._table_created = False
+
     def set_pool(self, pool: ConnectionPool) -> None:
         """
         Set the connection pool for this store.
@@ -155,6 +160,9 @@ class MssqlStore(Store, store_type="mssql"):
                 f"Call store.set_pool(pool) before writing or ensure coordinator "
                 f"creates connection pool from configuration."
             )
+
+        # Ensure table exists (check once on first write)
+        await self._ensure_table_exists(df)
 
         # Split DataFrame into chunks for parallel writing
         chunk_size = max(1, len(df) // self.parallel_workers)
@@ -255,6 +263,208 @@ class MssqlStore(Store, store_type="mssql"):
 
         finally:
             cursor.close()
+
+    async def _table_exists(self, connection) -> bool:
+        """
+        Check if the target table exists in the database.
+
+        Args:
+            connection: pyodbc connection
+
+        Returns:
+            True if table exists, False otherwise
+        """
+        # Parse schema and table name
+        parts = self.table.split(".")
+        if len(parts) == 2:
+            schema_name, table_name = parts
+        else:
+            schema_name = "dbo"
+            table_name = self.table
+
+        # Remove brackets if present
+        schema_name = schema_name.strip("[]")
+        table_name = table_name.strip("[]")
+
+        query = """
+            SELECT COUNT(*)
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+        """
+
+        cursor = connection.cursor()
+        try:
+            cursor.execute(query, (schema_name, table_name))
+            count = cursor.fetchone()[0]
+            return count > 0
+        finally:
+            cursor.close()
+
+    def _map_polars_type_to_sql(self, polars_type: pl.DataType) -> str:
+        """
+        Map Polars data type to SQL Server type with conservative defaults.
+
+        Args:
+            polars_type: Polars data type
+
+        Returns:
+            SQL Server type string
+        """
+        # String types - conservative sizing
+        if polars_type == pl.String or polars_type == pl.Utf8:
+            return "NVARCHAR(4000)"  # Fits most strings, can ALTER later
+
+        # Integer types
+        if polars_type == pl.Int8:
+            return "TINYINT"
+        if polars_type == pl.Int16:
+            return "SMALLINT"
+        if polars_type == pl.Int32:
+            return "INT"
+        if polars_type == pl.Int64:
+            return "BIGINT"
+        if polars_type == pl.UInt8:
+            return "TINYINT"
+        if polars_type == pl.UInt16:
+            return "INT"  # No unsigned types in SQL Server
+        if polars_type == pl.UInt32:
+            return "BIGINT"
+        if polars_type == pl.UInt64:
+            return "BIGINT"
+
+        # Float types
+        if polars_type == pl.Float32:
+            return "REAL"
+        if polars_type == pl.Float64:
+            return "FLOAT"
+
+        # Decimal types
+        if isinstance(polars_type, pl.Decimal):
+            return "DECIMAL(38, 10)"  # Conservative precision
+
+        # Date/Time types
+        if polars_type == pl.Date:
+            return "DATE"
+        if polars_type == pl.Datetime:
+            return "DATETIME2"
+        if polars_type == pl.Time:
+            return "TIME"
+        if polars_type == pl.Duration:
+            return "BIGINT"  # Store as nanoseconds
+
+        # Boolean
+        if polars_type == pl.Boolean:
+            return "BIT"
+
+        # Binary
+        if polars_type == pl.Binary:
+            return "VARBINARY(MAX)"
+
+        # Categorical (treat as string)
+        if isinstance(polars_type, pl.Categorical):
+            return "NVARCHAR(4000)"
+
+        # Fallback for unknown types
+        self.logger.warning(
+            f"Unknown Polars type {polars_type}, defaulting to NVARCHAR(MAX)"
+        )
+        return "NVARCHAR(MAX)"
+
+    async def _create_table(self, connection, df: pl.DataFrame) -> None:
+        """
+        Create table from DataFrame schema using conservative type mapping.
+
+        Args:
+            connection: pyodbc connection
+            df: Sample DataFrame to infer schema from
+        """
+        # Build column definitions
+        columns = []
+        for col_name, col_type in df.schema.items():
+            sql_type = self._map_polars_type_to_sql(col_type)
+            columns.append(f"[{col_name}] {sql_type} NULL")
+
+        # Create DDL - Always use Clustered Columnstore Index (analytics-optimized)
+        column_defs = ",\n    ".join(columns)
+
+        # Generate safe index name from table name
+        table_name = self.table.split(".")[-1].strip("[]")
+        # Replace invalid SQL identifier characters with underscores
+        safe_index_name = "".join(
+            c if c.isalnum() or c == "_" else "_" for c in table_name
+        )
+        # Ensure it starts with a letter or underscore
+        if safe_index_name and not (
+            safe_index_name[0].isalpha() or safe_index_name[0] == "_"
+        ):
+            safe_index_name = f"idx_{safe_index_name}"
+
+        ddl = f"""
+CREATE TABLE {self.table} (
+    {column_defs},
+    INDEX CCI_{safe_index_name} CLUSTERED COLUMNSTORE
+);
+"""
+
+        self.logger.info(f"Creating table {self.table} with {len(columns)} columns")
+
+        cursor = connection.cursor()
+        try:
+            cursor.execute(ddl)
+            connection.commit()
+            self._table_created = True
+            self.logger.success(f"Table {self.table} created successfully")
+        except Exception as e:
+            connection.rollback()
+            raise StoreError(f"Failed to create table {self.table}: {str(e)}")
+        finally:
+            cursor.close()
+
+    async def _ensure_table_exists(self, df: pl.DataFrame) -> None:
+        """
+        Ensure target table exists, creating it if necessary based on if_exists policy.
+
+        Args:
+            df: DataFrame to write (used for schema if creating table)
+        """
+        # Only check once per store instance
+        if self._table_checked:
+            return
+
+        connection = None
+        try:
+            connection = await self.pool.acquire()
+
+            # Check if table exists
+            exists = await asyncio.to_thread(self._table_exists, connection)
+
+            if exists:
+                if self.if_exists == "fail":
+                    raise StoreError(
+                        f"Table {self.table} already exists (if_exists='fail'). "
+                        f"Use if_exists='append' or 'replace' to proceed."
+                    )
+                elif self.if_exists == "replace":
+                    # Drop and recreate
+                    cursor = connection.cursor()
+                    try:
+                        cursor.execute(f"DROP TABLE {self.table}")
+                        connection.commit()
+                        self.logger.info(f"Dropped existing table {self.table}")
+                    finally:
+                        cursor.close()
+
+                    await asyncio.to_thread(self._create_table, connection, df)
+                # if_exists == "append" - just use existing table
+            else:
+                # Table doesn't exist - create it (regardless of if_exists setting)
+                await asyncio.to_thread(self._create_table, connection, df)
+
+            self._table_checked = True
+
+        finally:
+            if connection:
+                await self.pool.release(connection)
 
     async def close(self) -> None:
         """
@@ -372,6 +582,16 @@ class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
         ),
     )
 
+    # Table creation policy
+    if_exists: str = Field(
+        default="fail",
+        description=(
+            "Action when table exists: 'fail' (error if exists), "
+            "'append' (use existing, create if missing), "
+            "'replace' (drop and recreate)"
+        ),
+    )
+
     # Additional options
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional MSSQL store options"
@@ -407,6 +627,16 @@ class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
                 f"got '{self.write_strategy}'. "
                 f"Note: 'temp_swap' and 'merge' strategies are planned "
                 f"for future releases."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_if_exists(self):
+        """Validate if_exists policy."""
+        valid_policies = ["fail", "append", "replace"]
+        if self.if_exists not in valid_policies:
+            raise ValueError(
+                f"if_exists must be one of {valid_policies}, " f"got '{self.if_exists}'"
             )
         return self
 

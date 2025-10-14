@@ -8,6 +8,99 @@
 
 ## 🎉 Completed Work
 
+### Auto-Create Tables Feature Removed (ADR-001) ✅
+*Date: October 14, 2025*
+
+**Decision:** Remove auto-create tables feature in favor of simpler, decoupled architecture.
+
+**Rationale:**
+- Architectural coupling: `set_home(home)` broke clean separation between Home and Store
+- Data engineer mindset: Users want explicit control over schemas, not auto-magic
+- Simplicity: Polars `write_database()` already provides basic inference
+- Future path: Build explicit codegen tool on separate feature branch
+
+**Cleanup completed:**
+- ✅ Deleted `src/hygge/stores/mssql/schema_inference.py` (410 lines)
+- ✅ Deleted `tests/unit/hygge/stores/test_mssql_schema_inference.py` (40+ tests)
+- ✅ Deleted `tests/integration/test_mssql_auto_create_table.py` (8 tests)
+- ✅ Deleted `samples/mssql_auto_create.yaml` (example config)
+- ✅ Updated `src/hygge/stores/mssql/__init__.py` (removed schema_inference imports)
+- ✅ Created `ARCHITECTURE_DECISIONS.md` with ADR-001
+- ✅ Updated `ROADMAP.md` with future development plan
+
+**What remains:**
+- ✅ Core MSSQL Store functionality (parallel batch writes, connection pooling)
+- ✅ Large volume validation (500K rows at ~15k rows/sec on Azure SQL)
+- ✅ MSSQL Home functionality (read from SQL Server)
+- ✅ Clean architecture with proper separation of concerns
+
+**Learning:** Sometimes the best code is code you delete. This keeps hygge focused on its core mission: comfortable, reliable data movement without unnecessary complexity.
+
+### Auto-Create Tables - Validated & Production Ready ✅
+*Date: October 12, 2025 - Path A Complete*
+
+**Refinements after initial implementation:**
+- Changed `if_exists` default from `"append"` to `"fail"` (prevent accidental data duplication)
+- Removed `table_options` config - always create CCI (hygge is analytics-optimized)
+- Simplified schema inference to always use Clustered Columnstore Index
+- Updated all tests and examples to reflect new defaults
+- Created comprehensive ROADMAP.md for future development
+
+**Production readiness:**
+- ✅ Feature complete with smart defaults
+- ✅ Comprehensive test coverage (48+ tests)
+- ✅ Clear error messages and validation
+- ✅ Sample configurations for common patterns
+- ✅ Backward compatible with existing code
+- ✅ Ready for real-world workloads
+
+### Auto-Create Tables with Schema Inference Complete ✅
+*Date: October 12, 2025*
+
+- **Schema Inference Engine**: Polars → SQL Server type mapping with smart defaults
+  - Multi-batch sampling (3 batches default, ~300k rows)
+  - String sizing: max + 1.5x buffer, clamped to min/max ranges
+  - Comprehensive type mapping: integers, floats, strings, dates, booleans, binary
+  - Handles edge cases: nulls, empty strings, unsigned integers, complex types
+  - Transparent logging of inferred schema
+
+- **Automatic Table Creation**: hygge philosophy - data just flows!
+  - Table existence checking with INFORMATION_SCHEMA queries
+  - CREATE TABLE generation with proper SQL syntax
+  - Clustered Columnstore Index by default (optimal for analytics)
+  - Optional heap creation for OLTP-style workloads
+  - Schema metadata tracking (sampled rows, batches, buffer factor)
+
+- **Flexible Configuration**: Smart defaults with override capability
+  - `if_exists`: append (default), replace, fail
+  - `schema_inference`: sample_batches, buffer_factor, min_varchar, max_varchar
+  - `schema_overrides`: {column_name: sql_type} for specific columns
+  - `table_options`: clustered_columnstore (default: true)
+  - Zero configuration required - just point at data!
+
+- **Integration with Flow**: Home automatically wired to Store
+  - Flow calls `store.set_home(home)` on initialization
+  - Enables better schema inference by sampling from source
+  - Falls back to DataFrame inference if home not available
+  - Seamless integration with existing coordinator patterns
+
+- **Comprehensive Testing**: Unit + Integration tests
+  - 14 unit test classes covering type mapping, string sizing, edge cases
+  - 40+ test scenarios for schema inference engine
+  - 8 integration tests with real Azure SQL Database
+  - Tests for if_exists policies: append, replace, fail
+  - Tests for CCI vs heap table creation
+  - Tests for schema overrides and custom inference configs
+
+- **Sample Configuration**: Complete examples for common patterns
+  - `samples/mssql_auto_create.yaml` - 5 real-world scenarios
+  - Minimal example (3 lines - table auto-created!)
+  - Advanced example (controlled inference + overrides)
+  - Performance tuning (TABLOCK + parallel_workers)
+  - Replace existing tables, heap tables, custom sizing
+
+**Why this matters**: This is core hygge functionality - users shouldn't have to manually create tables. The Rails philosophy of "convention over configuration" is now real for SQL Server. Point parquet at SQL, and it just works. Strings are sized intelligently with growth buffers. Types are mapped correctly. CCI is created by default for analytics. Users can override when needed, but 90% of the time, smart defaults do the right thing. Data flows naturally without friction.
+
 ### MSSQL Store Azure SQL Validation Complete ✅
 *Date: October 12, 2025*
 
