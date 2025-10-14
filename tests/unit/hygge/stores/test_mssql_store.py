@@ -346,5 +346,3 @@ class TestTableCreation:
             await self.store._ensure_table_exists(df)
             assert table_exists_calls == 1  # Still 1, not 2
 
-
-# Import asyncio for the async tests
