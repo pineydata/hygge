@@ -1,134 +1,74 @@
 # Contributing to hygge
 
-Thank you for your interest in contributing to hygge! This document provides guidelines for making hygge even more comfortable and reliable.
+## Branch Protection
 
-## Development Setup
+This repository uses branch protection to ensure code quality and prevent accidental commits to main.
 
-1. Install uv:
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
+### 🚫 What's Blocked
+- **Direct pushes to main** - All changes must go through Pull Requests
+- **Merging without review** - All changes require code review
+- **Broken builds** - All tests must pass before merging
 
-2. Clone the repository:
-```bash
-git clone https://github.com/pineydata/hygge.git
-cd hygge
-```
+### ✅ Required Workflow
 
-3. Create a virtual environment and install dependencies:
-```bash
-uv venv
-uv pip install -e ".[dev]"
-```
-
-## Development Workflow
-
-1. Create a new branch for your feature:
-```bash
-git checkout -b feature/your-feature-name
-```
-
-2. Make your changes, following hygge's philosophy:
-- **Comfort**: APIs should feel natural and intuitive
-- **Simplicity**: Clean, clear code over complex optimizations
-- **Reliability**: Robust, predictable behavior
-- **Flow**: Smooth, efficient implementation
-
-3. Write tests immediately after implementing functionality:
-```bash
-pytest
-```
-
-4. Run linting:
-```bash
-ruff check .
-```
-
-5. Commit your changes:
-```bash
-git add .
-git commit -m "Description of your changes"
-```
-
-6. Push your changes and create a pull request:
-```bash
-git push origin feature/your-feature-name
-```
-
-## Code Style
-
-- We use ruff for linting
-- Maximum line length is 88 characters
-- Use type hints for all function arguments and return values
-- Follow Google style for docstrings
-- **Prioritize comfort and clarity** over cleverness
-
-## Registry Pattern
-
-hygge uses a registry pattern for home and store implementations. When adding new implementations:
-
-### Adding New Home/Store Types
-
-1. **Create your implementation** following the existing patterns:
-   ```python
-   # src/hygge/homes/sql/home.py
-   class SqlHome(Home, home_type="sql"):
-       # Implementation here
-
-   class SqlHomeConfig(HomeConfig, BaseHomeConfig, config_type="sql"):
-       # Configuration here
+1. **Create a feature branch**
+   ```bash
+   git checkout -b feature/your-feature-name
    ```
 
-2. **Register in the main module** by adding imports to `src/hygge/__init__.py`:
-   ```python
-   # Add to the registry imports section
-   from .homes.sql import SqlHome, SqlHomeConfig  # noqa: F401
-   from .stores.s3 import S3Store, S3StoreConfig  # noqa: F401
+2. **Make your changes and commit**
+   ```bash
+   git add .
+   git commit -m "Your commit message"
    ```
 
-3. **The registry pattern handles the rest** - your implementation will be automatically available via `Home.create()` and `Store.create()`.
+3. **Push your feature branch**
+   ```bash
+   git push origin feature/your-feature-name
+   ```
 
-### Why This Pattern?
+4. **Create a Pull Request**
+   - Go to GitHub and create a PR from your feature branch to main
+   - Add a clear description of your changes
+   - Request review from team members
 
-- **Comfort**: Framework handles its own initialization
-- **Convention**: One place for all registrations
-- **Clarity**: Dependencies are explicit and in the right place
-- **Reliability**: Registry is always initialized when hygge is imported
+5. **Get code review and merge**
+   - Address any feedback from reviewers
+   - Ensure all tests pass
+   - Merge via the PR (not directly to main)
 
-See `src/hygge/__init__.py` for detailed comments about the registry initialization.
+### 🛡️ Why This Matters
 
-## Testing Philosophy
+- **Code Quality**: All changes are reviewed before merging
+- **Team Collaboration**: Everyone can see and discuss changes
+- **History**: Clean commit history with meaningful PR descriptions
+- **Safety**: Prevents accidental commits and broken builds
 
-- **Focus on behavior that matters**: Test user experience and data integrity
-- **Verify defaults "just work"**: Ensure smart defaults function correctly
-- **Test the happy path first**: Ensure basic functionality works before edge cases
-- **Test error scenarios**: Verify graceful failure handling
-- **Integration over unit tests**: Focus on end-to-end behavior that users care about
+### 🚨 Emergency Fixes
 
-## Documentation
+If you need to make an emergency fix to main:
+1. **Create a hotfix branch**: `git checkout -b hotfix/emergency-fix`
+2. **Make minimal changes** and commit
+3. **Create PR immediately** with clear explanation
+4. **Get expedited review** from team members
+5. **Merge via PR** (never push directly to main)
 
-- Update documentation for new features
-- Include docstrings for new functions and classes
-- Update README.md if necessary
-- Add examples that demonstrate comfort and simplicity
-- **Focus on user experience**: Does this make data movement more comfortable?
+### 📝 Commit Messages
 
-## Pull Request Process
+Use clear, descriptive commit messages:
+- ✅ `feat: add entity-first approach for multi-table flows`
+- ✅ `fix: resolve async method calls in MSSQL store`
+- ❌ `fix stuff`
+- ❌ `updates`
 
-1. Ensure all tests pass
-2. Update documentation as needed
-3. Add your changes to CHANGELOG.md
-4. Request review from maintainers
-5. Address review comments
+### 🧪 Testing
 
-## hygge's Core Question
+Before creating a PR:
+- [ ] Run linting: `ruff check src/ samples/`
+- [ ] Run tests: `pytest tests/`
+- [ ] Test your changes manually
+- [ ] Update documentation if needed
 
-Before submitting any changes, ask yourself:
-- **Does this make data movement more comfortable?**
-- **Does this feel natural and intuitive?**
-- **Does this maintain hygge's reliability?**
-- **Does this keep data flowing smoothly?**
+---
 
-## Questions?
-
-If you have questions, please open an issue or reach out to the maintainers. We're here to help make hygge even more comfortable!
+**Remember: The main branch is protected for everyone's benefit. Always use the PR workflow!** 🚀
