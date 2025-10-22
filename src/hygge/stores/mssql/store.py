@@ -122,13 +122,6 @@ class MssqlStore(Store, store_type="mssql"):
                 self.logger.debug("Skipping empty DataFrame")
                 return
 
-            # Validate table is set before writing
-            if not self.table:
-                raise StoreError(
-                    f"Table name not set for store {self.name}. "
-                    f"Ensure table is specified in entity configuration."
-                )
-
             # Route to appropriate strategy
             if self.write_strategy == "direct_insert":
                 await self._save_direct_insert(df)
@@ -443,7 +436,7 @@ CREATE TABLE {self.table} (
             connection = await self.pool.acquire()
 
             # Check if table exists
-            exists = await self._table_exists(connection)
+            exists = await asyncio.to_thread(self._table_exists, connection)
 
             if exists:
                 if self.if_exists == "fail":
@@ -461,11 +454,11 @@ CREATE TABLE {self.table} (
                     finally:
                         cursor.close()
 
-                    await self._create_table(connection, df)
+                    await asyncio.to_thread(self._create_table, connection, df)
                 # if_exists == "append" - just use existing table
             else:
                 # Table doesn't exist - create it (regardless of if_exists setting)
-                await self._create_table(connection, df)
+                await asyncio.to_thread(self._create_table, connection, df)
 
             self._table_checked = True
 
@@ -544,9 +537,7 @@ class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
     database: Optional[str] = Field(None, description="Database name")
 
     # Target table
-    table: Optional[str] = Field(
-        None, description="Destination table name (e.g., 'dbo.Users')"
-    )
+    table: str = Field(..., description="Destination table name (e.g., 'dbo.Users')")
 
     # Connection options
     driver: str = Field(

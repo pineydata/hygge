@@ -268,15 +268,10 @@ class FlowConfig(BaseModel):
     @classmethod
     def parse_store(cls, v):
         """Parse store configuration using registry pattern."""
-        # For flow-level configurations, just store the raw config
-        # The actual StoreConfig and Store instances will be created
-        # when entities are processed with proper table names
-        if isinstance(v, dict):
-            return v  # Store raw dict for later processing
-        else:
-            # For simple string configurations, create config immediately
-            config = StoreConfig.create(v)
-            return Store.create("", config)
+        # Registry pattern creates the right StoreConfig
+        config = StoreConfig.create(v)
+        # Registry pattern creates the right Store instance
+        return Store.create("", config)
 
     @property
     def home_instance(self) -> Home:
@@ -287,16 +282,3 @@ class FlowConfig(BaseModel):
     def store_instance(self) -> Store:
         """Get store instance - always returns Store after validation."""
         return self.store
-
-    @property
-    def store_config(self) -> StoreConfig:
-        """Get store config - handles both dict and StoreConfig instances."""
-        if isinstance(self.store, dict):
-            # This is a raw dict from flow-level config, create StoreConfig
-            return StoreConfig.create(self.store)
-        elif hasattr(self.store, "config"):
-            # This is a Store instance, return its config
-            return self.store.config
-        else:
-            # This is already a StoreConfig
-            return self.store

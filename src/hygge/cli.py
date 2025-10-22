@@ -185,7 +185,7 @@ def start(flow: Optional[str], verbose: bool):
 
 @hygge.command()
 def debug():
-    """Debug hygge project configuration and test all connections."""
+    """Debug hygge project configuration and show detailed information."""
     logger = get_logger("hygge.cli.debug")
 
     try:
@@ -207,37 +207,6 @@ def debug():
             if flow_config.entities:
                 click.echo(f"      Entities: {len(flow_config.entities)}")
 
-        # Test all configured connections
-        connections = coordinator.project_config.get("connections", {})
-        if connections:
-            click.echo(f"\n🔗 Testing {len(connections)} database connections...")
-
-            for conn_name, conn_config in connections.items():
-                click.echo(f"\n   🔗 Testing connection: {conn_name}")
-                click.echo(f"      Type: {conn_config.get('type', 'unknown')}")
-                click.echo(f"      Server: {conn_config.get('server', 'unknown')}")
-                click.echo(f"      Database: {conn_config.get('database', 'unknown')}")
-
-                try:
-                    # Test the connection based on type
-                    conn_type = conn_config.get("type", "").lower()
-
-                    if conn_type == "mssql":
-                        asyncio.run(_test_mssql_connection(conn_name, conn_config))
-                    else:
-                        click.echo(
-                            f"      ⚠️  Connection type '{conn_type}' not supported"
-                        )
-
-                except Exception as e:
-                    click.echo(f"      ❌ Connection failed: {str(e)}")
-                    # Show more detailed error information
-                    import traceback
-
-                    click.echo(f"      📋 Error details: {traceback.format_exc()}")
-        else:
-            click.echo("\n🔗 No database connections configured")
-
         logger.info("Project configuration debug completed")
 
     except ConfigError as e:
@@ -247,43 +216,6 @@ def debug():
         click.echo(f"❌ Error: {e}")
         logger.error(f"Error debugging configuration: {e}")
         sys.exit(1)
-
-
-async def _test_mssql_connection(conn_name: str, conn_config: dict):
-    """Test MSSQL connection with detailed feedback."""
-    click.echo("      🔄 Connecting...")
-
-    try:
-        # Import here to avoid circular imports
-        from hygge.connections import MssqlConnection
-
-        # Create connection factory
-        connection_factory = MssqlConnection(
-            server=conn_config.get("server"),
-            database=conn_config.get("database"),
-            options={
-                "driver": conn_config.get("driver", "ODBC Driver 18 for SQL Server"),
-                "encrypt": conn_config.get("encrypt", "yes"),
-                "trust_cert": conn_config.get("trust_cert", "no"),
-                "timeout": conn_config.get("timeout", 30),
-            },
-        )
-
-        # Test connection
-        click.echo("      🔍 Testing query...")
-        connection = await connection_factory.get_connection()
-
-        # Run a simple test query
-        cursor = connection.cursor()
-        cursor.execute("SELECT 1 as test_value")
-        result = cursor.fetchone()
-        cursor.close()
-        connection.close()
-
-        click.echo(f"      ✅ Connection successful! Test query returned: {result[0]}")
-
-    except Exception as e:
-        raise Exception(f"MSSQL connection test failed: {str(e)}")
 
 
 if __name__ == "__main__":
