@@ -75,6 +75,7 @@ async def test_parquet_to_mssql_roundtrip(tmp_path):
             table=test_table,
             batch_size=1000,  # Small batch for test
             parallel_workers=2,  # Fewer workers for test
+            if_exists="replace",  # Replace existing table for test runs
         )
         mssql_store = MssqlStore("test_store", store_config)
         mssql_store.set_pool(pool)

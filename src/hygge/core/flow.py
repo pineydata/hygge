@@ -242,8 +242,8 @@ class FlowConfig(BaseModel):
     """
 
     # Clean, simple configuration - only home/store
-    home: Union[str, Dict, Any] = Field(..., description="Home configuration")
-    store: Union[str, Dict, Any] = Field(..., description="Store configuration")
+    home: Union[str, Dict[str, Any]] = Field(..., description="Home configuration")
+    store: Union[str, Dict[str, Any]] = Field(..., description="Store configuration")
     queue_size: int = Field(
         default=10, ge=1, le=100, description="Size of internal queue"
     )
@@ -257,46 +257,80 @@ class FlowConfig(BaseModel):
 
     @field_validator("home", mode="before")
     @classmethod
-    def parse_home(cls, v):
-        """Parse home configuration using registry pattern."""
-        # Registry pattern creates the right HomeConfig
-        config = HomeConfig.create(v)
-        # Registry pattern creates the right Home instance
-        return Home.create("flow_home", config)
+    def validate_home(cls, v):
+        """Validate home configuration structure."""
+        if isinstance(v, str):
+            # For strings, validate by trying to create HomeConfig
+            try:
+                HomeConfig.create(v)
+            except Exception as e:
+                # Re-raise the original ValidationError
+                raise e
+        elif isinstance(v, dict):
+            if not v:
+                raise ValueError("Home configuration cannot be empty")
+            # Validate the structure by trying to create HomeConfig
+            try:
+                HomeConfig.create(v)
+            except Exception as e:
+                # Re-raise the original ValidationError
+                raise e
+        return v
 
     @field_validator("store", mode="before")
     @classmethod
-    def parse_store(cls, v):
-        """Parse store configuration using registry pattern."""
-        # For flow-level configurations, just store the raw config
-        # The actual StoreConfig and Store instances will be created
-        # when entities are processed with proper table names
-        if isinstance(v, dict):
-            return v  # Store raw dict for later processing
-        else:
-            # For simple string configurations, create config immediately
-            config = StoreConfig.create(v)
-            return Store.create("", config)
+    def validate_store(cls, v):
+        """Validate store configuration structure."""
+        if isinstance(v, str):
+            # For strings, validate by trying to create StoreConfig
+            try:
+                StoreConfig.create(v)
+            except Exception as e:
+                # Re-raise the original ValidationError
+                raise e
+        elif isinstance(v, dict):
+            if not v:
+                raise ValueError("Store configuration cannot be empty")
+            # Validate the structure by trying to create StoreConfig
+            try:
+                StoreConfig.create(v)
+            except Exception as e:
+                # Re-raise the original ValidationError
+                raise e
+        return v
 
     @property
     def home_instance(self) -> Home:
-        """Get home instance - always returns Home after validation."""
-        return self.home
+        """Get home instance - converts raw config to Home instance."""
+        if isinstance(self.home, str):
+            # Simple string configuration
+            config = HomeConfig.create(self.home)
+            return Home.create("flow_home", config)
+        elif isinstance(self.home, dict):
+            # Dictionary configuration - create Home instance
+            config = HomeConfig.create(self.home)
+            return Home.create("flow_home", config)
+        else:
+            # Already a Home instance
+            return self.home
 
     @property
     def store_instance(self) -> Store:
-        """Get store instance - always returns Store after validation."""
-        return self.store
+        """Get store instance - converts raw config to Store instance."""
+        if isinstance(self.store, str):
+            # Simple string configuration
+            config = StoreConfig.create(self.store)
+            return Store.create("", config)
+        elif isinstance(self.store, dict):
+            # Dictionary configuration - create Store instance
+            config = StoreConfig.create(self.store)
+            return Store.create("", config)
+        else:
+            # Already a Store instance
+            return self.store
 
     @property
     def store_config(self) -> StoreConfig:
-        """Get store config - handles both dict and StoreConfig instances."""
-        if isinstance(self.store, dict):
-            # This is a raw dict from flow-level config, create StoreConfig
-            return StoreConfig.create(self.store)
-        elif hasattr(self.store, "config"):
-            # This is a Store instance, return its config
-            return self.store.config
-        else:
-            # This is already a StoreConfig
-            return self.store
+        """Get store config - converts raw config to StoreConfig."""
+        store_instance = self.store_instance
+        return store_instance.config

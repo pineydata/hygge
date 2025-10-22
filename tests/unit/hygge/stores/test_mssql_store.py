@@ -249,24 +249,18 @@ class TestTableCreation:
         self.store.pool.acquire = AsyncMock(return_value=mock_connection)
         self.store.pool.release = AsyncMock()
 
-        call_count = 0
+        # Mock the async methods directly
+        self.store._table_exists = AsyncMock(return_value=False)  # Table doesn't exist
+        self.store._create_table = AsyncMock(
+            return_value=None
+        )  # Table created successfully
 
-        async def mock_to_thread(func, *args):
-            nonlocal call_count
-            call_count += 1
-            if func == self.store._table_exists:
-                return False  # Table doesn't exist
-            elif func == self.store._create_table:
-                return None  # Table created successfully
-            else:
-                return func(*args)
+        await self.store._ensure_table_exists(df)
 
-        with patch("asyncio.to_thread", side_effect=mock_to_thread):
-            await self.store._ensure_table_exists(df)
-
-            # Should have called both _table_exists and _create_table
-            assert call_count == 2
-            assert self.store._table_checked is True
+        # Should have called both _table_exists and _create_table
+        self.store._table_exists.assert_called_once()
+        self.store._create_table.assert_called_once()
+        assert self.store._table_checked is True
 
     @pytest.mark.asyncio
     async def test_ensure_table_exists_fail_policy(self):
@@ -345,25 +339,20 @@ class TestTableCreation:
         self.store.pool.acquire = AsyncMock(return_value=mock_connection)
         self.store.pool.release = AsyncMock()
 
-        # Track calls to _table_exists
-        table_exists_calls = 0
+        # Mock the async methods directly
+        self.store._table_exists = AsyncMock(return_value=False)  # Table doesn't exist
+        self.store._create_table = AsyncMock(
+            return_value=None
+        )  # Table created successfully
 
-        async def mock_to_thread(func, *args):
-            nonlocal table_exists_calls
-            if func == self.store._table_exists:
-                table_exists_calls += 1
-                return False  # Table doesn't exist
-            elif func == self.store._create_table:
-                return None  # Table created successfully
-            else:
-                return func(*args)
+        # First call - should check table existence
+        await self.store._ensure_table_exists(df)
+        self.store._table_exists.assert_called_once()
+        assert self.store._table_checked is True
 
-        with patch("asyncio.to_thread", side_effect=mock_to_thread):
-            # First call - should check table existence
-            await self.store._ensure_table_exists(df)
-            assert table_exists_calls == 1
-            assert self.store._table_checked is True
+        # Reset the mock to track second call
+        self.store._table_exists.reset_mock()
 
-            # Second call - should NOT check again (early return)
-            await self.store._ensure_table_exists(df)
-            assert table_exists_calls == 1  # Still 1, not 2
+        # Second call - should NOT check again (early return)
+        await self.store._ensure_table_exists(df)
+        self.store._table_exists.assert_not_called()  # Should not be called again

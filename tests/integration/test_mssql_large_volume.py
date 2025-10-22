@@ -72,6 +72,7 @@ async def test_large_volume_write(tmp_path):
             batch_size=102400,  # Optimal for CCI direct-to-compressed
             parallel_workers=1,  # Serial writes with TABLOCK (no lock contention)
             table_hints="TABLOCK",  # Exclusive access = much faster!
+            if_exists="replace",  # Replace existing table for test runs
         )
         mssql_store = MssqlStore("mssql_large_store", store_config)
         mssql_store.set_pool(pool)
