@@ -299,13 +299,19 @@ class MssqlStore(Store, store_type="mssql"):
             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
         """
 
-        cursor = connection.cursor()
-        try:
-            cursor.execute(query, (schema_name, table_name))
-            count = cursor.fetchone()[0]
-            return count > 0
-        finally:
-            cursor.close()
+        # Offload blocking pyodbc operations to thread pool
+        def check_table_exists(conn, query_str, schema, table):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(query_str, (schema, table))
+                count = cursor.fetchone()[0]
+                return count > 0
+            finally:
+                cursor.close()
+
+        return await asyncio.to_thread(
+            check_table_exists, connection, query, schema_name, table_name
+        )
 
     def _map_polars_type_to_sql(self, polars_type: pl.DataType) -> str:
         """
@@ -415,17 +421,25 @@ CREATE TABLE {self.table} (
 
         self.logger.info(f"Creating table {self.table} with {len(columns)} columns")
 
-        cursor = connection.cursor()
+        # Offload blocking pyodbc operations to thread pool
+        def execute_ddl(conn, ddl_str, table_name):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(ddl_str)
+                conn.commit()
+                return table_name
+            except Exception as e:
+                conn.rollback()
+                raise StoreError(f"Failed to create table {table_name}: {str(e)}")
+            finally:
+                cursor.close()
+
         try:
-            cursor.execute(ddl)
-            connection.commit()
+            await asyncio.to_thread(execute_ddl, connection, ddl, self.table)
             self._table_created = True
             self.logger.success(f"Table {self.table} created successfully")
         except Exception as e:
-            connection.rollback()
             raise StoreError(f"Failed to create table {self.table}: {str(e)}")
-        finally:
-            cursor.close()
 
     async def _ensure_table_exists(self, df: pl.DataFrame) -> None:
         """

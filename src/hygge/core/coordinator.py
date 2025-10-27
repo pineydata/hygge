@@ -24,6 +24,9 @@ from .flow import Flow, FlowConfig
 from .home import Home
 from .store import Store
 
+# Store-related configuration keys that can be applied as defaults
+STORE_DEFAULT_KEYS = ["if_exists", "batch_size", "parallel_workers", "timeout"]
+
 
 def validate_config(config: Dict[str, Any]) -> List[str]:
     """Validate configuration using Pydantic models."""
@@ -481,11 +484,7 @@ To get started, run:
     ) -> None:
         """Create a flow for a specific entity with entity subdirectories."""
         # Get the original config from home/store instances
-        home_config = (
-            flow_config.home_instance.config
-            if hasattr(flow_config.home_instance, "config")
-            else None
-        )
+        home_config = flow_config.home_config
         store_config = flow_config.store_config
 
         if not home_config or not store_config:
@@ -539,7 +538,7 @@ To get started, run:
         store_defaults = {}
         if isinstance(entity_config, dict):
             # Extract store-related defaults that might be at the entity level
-            for key in ["if_exists", "batch_size", "parallel_workers", "timeout"]:
+            for key in STORE_DEFAULT_KEYS:
                 if key in entity_config:
                     store_defaults[key] = entity_config[key]
 

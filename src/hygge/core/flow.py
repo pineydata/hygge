@@ -330,6 +330,12 @@ class FlowConfig(BaseModel):
             return self.store
 
     @property
+    def home_config(self) -> HomeConfig:
+        """Get home config - converts raw config to HomeConfig."""
+        home_instance = self.home_instance
+        return home_instance.config
+
+    @property
     def store_config(self) -> StoreConfig:
         """Get store config - converts raw config to StoreConfig."""
         store_instance = self.store_instance
