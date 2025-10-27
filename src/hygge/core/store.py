@@ -95,6 +95,7 @@ class Store(ABC):
         self.buffer_size = 0
         self.current_df = None  # Current accumulated data
         self.total_rows = 0
+        self.rows_written = 0  # Track total rows written
         self.transfers = []  # Track file transfers
         self.temp_pattern = self.options.get("temp_pattern", "temp/{name}/{filename}")
         self.final_pattern = self.options.get(
@@ -126,9 +127,11 @@ class Store(ABC):
                 raise StoreError("Cannot write None data")
 
             # Add data to buffer and update tracking
+            row_count = len(data)
             self.data_buffer.append(data)
-            self.buffer_size += len(data)
-            self.total_rows += len(data)
+            self.buffer_size += row_count
+            self.total_rows += row_count
+            self.rows_written += row_count
 
             # Update current_df (accumulate or replace)
             if self.current_df is None:
@@ -176,7 +179,11 @@ class Store(ABC):
 
         if self.start_time:
             duration = asyncio.get_event_loop().time() - self.start_time
-            self.logger.success(f"Store {self.name} completed in {duration:.1f}s")
+            rows_per_sec = self.rows_written / duration if duration > 0 else 0
+            self.logger.success(
+                f"Store {self.name} completed in {duration:.1f}s "
+                f"({rows_per_sec:,.0f} rows/sec)"
+            )
 
     async def _flush_buffer(self) -> None:
         """
