@@ -162,7 +162,6 @@ async def test_read_all_tables(tmp_path):
 if __name__ == "__main__":
     """Run directly for quick testing."""
     import asyncio
-    from pathlib import Path
 
     async def main():
         test_dir = Path("data/tmp/mssql_read_test")
