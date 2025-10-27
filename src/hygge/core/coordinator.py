@@ -24,6 +24,9 @@ from .flow import Flow, FlowConfig
 from .home import Home
 from .store import Store
 
+# Store-related configuration keys that can be applied as defaults
+STORE_DEFAULT_KEYS = ["if_exists", "batch_size", "parallel_workers", "timeout"]
+
 
 def validate_config(config: Dict[str, Any]) -> List[str]:
     """Validate configuration using Pydantic models."""
@@ -101,6 +104,47 @@ To get started, run:
         else:
             # Legacy mode - no project config
             self.project_config = {}
+
+        # Expand environment variables in project config
+        self.project_config = self._expand_env_vars(self.project_config)
+
+    def _expand_env_vars(self, data: Any) -> Any:
+        """
+        Recursively expand environment variables in configuration data.
+
+        Supports patterns like ${VAR_NAME} and ${VAR_NAME:-default_value}
+        """
+        import os
+        import re
+
+        if isinstance(data, str):
+            # Pattern: ${VAR_NAME} or ${VAR_NAME:-default}
+            pattern = r"\$\{([^:}]+)(?::-([^}]*))?\}"
+
+            def replace_env_var(match):
+                var_name = match.group(1)
+                default_value = match.group(2) if match.group(2) is not None else ""
+
+                env_value = os.getenv(var_name)
+                if env_value is not None:
+                    return env_value
+                elif default_value:
+                    return default_value
+                else:
+                    raise ConfigError(
+                        f"Environment variable '{var_name}' is not set and no default"
+                    )
+
+            return re.sub(pattern, replace_env_var, data)
+
+        elif isinstance(data, dict):
+            return {key: self._expand_env_vars(value) for key, value in data.items()}
+
+        elif isinstance(data, list):
+            return [self._expand_env_vars(item) for item in data]
+
+        else:
+            return data
 
     async def run(self) -> None:
         """Run all configured flows."""
@@ -192,6 +236,9 @@ To get started, run:
         with open(flow_file, "r") as f:
             flow_data = yaml.safe_load(f)
 
+        # Expand environment variables in flow config
+        flow_data = self._expand_env_vars(flow_data)
+
         # Load entities if they exist
         entities_dir = flow_dir / "entities"
         if entities_dir.exists():
@@ -209,6 +256,9 @@ To get started, run:
         for entity_file in entities_dir.glob("*.yml"):
             with open(entity_file, "r") as f:
                 entity_data = yaml.safe_load(f)
+
+            # Expand environment variables in entity config
+            entity_data = self._expand_env_vars(entity_data)
 
             # Merge with defaults
             entity_data = {**defaults, **entity_data}
@@ -398,7 +448,7 @@ To get started, run:
                         # Create entity-specific flow
                         entity_flow_name = f"{flow_name}_{entity_name}"
                         self._create_entity_flow(
-                            entity_flow_name, flow_config, entity_name
+                            entity_flow_name, flow_config, entity_name, entity
                         )
                 else:
                     # Create single flow without entities
@@ -426,25 +476,81 @@ To get started, run:
                 raise ConfigError(f"Failed to create flow {flow_name}: {str(e)}")
 
     def _create_entity_flow(
-        self, flow_name: str, flow_config: FlowConfig, entity_name: str
+        self,
+        flow_name: str,
+        flow_config: FlowConfig,
+        entity_name: str,
+        entity_config: dict,
     ) -> None:
         """Create a flow for a specific entity with entity subdirectories."""
         # Get the original config from home/store instances
-        home_config = (
-            flow_config.home_instance.config
-            if hasattr(flow_config.home_instance, "config")
-            else None
-        )
-        store_config = (
-            flow_config.store_instance.config
-            if hasattr(flow_config.store_instance, "config")
-            else None
-        )
+        home_config = flow_config.home_config
+        store_config = flow_config.store_config
 
         if not home_config or not store_config:
             raise ConfigError(
                 "Cannot create entity flow: home/store configs not accessible"
             )
+
+        # Merge entity configuration with flow configuration
+        if isinstance(entity_config, dict):
+            # Merge entity home config with flow home config
+            if "home" in entity_config:
+                entity_home_config = entity_config["home"]
+                # Create new home config with entity overrides
+                home_config_dict = (
+                    home_config.model_dump()
+                    if hasattr(home_config, "model_dump")
+                    else home_config.__dict__
+                )
+
+                # Special handling for path merging - append entity path to flow path
+                if "path" in entity_home_config and "path" in home_config_dict:
+                    flow_path = home_config_dict["path"]
+                    entity_path = entity_home_config["path"]
+                    # Combine paths properly
+                    merged_path = f"{flow_path.rstrip('/')}/{entity_path.lstrip('/')}"
+                    merged_home_config = {
+                        **home_config_dict,
+                        **entity_home_config,
+                        "path": merged_path,
+                    }
+                else:
+                    merged_home_config = {**home_config_dict, **entity_home_config}
+
+                home_config = type(home_config)(**merged_home_config)
+
+            # Merge entity store config with flow store config
+            if "store" in entity_config:
+                entity_store_config = entity_config["store"]
+                # Create new store config with entity overrides
+                store_config_dict = (
+                    store_config.model_dump()
+                    if hasattr(store_config, "model_dump")
+                    else store_config.__dict__
+                )
+                merged_store_config = {**store_config_dict, **entity_store_config}
+                store_config = type(store_config)(**merged_store_config)
+
+        # Apply flow defaults to store config
+        # The defaults are already merged into entity_config in _load_entities()
+        # We need to extract store-related defaults and apply them
+        store_defaults = {}
+        if isinstance(entity_config, dict):
+            # Extract store-related defaults that might be at the entity level
+            for key in STORE_DEFAULT_KEYS:
+                if key in entity_config:
+                    store_defaults[key] = entity_config[key]
+
+        if store_defaults:
+            store_config_dict = (
+                store_config.model_dump()
+                if hasattr(store_config, "model_dump")
+                else store_config.__dict__
+            )
+            # Merge defaults into store config
+            merged_store_config = {**store_config_dict, **store_defaults}
+            store_config = type(store_config)(**merged_store_config)
 
         # Get pool if home references a named connection
         pool = None
@@ -465,7 +571,16 @@ To get started, run:
                 f"{flow_name}_home", home_config, pool=pool, entity_name=entity_name
             )
         else:
-            home = Home.create(f"{flow_name}_home", home_config, entity_name)
+            # For parquet homes, don't pass entity_name if entity config specifies path
+            # This prevents double path appending
+            if (
+                isinstance(entity_config, dict)
+                and "home" in entity_config
+                and "path" in entity_config["home"]
+            ):
+                home = Home.create(f"{flow_name}_home", home_config)
+            else:
+                home = Home.create(f"{flow_name}_home", home_config, entity_name)
 
         store = Store.create(f"{flow_name}_store", store_config, flow_name, entity_name)
 

@@ -256,6 +256,22 @@ class TestConfigurationPropertyAccess:
 
         assert isinstance(advanced_config.home_instance, Home)
 
+    def test_home_config_property(self):
+        """Test home_config property always returns HomeConfig."""
+        config = FlowConfig(home="data/users.parquet", store="data/output")
+
+        # Should always return HomeConfig
+        from hygge.core.home import HomeConfig
+
+        assert isinstance(config.home_config, HomeConfig)
+
+        # Test advanced config
+        advanced_config = FlowConfig(
+            home={"type": "parquet", "path": "data/users.parquet"},
+            store="data/output",
+        )
+        assert isinstance(advanced_config.home_config, HomeConfig)
+
     def test_store_instance_property(self):
         """Test store instance property always returns Store."""
         config = FlowConfig(home="data/users.parquet", store="data/output")

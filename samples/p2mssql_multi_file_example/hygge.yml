@@ -1,0 +1,21 @@
+# Parquet-to-MSSQL Multi-File Entity Pattern Example
+#
+# This project demonstrates loading parquet files into Azure SQL Database
+# using the multi-file entity pattern with auto-create tables.
+
+name: "parquet_to_sql_example"
+flows_dir: "flows"
+
+# Database connection configuration
+connections:
+  azure_sql:
+    type: mssql
+    server: ${AZURE_SQL_SERVER}
+    database: ${AZURE_SQL_DATABASE}
+    pool_size: 3
+    timeout: 60
+
+# Global options
+options:
+  continue_on_error: false
+  max_parallel_entities: 3

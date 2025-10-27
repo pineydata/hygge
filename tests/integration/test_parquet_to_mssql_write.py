@@ -59,6 +59,7 @@ async def test_parquet_to_mssql_write(tmp_path):
             table=test_table,
             batch_size=50,  # Small batches to see multiple writes
             parallel_workers=2,
+            if_exists="replace",  # Replace existing table for test runs
         )
         mssql_store = MssqlStore("mssql_store", store_config)
         mssql_store.set_pool(pool)

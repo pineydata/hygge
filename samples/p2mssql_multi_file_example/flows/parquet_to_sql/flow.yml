@@ -1,0 +1,30 @@
+# Flow Configuration: Parquet to SQL Server
+#
+# This defines the "pipes" - how data flows from parquet files to SQL Server.
+# Entity-specific details are in the entities/ directory.
+
+name: "parquet_to_sql"
+
+# Source configuration (shared by all entities)
+home:
+  type: parquet
+  path: data/source/
+  # Base path - entities append to it
+
+# Destination configuration (shared by all entities)
+store:
+  type: mssql
+  connection: azure_sql
+  # Table names are defined per entity
+
+# Flow-level defaults (inherited by all entities)
+defaults:
+  batch_size: 102400         # Optimal for CCI direct-to-compressed rowgroups
+  if_exists: replace         # Drop and recreate tables for clean testing
+  parallel_workers: 3        # Match the 3 entities for demo
+  timeout: 600               # 10 minutes per entity (sufficient for demo)
+
+# Flow-level options
+options:
+  queue_size: 16
+  continue_on_error: false   # Stop if any entity fails

@@ -122,6 +122,13 @@ class MssqlStore(Store, store_type="mssql"):
                 self.logger.debug("Skipping empty DataFrame")
                 return
 
+            # Validate table is set before writing
+            if not self.table:
+                raise StoreError(
+                    f"Table name not set for store {self.name}. "
+                    f"Ensure table is specified in entity configuration."
+                )
+
             # Route to appropriate strategy
             if self.write_strategy == "direct_insert":
                 await self._save_direct_insert(df)
@@ -292,13 +299,19 @@ class MssqlStore(Store, store_type="mssql"):
             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
         """
 
-        cursor = connection.cursor()
-        try:
-            cursor.execute(query, (schema_name, table_name))
-            count = cursor.fetchone()[0]
-            return count > 0
-        finally:
-            cursor.close()
+        # Offload blocking pyodbc operations to thread pool
+        def check_table_exists(conn, query_str, schema, table):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(query_str, (schema, table))
+                count = cursor.fetchone()[0]
+                return count > 0
+            finally:
+                cursor.close()
+
+        return await asyncio.to_thread(
+            check_table_exists, connection, query, schema_name, table_name
+        )
 
     def _map_polars_type_to_sql(self, polars_type: pl.DataType) -> str:
         """
@@ -408,17 +421,25 @@ CREATE TABLE {self.table} (
 
         self.logger.info(f"Creating table {self.table} with {len(columns)} columns")
 
-        cursor = connection.cursor()
+        # Offload blocking pyodbc operations to thread pool
+        def execute_ddl(conn, ddl_str, table_name):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(ddl_str)
+                conn.commit()
+                return table_name
+            except Exception as e:
+                conn.rollback()
+                raise StoreError(f"Failed to create table {table_name}: {str(e)}")
+            finally:
+                cursor.close()
+
         try:
-            cursor.execute(ddl)
-            connection.commit()
+            await asyncio.to_thread(execute_ddl, connection, ddl, self.table)
             self._table_created = True
             self.logger.success(f"Table {self.table} created successfully")
         except Exception as e:
-            connection.rollback()
             raise StoreError(f"Failed to create table {self.table}: {str(e)}")
-        finally:
-            cursor.close()
 
     async def _ensure_table_exists(self, df: pl.DataFrame) -> None:
         """
@@ -436,7 +457,7 @@ CREATE TABLE {self.table} (
             connection = await self.pool.acquire()
 
             # Check if table exists
-            exists = await asyncio.to_thread(self._table_exists, connection)
+            exists = await self._table_exists(connection)
 
             if exists:
                 if self.if_exists == "fail":
@@ -454,11 +475,11 @@ CREATE TABLE {self.table} (
                     finally:
                         cursor.close()
 
-                    await asyncio.to_thread(self._create_table, connection, df)
+                    await self._create_table(connection, df)
                 # if_exists == "append" - just use existing table
             else:
                 # Table doesn't exist - create it (regardless of if_exists setting)
-                await asyncio.to_thread(self._create_table, connection, df)
+                await self._create_table(connection, df)
 
             self._table_checked = True
 
@@ -537,7 +558,9 @@ class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
     database: Optional[str] = Field(None, description="Database name")
 
     # Target table
-    table: str = Field(..., description="Destination table name (e.g., 'dbo.Users')")
+    table: Optional[str] = Field(
+        None, description="Destination table name (e.g., 'dbo.Users')"
+    )
 
     # Connection options
     driver: str = Field(
