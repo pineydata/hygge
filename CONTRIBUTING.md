@@ -71,18 +71,19 @@ hygge uses a registry pattern for home and store implementations. When adding ne
 
 1. **Create your implementation** following the existing patterns:
    ```python
-   # src/hygge/homes/sql/home.py
-   class SqlHome(Home, home_type="sql"):
+   # src/hygge/homes/duckdb/home.py
+   class DuckdbHome(Home, home_type="duckdb"):
        # Implementation here
 
-   class SqlHomeConfig(HomeConfig, BaseHomeConfig, config_type="sql"):
+   class DuckdbHomeConfig(BaseModel, HomeConfig, config_type="duckdb"):
        # Configuration here
+       path: str = Field(..., description="DuckDB database path")
    ```
 
 2. **Register in the main module** by adding imports to `src/hygge/__init__.py`:
    ```python
    # Add to the registry imports section
-   from .homes.sql import SqlHome, SqlHomeConfig  # noqa: F401
+   from .homes.duckdb import DuckdbHome, DuckdbHomeConfig  # noqa: F401
    from .stores.s3 import S3Store, S3StoreConfig  # noqa: F401
    ```
 
@@ -117,9 +118,8 @@ See `src/hygge/__init__.py` for detailed comments about the registry initializat
 
 1. Ensure all tests pass
 2. Update documentation as needed
-3. Add your changes to CHANGELOG.md
-4. Request review from maintainers
-5. Address review comments
+3. Request review from maintainers
+4. Address review comments
 
 ## hygge's Core Question
 
