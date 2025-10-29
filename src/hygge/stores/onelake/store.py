@@ -46,6 +46,9 @@ class OneLakeStoreConfig(ADLSStoreConfig, config_type="onelake"):
     """
 
     type: str = Field(default="onelake", description="Store type")
+    path: Optional[str] = Field(
+        None, description="Base path for data files (auto-built if None)"
+    )
 
     # Path configuration - either specify mirror_name OR path
     mirror_name: Optional[str] = Field(
@@ -61,7 +64,7 @@ class OneLakeStoreConfig(ADLSStoreConfig, config_type="onelake"):
     def build_fabric_path(self):
         """Build the base path for Fabric OneLake."""
         # If custom path is provided, use it as-is
-        if self.path:
+        if self.path is not None:
             return self
 
         # Build path based on mirror_name

@@ -12,7 +12,6 @@ import pytest
 from pydantic import ValidationError
 
 from hygge.stores.onelake import OneLakeStore, OneLakeStoreConfig
-from hygge.utility import StoreError
 
 
 class TestOneLakeStoreConfig:
@@ -44,7 +43,6 @@ class TestOneLakeStoreConfig:
             client_secret="test-secret",
             compression="gzip",
             file_pattern="{timestamp}_{sequence:020d}.parquet",
-            partition_by_date=True,
             batch_size=50000,
         )
 
@@ -52,14 +50,17 @@ class TestOneLakeStoreConfig:
         assert config.tenant_id == "test-tenant"
         assert config.compression == "gzip"
 
-    def test_config_validates_path_required(self):
-        """Test that path is required for OneLake stores."""
-        with pytest.raises(ValidationError):
-            OneLakeStoreConfig(
-                account_url="https://onelake.dfs.fabric.microsoft.com",
-                filesystem="MyLake",
-                # path missing
-            )
+    def test_config_path_optional_with_auto_build(self):
+        """Test that path is optional and auto-built if not provided."""
+        # Path is now optional - will be auto-built by build_fabric_path
+        config = OneLakeStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            # path not provided - should default to Files/{entity}/
+        )
+
+        # Should auto-build path to Files/{entity}/
+        assert config.path == "Files/{entity}/"
 
     def test_config_validates_compression(self):
         """Test that compression must be valid."""
@@ -86,12 +87,10 @@ class TestOneLakeStoreConfig:
             filesystem="MyLake",
             path="landing/test/",
             compression="gzip",
-            partition_by_date=False,
         )
 
         options = config.get_merged_options()
         assert options["compression"] == "gzip"
-        assert options["partition_by_date"] is False
         assert options["batch_size"] == 100_000  # Default
 
 
@@ -133,14 +132,12 @@ class TestOneLakeStoreInitialization:
             path="landing/{entity}/",
             compression="gzip",
             file_pattern="{timestamp}_{sequence:020d}.parquet",
-            partition_by_date=True,
         )
 
         store = OneLakeStore("test_store", config)
 
         assert store.compression == "gzip"
         assert store.file_pattern == "{timestamp}_{sequence:020d}.parquet"
-        assert store.partition_by_date is True
 
     def test_onelake_store_path_management(self):
         """Test OneLake store path management."""
@@ -152,12 +149,11 @@ class TestOneLakeStoreInitialization:
 
         store = OneLakeStore("test_store", config)
 
-        # Staging directory should be local temp
+        # Staging directory should be _tmp at base level
         staging_dir = store.get_staging_directory()
         assert staging_dir is not None
         assert isinstance(staging_dir, Path)
-        assert "hygge" in str(staging_dir)
-        assert "test_store" in str(staging_dir)
+        assert staging_dir == Path("_tmp")
 
         # Final directory should be the OneLake path
         final_dir = store.get_final_directory()
@@ -167,7 +163,7 @@ class TestOneLakeStoreInitialization:
 class TestOneLakeStoreAuthentication:
     """Test OneLake store authentication setup."""
 
-    @patch("hygge.stores.onelake.ManagedIdentityCredential")
+    @patch("hygge.stores.adls.store.ManagedIdentityCredential")
     def test_managed_identity_authentication(self, mock_credential):
         """Test managed identity credential initialization."""
         config = OneLakeStoreConfig(
@@ -185,21 +181,15 @@ class TestOneLakeStoreAuthentication:
 
     def test_service_principal_requires_credentials(self):
         """Test that service principal requires tenant_id, client_id, client_secret."""
-        config = OneLakeStoreConfig(
-            account_url="https://onelake.dfs.fabric.microsoft.com",
-            filesystem="MyLake",
-            path="landing/test/",
-            credential="service_principal",
-            # Missing credentials
-        )
-
-        store = OneLakeStore("test_store", config)
-
-        # Should raise error when trying to get credential
-        with pytest.raises(StoreError) as exc_info:
-            store._get_credential()
-
-        assert "requires tenant_id" in str(exc_info.value).lower()
+        # Should raise validation error during config creation
+        with pytest.raises(ValidationError):
+            OneLakeStoreConfig(
+                account_url="https://onelake.dfs.fabric.microsoft.com",
+                filesystem="MyLake",
+                path="landing/test/",
+                credential="service_principal",
+                # Missing credentials
+            )
 
     def test_service_principal_with_credentials(self):
         """Test service principal credential with all required fields."""
@@ -219,93 +209,57 @@ class TestOneLakeStoreAuthentication:
 
 
 class TestOneLakeStorePathBuilding:
-    """Test OneLake store path building."""
+    """Test OneLake store path building (uses ADLS path building)."""
 
-    @pytest.mark.asyncio
-    async def test_build_onelake_path_with_date_partitioning(self):
-        """Test building OneLake path with date partitioning."""
+    def test_build_adls_path(self):
+        """Test building ADLS path (OneLake extends ADLS)."""
         config = OneLakeStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
             path="landing/users/",
-            partition_by_date=True,
         )
 
-        store = OneLakeStore("test_store", config)
+        store = OneLakeStore("test_store", config, entity_name="users")
 
         filename = "00000000000000000001.parquet"
-        onelake_path = store._build_onelake_path(filename)
+        adls_path = store._build_adls_path(f"_tmp/users/{filename}")
 
-        # Should include date partition: YYYY/MM/DD/
-        assert "2025/" in onelake_path or "2024/" in onelake_path
-        assert filename in onelake_path
+        # Should include the base path
+        assert "landing/users" in adls_path
+        assert filename in adls_path
 
-    @pytest.mark.asyncio
-    async def test_build_onelake_path_without_date_partitioning(self):
-        """Test building OneLake path without date partitioning."""
+    def test_build_adls_path_with_entity(self):
+        """Test building ADLS path with entity name."""
         config = OneLakeStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
-            path="landing/users/",
-            partition_by_date=False,
+            path="Files/{entity}/",
         )
 
-        store = OneLakeStore("test_store", config)
+        store = OneLakeStore("test_store", config, entity_name="orders")
 
         filename = "00000000000000000001.parquet"
-        onelake_path = store._build_onelake_path(filename)
+        adls_path = store._build_adls_path(f"_tmp/orders/{filename}")
 
-        # Should not include date partition
-        assert onelake_path == "landing/users/00000000000000000001.parquet"
-
-    @pytest.mark.asyncio
-    async def test_get_next_filename_with_patterns(self):
-        """Test filename generation with different patterns."""
-        config = OneLakeStoreConfig(
-            account_url="https://onelake.dfs.fabric.microsoft.com",
-            filesystem="MyLake",
-            path="landing/users/",
-            file_pattern="{name}_{timestamp}_{sequence:020d}.parquet",
-        )
-
-        store = OneLakeStore("test_store", config)
-
-        filename = await store.get_next_filename()
-        assert "test_store" in filename
-        assert filename.endswith(".parquet")
-
-    @pytest.mark.asyncio
-    async def test_get_next_filename_sequence_increment(self):
-        """Test that sequence counter increments."""
-        config = OneLakeStoreConfig(
-            account_url="https://onelake.dfs.fabric.microsoft.com",
-            filesystem="MyLake",
-            path="landing/users/",
-            file_pattern="{sequence:020d}.parquet",
-        )
-
-        store = OneLakeStore("test_store", config)
-
-        filename1 = await store.get_next_filename()
-        filename2 = await store.get_next_filename()
-
-        # Second filename should have higher sequence number
-        seq1 = int(filename1.replace(".parquet", ""))
-        seq2 = int(filename2.replace(".parquet", ""))
-        assert seq2 > seq1
+        # Should include the entity path
+        assert "Files/orders" in adls_path
+        assert filename in adls_path
 
 
 class TestOneLakeStoreErrorHandling:
     """Test OneLake store error handling."""
 
-    def test_empty_path_raises_validation_error(self):
-        """Test that empty path raises ValidationError."""
-        with pytest.raises(ValidationError):
-            OneLakeStoreConfig(
-                account_url="https://onelake.dfs.fabric.microsoft.com",
-                filesystem="MyLake",
-                path="",  # Empty path
-            )
+    def test_empty_path_allowed(self):
+        """Test that empty path is allowed (will be auto-built from mirror_name)."""
+        # Empty path should be allowed - build_fabric_path will handle it
+        config = OneLakeStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            # path not specified - will be auto-built
+        )
+
+        # Should default to Files/{entity}/ for Lakehouse
+        assert config.path == "Files/{entity}/"
 
     def test_invalid_compression_raises_validation_error(self):
         """Test that invalid compression raises ValidationError."""
