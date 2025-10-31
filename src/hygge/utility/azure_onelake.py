@@ -91,17 +91,18 @@ class ADLSOperations:
 
                 dest_client = self.file_system_client.get_file_client(dest_path)
 
-                # Copy file data to destination
-                source_data = source_client.download_file().readall()
-
-                # Create destination file
+                # Copy file data to destination in chunks
+                CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
+                download_stream = source_client.download_file()
                 dest_client.create_file()
-
-                # Upload data in append mode
-                data_length = len(source_data)
-                dest_client.append_data(source_data, 0, data_length)
-                dest_client.flush_data(data_length)
-
+                offset = 0
+                while True:
+                    chunk = download_stream.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    dest_client.append_data(chunk, offset, len(chunk))
+                    offset += len(chunk)
+                dest_client.flush_data(offset)
                 # Verify destination file exists before deleting source
                 try:
                     dest_client.get_file_properties()
