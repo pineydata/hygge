@@ -55,14 +55,14 @@ def init(project_name: str, flows_dir: str, force: bool):
     # Check if project directory already exists
     if project_dir.exists() and not force:
         click.echo(
-            f"❌ Project directory '{project_name}' already exists in " f"{current_dir}"
+            f"Project directory '{project_name}' already exists in " f"{current_dir}"
         )
         click.echo("Use --force to overwrite it")
         sys.exit(1)
 
     # Create project directory
     project_dir.mkdir(exist_ok=True)
-    click.echo(f"✅ Created project directory: {project_dir}")
+    click.echo(f"Created project directory: {project_dir}")
 
     # Create hygge.yml
     hygge_content = f"""name: "{project_name}"
@@ -76,12 +76,12 @@ options:
 
     hygge_file = project_dir / "hygge.yml"
     hygge_file.write_text(hygge_content)
-    click.echo(f"✅ Created hygge.yml for project '{project_name}'")
+    click.echo(f"Created hygge.yml for project '{project_name}'")
 
     # Create flows directory
     flows_path = project_dir / flows_dir
     flows_path.mkdir(exist_ok=True)
-    click.echo("✅ Created flows directory: {}".format(flows_path))
+    click.echo("Created flows directory: {}".format(flows_path))
 
     # Create example flow
     example_flow_dir = flows_path / "example_flow"
@@ -104,7 +104,7 @@ defaults:
 
     flow_file = example_flow_dir / "flow.yml"
     flow_file.write_text(flow_content)
-    click.echo("✅ Created example flow: {}".format(flow_file))
+    click.echo("Created example flow: {}".format(flow_file))
 
     # Create example entities directory
     entities_dir = example_flow_dir / "entities"
@@ -125,9 +125,9 @@ source_config:
 
     entity_file = entities_dir / "users.yml"
     entity_file.write_text(entity_content)
-    click.echo(f"✅ Created example entity: {entity_file}")
+    click.echo(f"Created example entity: {entity_file}")
 
-    click.echo("\n🎉 hygge project initialized successfully!")
+    click.echo("\nhygge project initialized successfully!")
     click.echo("\nNext steps:")
     click.echo(f"  1. cd {project_name}")
     click.echo(
@@ -135,7 +135,7 @@ source_config:
         "data sources"
     )
     click.echo("  3. Update paths in flow.yml to point to your actual data locations")
-    click.echo("  4. Run: hygge start")
+    click.echo("  4. Run: hygge go")
 
     logger.info(f"Initialized hygge project '{project_name}' in {project_dir}")
 
@@ -152,9 +152,9 @@ source_config:
     is_flag=True,
     help="Enable verbose logging",
 )
-def start(flow: Optional[str], verbose: bool):
-    """Start all flows in the current hygge project."""
-    logger = get_logger("hygge.cli.start")
+def go(flow: Optional[str], verbose: bool):
+    """Execute all flows in the current hygge project."""
+    logger = get_logger("hygge.cli.go")
 
     if verbose:
         # TODO: Set log level to DEBUG
@@ -165,20 +165,20 @@ def start(flow: Optional[str], verbose: bool):
         coordinator = Coordinator()
 
         if flow:
-            click.echo(f"🚀 Starting flow: {flow}")
+            click.echo(f"Starting flow: {flow}")
             # TODO: Implement single flow execution
             click.echo("Single flow execution not yet implemented")
         else:
-            click.echo("🚀 Starting all flows...")
+            click.echo("Starting all flows...")
             # Run all flows
             asyncio.run(coordinator.run())
-            click.echo("✅ All flows completed successfully!")
+            click.echo("All flows completed successfully!")
 
     except ConfigError as e:
-        click.echo(f"❌ Configuration error: {e}")
+        click.echo(f"Configuration error: {e}")
         sys.exit(1)
     except Exception as e:
-        click.echo(f"❌ Error: {e}")
+        click.echo(f"Error: {e}")
         logger.error(f"Error running flows: {e}")
         sys.exit(1)
 
@@ -193,27 +193,27 @@ def debug():
         coordinator = Coordinator()
         coordinator._load_config()
 
-        click.echo("✅ Project configuration is valid")
+        click.echo("Project configuration is valid")
         project_name = coordinator.project_config.get("name", "unnamed")
-        click.echo("📁 Project: {}".format(project_name))
+        click.echo("Project: {}".format(project_name))
         flows_dir = coordinator.project_config.get("flows_dir", "flows")
-        click.echo("📂 Flows directory: {}".format(flows_dir))
-        click.echo("🔄 Number of flows: {}".format(len(coordinator.config.flows)))
+        click.echo("Flows directory: {}".format(flows_dir))
+        click.echo("Number of flows: {}".format(len(coordinator.config.flows)))
 
         # List flows
         for flow_name in coordinator.config.flows:
             flow_config = coordinator.config.flows[flow_name]
-            click.echo(f"   📄 {flow_name}")
+            click.echo(f"   {flow_name}")
             if flow_config.entities:
                 click.echo(f"      Entities: {len(flow_config.entities)}")
 
         # Test all configured connections
         connections = coordinator.project_config.get("connections", {})
         if connections:
-            click.echo(f"\n🔗 Testing {len(connections)} database connections...")
+            click.echo(f"\nTesting {len(connections)} database connections...")
 
             for conn_name, conn_config in connections.items():
-                click.echo(f"\n   🔗 Testing connection: {conn_name}")
+                click.echo(f"\n   Testing connection: {conn_name}")
                 click.echo(f"      Type: {conn_config.get('type', 'unknown')}")
                 click.echo(f"      Server: {conn_config.get('server', 'unknown')}")
                 click.echo(f"      Database: {conn_config.get('database', 'unknown')}")
@@ -226,32 +226,33 @@ def debug():
                         asyncio.run(_test_mssql_connection(conn_name, conn_config))
                     else:
                         click.echo(
-                            f"      ⚠️  Connection type '{conn_type}' not supported"
+                            f"      WARNING: Connection type "
+                            f"'{conn_type}' not supported"
                         )
 
                 except Exception as e:
-                    click.echo(f"      ❌ Connection failed: {str(e)}")
+                    click.echo(f"      Connection failed: {str(e)}")
                     # Show more detailed error information
                     import traceback
 
-                    click.echo(f"      📋 Error details: {traceback.format_exc()}")
+                    click.echo(f"      Error details: {traceback.format_exc()}")
         else:
-            click.echo("\n🔗 No database connections configured")
+            click.echo("\nNo database connections configured")
 
         logger.info("Project configuration debug completed")
 
     except ConfigError as e:
-        click.echo(f"❌ Configuration error: {e}")
+        click.echo(f"Configuration error: {e}")
         sys.exit(1)
     except Exception as e:
-        click.echo(f"❌ Error: {e}")
+        click.echo(f"Error: {e}")
         logger.error(f"Error debugging configuration: {e}")
         sys.exit(1)
 
 
 async def _test_mssql_connection(conn_name: str, conn_config: dict):
     """Test MSSQL connection with detailed feedback."""
-    click.echo("      🔄 Connecting...")
+    click.echo("      Connecting...")
 
     try:
         # Import here to avoid circular imports
@@ -270,7 +271,7 @@ async def _test_mssql_connection(conn_name: str, conn_config: dict):
         )
 
         # Test connection
-        click.echo("      🔍 Testing query...")
+        click.echo("      Testing query...")
         connection = await connection_factory.get_connection()
 
         # Run a simple test query
@@ -280,7 +281,7 @@ async def _test_mssql_connection(conn_name: str, conn_config: dict):
         cursor.close()
         connection.close()
 
-        click.echo(f"      ✅ Connection successful! Test query returned: {result[0]}")
+        click.echo(f"      Connection successful! Test query returned: {result[0]}")
 
     except Exception as e:
         raise Exception(f"MSSQL connection test failed: {str(e)}")

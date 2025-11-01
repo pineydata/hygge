@@ -150,11 +150,11 @@ columns:
   - created_at
 ```
 
-### Run Your Flows
+### Execute Your Flows
 
 ```bash
-# Start all flows
-hygge start
+# Execute all flows
+hygge go
 
 # Debug your configuration
 hygge debug
@@ -227,14 +227,14 @@ hygge init my-project --flows-dir pipelines  # Custom flows directory name
 hygge init my-project --force                 # Overwrite existing project
 ```
 
-### `hygge start`
+### `hygge go`
 
-Start all flows in the current project:
+Execute all flows in the current project:
 
 ```bash
-hygge start              # Run all flows
-hygge start --verbose    # Enable detailed logging
-hygge start --flow NAME  # Run specific flow (coming soon)
+hygge go              # Execute all flows
+hygge go --verbose    # Enable detailed logging
+hygge go --flow NAME  # Execute specific flow (coming soon)
 ```
 
 ### `hygge debug`
