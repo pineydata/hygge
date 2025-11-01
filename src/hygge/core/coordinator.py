@@ -323,7 +323,27 @@ To get started, run:
         self.logger.info(f"Loaded directory configuration with {len(flows)} flows")
 
     async def _initialize_connection_pools(self) -> None:
-        """Initialize connection pools from configuration."""
+        """Initialize connection pools and execution engines from configuration."""
+        # Initialize ThreadPoolEngine for MSSQL (and future synchronous DBs)
+        # Use default pool size of 8, or match max connection pool size if configured
+        from hygge.connections import ThreadPoolEngine
+
+        max_pool_size = 8  # Default
+        if self.config and self.config.connections:
+            # Use the largest pool size as a hint for thread pool size
+            max_pool_size = max(
+                (
+                    int(conn.get("pool_size", 5))
+                    if isinstance(conn.get("pool_size"), str)
+                    else conn.get("pool_size", 5)
+                    for conn in self.config.connections.values()
+                ),
+                default=8,
+            )
+
+        ThreadPoolEngine.initialize(pool_size=max_pool_size)
+        self.logger.debug(f"Initialized ThreadPoolEngine with {max_pool_size} workers")
+
         if not self.config or not self.config.connections:
             self.logger.debug("No connections configured, skipping pool initialization")
             return
@@ -383,7 +403,13 @@ To get started, run:
                 )
 
     async def _cleanup_connection_pools(self) -> None:
-        """Clean up all connection pools."""
+        """Clean up all connection pools and execution engines."""
+        # Shutdown ThreadPoolEngine
+        from hygge.connections import ThreadPoolEngine
+
+        if ThreadPoolEngine.is_initialized():
+            ThreadPoolEngine.shutdown()
+
         if not self.connection_pools:
             return
 

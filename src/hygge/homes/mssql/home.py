@@ -13,6 +13,7 @@ from pydantic import Field, model_validator
 from hygge.connections import (
     ConnectionPool,
     MssqlConnection,
+    get_engine,
 )
 from hygge.connections.constants import (
     MSSQL_CONNECTION_DEFAULTS,
@@ -122,19 +123,19 @@ class MssqlHome(Home, home_type="mssql"):
                 f"Starting batched extraction with batch_size={batch_size:,}"
             )
 
-            # Use Polars' built-in batching - much cleaner than manual OFFSET/FETCH
-            for batch_df in await asyncio.to_thread(
-                pl.read_database,
-                query,
-                self._connection,
-                iter_batches=True,
-                batch_size=batch_size,
+            # Use ThreadPoolEngine for true streaming extraction
+            # Batches are yielded as they're extracted, not after extraction completes
+            # This enables true producer-consumer streaming and reduces memory usage
+            engine = get_engine("thread_pool")
+
+            # Stream batches as they're extracted (true streaming, not buffered)
+            async for batch_df, batch_rows in engine.execute_streaming(
+                self._extract_batches_sync, query, batch_size
             ):
-                batch_rows = len(batch_df)
                 batch_num += 1
                 total_rows += batch_rows
 
-                # Progress logging every N rows (like ELK)
+                # Progress logging every N rows
                 if total_rows % row_multiplier == 0:
                     elapsed = asyncio.get_event_loop().time() - start_time
                     rows_per_sec = total_rows / elapsed if elapsed > 0 else 0
@@ -165,6 +166,31 @@ class MssqlHome(Home, home_type="mssql"):
         finally:
             # Clean up connection
             await self._cleanup_connection()
+
+    def _extract_batches_sync(self, query: str, batch_size: int):
+        """
+        Synchronous generator that yields batches from the database.
+
+        This runs entirely in a thread pool, allowing multiple extractions to run
+        in parallel (one per thread) without blocking the event loop.
+
+        Yields batches as they're extracted (not buffered), enabling true streaming
+        when used with ThreadPoolEngine.execute_streaming().
+
+        Args:
+            query: SQL query to execute
+            batch_size: Number of rows per batch
+
+        Yields:
+            Tuples of (batch_df, row_count) as batches are extracted
+        """
+        for batch_df in pl.read_database(
+            query,
+            self._connection,
+            iter_batches=True,
+            batch_size=batch_size,
+        ):
+            yield (batch_df, len(batch_df))
 
     def _build_query(self) -> str:
         """
