@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from hygge.core.store import Store, StoreConfig
 from hygge.utility.azure_onelake import ADLSOperations
 from hygge.utility.exceptions import StoreError
+from hygge.utility.path_helper import PathHelper
 
 
 class ADLSStoreConfig(BaseModel, StoreConfig, config_type="adls"):
@@ -192,9 +193,7 @@ class ADLSStore(Store, store_type="adls"):
         self.flow_name = flow_name or name
 
         # Build base path with entity substitution
-        self.base_path = config.path
-        if entity_name:
-            self.base_path = self.base_path.replace("{entity}", entity_name)
+        self.base_path = PathHelper.substitute_entity(config.path, entity_name)
 
         # File configuration
         self.file_pattern = merged_options.get(
@@ -345,9 +344,7 @@ class ADLSStore(Store, store_type="adls"):
         - landing/orders/00000000000000000002.parquet
         - staging/_tmp/00000000000000000003.parquet
         """
-        # Ensure base_path has trailing slash
-        base = self.base_path.rstrip("/") + "/"
-        return f"{base}{filename}"
+        return PathHelper.build_final_path(self.base_path, filename)
 
     async def get_next_filename(self) -> str:
         """Generate the next filename using pattern."""
@@ -416,21 +413,17 @@ class ADLSStore(Store, store_type="adls"):
                 staging_path = Path(staging_path).as_posix()
 
             # Extract filename from staging_path for logging
-            filename = staging_path.split("/")[-1]
+            filename = PathHelper.get_filename(staging_path)
 
             # Convert staging path to cloud path
             # Staging goes at Files/_tmp/entity, not Files/entity/_tmp
             # For base_path like "Files/Account", we want "Files/_tmp/Account/filename"
-            # staging_path is "_tmp/filename", so we insert entity between _tmp
-            base_parts = self.base_path.split("/")
-            if len(base_parts) >= 2:
-                # Has entity: "Files/Account" -> "Files/_tmp/Account/filename"
-                root = base_parts[0]
-                entity = base_parts[1]
-                cloud_staging_path = f"{root}/_tmp/{entity}/{filename}"
-            else:
-                # No entity structure, just use base + staging
-                cloud_staging_path = f"{self.base_path}/{staging_path}"
+            # PathHelper handles all path structures robustly
+            cloud_staging_path = PathHelper.build_staging_path(
+                self.base_path,
+                self.entity_name,
+                filename,
+            )
 
             # Get ADLS Gen2 operations client
             adls_ops = self._get_adls_ops()
@@ -484,7 +477,7 @@ class ADLSStore(Store, store_type="adls"):
                 staging_path_str = Path(staging_path).as_posix()
 
             # Extract filename from staging_path
-            filename = staging_path_str.split("/")[-1]
+            filename = PathHelper.get_filename(staging_path_str)
 
             # Build cloud paths by converting local paths to cloud paths
             # staging_path points to the cloud staging file we uploaded

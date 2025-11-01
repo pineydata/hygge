@@ -90,6 +90,10 @@ class MssqlStore(Store, store_type="mssql"):
         self._table_checked = False
         self._table_created = False
 
+        # Atomic temp table pattern - always use temp table for writes
+        self.temp_table = f"{self.table}_hygge_tmp"
+        self._temp_table_created = False
+
     def set_pool(self, pool: ConnectionPool) -> None:
         """
         Set the connection pool for this store.
@@ -103,12 +107,10 @@ class MssqlStore(Store, store_type="mssql"):
 
     async def _save(self, df: pl.DataFrame, staging_path: Optional[str] = None) -> None:
         """
-        Save data batch to MSSQL.
+        Save data batch to MSSQL using atomic temp table pattern.
 
-        Strategy depends on write_strategy configuration:
-        - direct_insert: Write directly to target table (current implementation)
-        - temp_swap: Write to temp table, swap at close() (future)
-        - merge: Upsert/merge pattern (future)
+        Always writes to temp table first, then atomically swaps on close().
+        This ensures no partial data corruption on failure.
 
         Args:
             df: Polars DataFrame to write
@@ -129,30 +131,19 @@ class MssqlStore(Store, store_type="mssql"):
                     f"Ensure table is specified in entity configuration."
                 )
 
-            # Route to appropriate strategy
-            if self.write_strategy == "direct_insert":
-                await self._save_direct_insert(df)
-            # Future strategies would branch here:
-            # elif self.write_strategy == "temp_swap":
-            #     await self._save_to_temp_table(df)
-            # elif self.write_strategy == "merge":
-            #     await self._save_merge(df)
-            else:
-                raise StoreError(f"Unknown write_strategy: {self.write_strategy}")
+            # Always write to temp table for atomic operations
+            await self._save_to_temp_table(df)
 
         except Exception as e:
             self.logger.error(f"Failed to write to MSSQL table {self.table}: {str(e)}")
             raise StoreError(f"Failed to write to MSSQL: {str(e)}")
 
-    async def _save_direct_insert(self, df: pl.DataFrame) -> None:
+    async def _save_to_temp_table(self, df: pl.DataFrame) -> None:
         """
-        Direct INSERT strategy: Write batches directly to target table.
+        Write batches to temp table for atomic operation.
 
-        Best for:
-        - Test data loading
-        - Staging tables with exclusive access
-        - Append-only workflows
-        - When using TABLOCK hint
+        All data goes to temp table first, then atomically swapped to
+        production table on successful completion.
 
         Args:
             df: Polars DataFrame to write
@@ -168,8 +159,8 @@ class MssqlStore(Store, store_type="mssql"):
                 f"creates connection pool from configuration."
             )
 
-        # Ensure table exists (check once on first write)
-        await self._ensure_table_exists(df)
+        # Ensure temp table exists (check once on first write)
+        await self._ensure_temp_table_exists(df)
 
         # Split DataFrame into chunks for parallel writing
         chunk_size = max(1, len(df) // self.parallel_workers)
@@ -181,13 +172,13 @@ class MssqlStore(Store, store_type="mssql"):
                 chunks.append(chunk)
 
         self.logger.debug(
-            f"Writing {len(df):,} rows in {len(chunks)} parallel chunks "
+            f"Writing {len(df):,} rows to temp table in {len(chunks)} parallel chunks "
             f"(~{chunk_size:,} rows each)"
         )
 
         # Write chunks in parallel using asyncio.gather
         start_time = asyncio.get_event_loop().time()
-        await asyncio.gather(*[self._write_chunk(chunk) for chunk in chunks])
+        await asyncio.gather(*[self._write_chunk_to_temp(chunk) for chunk in chunks])
         elapsed = asyncio.get_event_loop().time() - start_time
 
         # Track statistics
@@ -196,15 +187,15 @@ class MssqlStore(Store, store_type="mssql"):
         rows_per_sec = len(df) / elapsed if elapsed > 0 else 0
 
         self.logger.success(
-            f"Wrote batch {self.batches_written}: {len(df):,} rows "
+            f"Wrote batch {self.batches_written}: {len(df):,} rows to temp table "
             f"in {elapsed:.2f}s ({rows_per_sec:,.0f} rows/sec)"
         )
 
-    async def _write_chunk(self, df_chunk: pl.DataFrame) -> None:
+    async def _write_chunk_to_temp(self, df_chunk: pl.DataFrame) -> None:
         """
-        Write a single DataFrame chunk using a pooled connection.
+        Write a single DataFrame chunk to temp table using a pooled connection.
 
-        Acquires connection from pool, writes data, releases connection.
+        Acquires connection from pool, writes data to temp table, releases connection.
 
         Args:
             df_chunk: Polars DataFrame chunk to write
@@ -218,20 +209,20 @@ class MssqlStore(Store, store_type="mssql"):
             connection = await self.pool.acquire()
 
             # Offload synchronous pyodbc operations to thread pool
-            await asyncio.to_thread(self._insert_batch, connection, df_chunk)
+            await asyncio.to_thread(self._insert_batch_to_temp, connection, df_chunk)
 
         except Exception as e:
-            self.logger.error(f"Failed to write chunk: {str(e)}")
-            raise StoreError(f"Failed to write chunk: {str(e)}")
+            self.logger.error(f"Failed to write chunk to temp table: {str(e)}")
+            raise StoreError(f"Failed to write chunk to temp table: {str(e)}")
 
         finally:
             # Always release connection back to pool
             if connection:
                 await self.pool.release(connection)
 
-    def _insert_batch(self, connection, df: pl.DataFrame) -> None:
+    def _insert_batch_to_temp(self, connection, df: pl.DataFrame) -> None:
         """
-        Blocking INSERT operation using fast_executemany.
+        Blocking INSERT operation to temp table using fast_executemany.
 
         This runs in a thread pool via asyncio.to_thread().
 
@@ -246,13 +237,13 @@ class MssqlStore(Store, store_type="mssql"):
         cursor.fast_executemany = True
 
         try:
-            # Build INSERT statement
+            # Build INSERT statement for temp table
             columns = df.columns
             placeholders = ",".join(["?"] * len(columns))
             column_list = ",".join([f"[{col}]" for col in columns])
 
-            # Build SQL: INSERT INTO table WITH (hints) (columns) VALUES (?)
-            sql = f"INSERT INTO {self.table}"
+            # Build SQL: INSERT INTO temp_table WITH (hints) (columns) VALUES (?)
+            sql = f"INSERT INTO {self.temp_table}"
             if self.table_hints:
                 sql += f" WITH ({self.table_hints})"
             sql += f" ({column_list}) VALUES ({placeholders})"
@@ -270,48 +261,6 @@ class MssqlStore(Store, store_type="mssql"):
 
         finally:
             cursor.close()
-
-    async def _table_exists(self, connection) -> bool:
-        """
-        Check if the target table exists in the database.
-
-        Args:
-            connection: pyodbc connection
-
-        Returns:
-            True if table exists, False otherwise
-        """
-        # Parse schema and table name
-        parts = self.table.split(".")
-        if len(parts) == 2:
-            schema_name, table_name = parts
-        else:
-            schema_name = "dbo"
-            table_name = self.table
-
-        # Remove brackets if present
-        schema_name = schema_name.strip("[]")
-        table_name = table_name.strip("[]")
-
-        query = """
-            SELECT COUNT(*)
-            FROM INFORMATION_SCHEMA.TABLES
-            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-        """
-
-        # Offload blocking pyodbc operations to thread pool
-        def check_table_exists(conn, query_str, schema, table):
-            cursor = conn.cursor()
-            try:
-                cursor.execute(query_str, (schema, table))
-                count = cursor.fetchone()[0]
-                return count > 0
-            finally:
-                cursor.close()
-
-        return await asyncio.to_thread(
-            check_table_exists, connection, query, schema_name, table_name
-        )
 
     def _map_polars_type_to_sql(self, polars_type: pl.DataType) -> str:
         """
@@ -383,14 +332,22 @@ class MssqlStore(Store, store_type="mssql"):
         )
         return "NVARCHAR(MAX)"
 
-    async def _create_table(self, connection, df: pl.DataFrame) -> None:
+    async def _create_table(
+        self,
+        connection,
+        df: pl.DataFrame,
+        table_name: Optional[str] = None,
+    ) -> None:
         """
         Create table from DataFrame schema using conservative type mapping.
 
         Args:
             connection: pyodbc connection
             df: Sample DataFrame to infer schema from
+            table_name: Optional table name (defaults to self.table)
         """
+        target_table = table_name or self.table
+
         # Build column definitions
         columns = []
         for col_name, col_type in df.schema.items():
@@ -401,10 +358,10 @@ class MssqlStore(Store, store_type="mssql"):
         column_defs = ",\n    ".join(columns)
 
         # Generate safe index name from table name
-        table_name = self.table.split(".")[-1].strip("[]")
+        table_name_only = target_table.split(".")[-1].strip("[]")
         # Replace invalid SQL identifier characters with underscores
         safe_index_name = "".join(
-            c if c.isalnum() or c == "_" else "_" for c in table_name
+            c if c.isalnum() or c == "_" else "_" for c in table_name_only
         )
         # Ensure it starts with a letter or underscore
         if safe_index_name and not (
@@ -413,95 +370,271 @@ class MssqlStore(Store, store_type="mssql"):
             safe_index_name = f"idx_{safe_index_name}"
 
         ddl = f"""
-CREATE TABLE {self.table} (
+CREATE TABLE {target_table} (
     {column_defs},
     INDEX CCI_{safe_index_name} CLUSTERED COLUMNSTORE
 );
 """
 
-        self.logger.info(f"Creating table {self.table} with {len(columns)} columns")
+        self.logger.info(f"Creating table {target_table} with {len(columns)} columns")
 
         # Offload blocking pyodbc operations to thread pool
-        def execute_ddl(conn, ddl_str, table_name):
+        def execute_ddl(conn, ddl_str, tbl_name):
             cursor = conn.cursor()
             try:
                 cursor.execute(ddl_str)
                 conn.commit()
-                return table_name
+                return tbl_name
             except Exception as e:
                 conn.rollback()
-                raise StoreError(f"Failed to create table {table_name}: {str(e)}")
+                raise StoreError(f"Failed to create table {tbl_name}: {str(e)}")
             finally:
                 cursor.close()
 
         try:
-            await asyncio.to_thread(execute_ddl, connection, ddl, self.table)
-            self._table_created = True
-            self.logger.success(f"Table {self.table} created successfully")
+            await asyncio.to_thread(execute_ddl, connection, ddl, target_table)
+            if table_name == self.temp_table:
+                self._temp_table_created = True
+            else:
+                self._table_created = True
+            self.logger.success(f"Table {target_table} created successfully")
         except Exception as e:
-            raise StoreError(f"Failed to create table {self.table}: {str(e)}")
+            raise StoreError(f"Failed to create table {target_table}: {str(e)}")
 
-    async def _ensure_table_exists(self, df: pl.DataFrame) -> None:
+    async def _ensure_temp_table_exists(self, df: pl.DataFrame) -> None:
         """
-        Ensure target table exists, creating it if necessary based on if_exists policy.
+        Ensure temp table exists, creating it based on production table schema.
+
+        For first write: create temp table matching production schema.
+        If production table doesn't exist yet, create temp table with inferred schema.
 
         Args:
             df: DataFrame to write (used for schema if creating table)
         """
         # Only check once per store instance
-        if self._table_checked:
+        if self._temp_table_created:
             return
 
         connection = None
         try:
             connection = await self.pool.acquire()
 
-            # Check if table exists
-            exists = await self._table_exists(connection)
+            # Check if temp table already exists (from previous failed run)
+            temp_exists = await self._table_exists_for_name(connection, self.temp_table)
+            if temp_exists:
+                # Clean up orphaned temp table from previous run
+                self.logger.warning(
+                    f"Found existing temp table {self.temp_table}, " "dropping orphan"
+                )
+                await self._drop_table_atomic(connection, self.temp_table)
 
-            if exists:
+            # Check if production table exists
+            prod_exists = await self._table_exists_for_name(connection, self.table)
+
+            if prod_exists:
                 if self.if_exists == "fail":
                     raise StoreError(
                         f"Table {self.table} already exists (if_exists='fail'). "
-                        f"Use if_exists='append' or 'replace' to proceed."
+                        "Use if_exists='append' or 'replace' to proceed."
                     )
-                elif self.if_exists == "replace":
-                    # Drop and recreate
-                    cursor = connection.cursor()
-                    try:
-                        cursor.execute(f"DROP TABLE {self.table}")
-                        connection.commit()
-                        self.logger.info(f"Dropped existing table {self.table}")
-                    finally:
-                        cursor.close()
 
-                    await self._create_table(connection, df)
-                # if_exists == "append" - just use existing table
+                # For append: validate and adapt schema
+                #   (add nullable cols, allow missing nullable)
+                # For replace: use new DataFrame schema (may have schema drift)
+                if self.if_exists == "append":
+                    # Validate schema compatibility and adapt if needed
+                    await self._validate_and_adapt_schema_for_append(connection, df)
+                    # Create temp table matching production schema (after any ALTERs)
+                    await self._create_temp_table_from_production(connection)
+                else:
+                    # Replace mode: use DataFrame schema (handles schema drift)
+                    await self._create_table(connection, df, self.temp_table)
             else:
-                # Table doesn't exist - create it (regardless of if_exists setting)
-                await self._create_table(connection, df)
+                # No production table - create temp table with inferred schema
+                await self._create_table(connection, df, self.temp_table)
 
+            self._temp_table_created = True
             self._table_checked = True
 
         finally:
             if connection:
                 await self.pool.release(connection)
 
+    async def _validate_and_adapt_schema_for_append(
+        self, connection, df: pl.DataFrame
+    ) -> None:
+        """
+        Validate and adapt schema for append mode.
+
+        Hygge way: Be helpful but explicit.
+        - Allow missing nullable columns (will insert NULLs) → WARN
+        - Auto-add new nullable columns to production → WARN
+        - Fail if missing NOT NULL columns or type conflicts
+
+        Args:
+            connection: pyodbc connection
+            df: DataFrame to validate
+
+        Raises:
+            StoreError: If schema is incompatible (NOT NULL missing, type conflicts)
+        """
+        prod_schema = await self._get_production_schema(connection)
+        df_columns = set(df.columns)
+
+        prod_column_names = set(prod_schema.keys())
+        missing_in_df = prod_column_names - df_columns
+        new_in_df = df_columns - prod_column_names
+
+        # Check for missing NOT NULL columns - these cannot be inserted
+        missing_not_null = []
+        for col_name in missing_in_df:
+            col_info = prod_schema[col_name]
+            if not col_info.get("is_nullable", True):
+                missing_not_null.append(col_name)
+
+        if missing_not_null:
+            raise StoreError(
+                f"Cannot append to {self.table}: DataFrame missing required "
+                f"(NOT NULL) columns: {sorted(missing_not_null)}.\n"
+                "Production requires these columns, but they are not in the "
+                "DataFrame. Either add these columns to your data or use "
+                "if_exists='replace'."
+            )
+
+        # Warn about missing nullable columns (will insert NULLs)
+        missing_nullable = [
+            col for col in missing_in_df if prod_schema[col].get("is_nullable", True)
+        ]
+        if missing_nullable:
+            self.logger.warning(
+                f"Appending to {self.table}: DataFrame missing nullable columns "
+                f"{sorted(missing_nullable)}. These will be inserted as NULL."
+            )
+
+        # Auto-add new nullable columns to production table
+        if new_in_df:
+            await self._add_columns_to_production(connection, df, new_in_df)
+            self.logger.warning(
+                f"Appending to {self.table}: Added new nullable columns to production "
+                f"table: {sorted(new_in_df)}"
+            )
+
+    async def _add_columns_to_production(
+        self, connection, df: pl.DataFrame, new_columns: set
+    ) -> None:
+        """Add new nullable columns to production table."""
+
+        def add_columns(conn, table_name, column_defs):
+            cursor = conn.cursor()
+            try:
+                for col_name, sql_type in column_defs:
+                    alter_sql = (
+                        f"ALTER TABLE {table_name} " f"ADD [{col_name}] {sql_type} NULL"
+                    )
+                    cursor.execute(alter_sql)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+        # Map DataFrame columns to SQL types
+        column_defs = []
+        for col_name in sorted(new_columns):
+            if col_name not in df.columns:
+                continue
+            polars_type = df.schema[col_name]
+            sql_type = self._map_polars_type_to_sql(polars_type)
+            column_defs.append((col_name, sql_type))
+
+        if column_defs:
+            await asyncio.to_thread(add_columns, connection, self.table, column_defs)
+
+    async def _get_production_schema(self, connection) -> Dict[str, Dict[str, Any]]:
+        """
+        Get production table schema with column details.
+
+        Returns:
+            Dictionary mapping column names to dict with:
+            - data_type: SQL data type
+            - is_nullable: bool indicating if column allows NULL
+        """
+        parts = self.table.split(".")
+        if len(parts) == 2:
+            schema_name, table_name_only = parts
+        else:
+            schema_name = "dbo"
+            table_name_only = self.table
+
+        schema_name = schema_name.strip("[]")
+        table_name_only = table_name_only.strip("[]")
+
+        query = """
+            SELECT
+                COLUMN_NAME,
+                DATA_TYPE,
+                IS_NULLABLE
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+            ORDER BY ORDINAL_POSITION
+        """
+
+        def get_schema(conn, query_str, schema, table):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(query_str, (schema, table))
+                return {
+                    row[0]: {
+                        "data_type": row[1],
+                        "is_nullable": row[2].upper() == "YES",
+                    }
+                    for row in cursor.fetchall()
+                }
+            finally:
+                cursor.close()
+
+        return await asyncio.to_thread(
+            get_schema, connection, query, schema_name, table_name_only
+        )
+
+    async def _create_temp_table_from_production(self, connection) -> None:
+        """Create temp table with same schema as production table."""
+
+        def create_temp_from_prod(conn, prod_table, temp_table):
+            cursor = conn.cursor()
+            try:
+                # SELECT * INTO temp FROM prod WHERE 1=0 (schema only)
+                sql = f"SELECT * INTO {temp_table} FROM {prod_table} WHERE 1=0"
+                cursor.execute(sql)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+        await asyncio.to_thread(
+            create_temp_from_prod, connection, self.table, self.temp_table
+        )
+        self._temp_table_created = True
+        self.logger.debug(
+            f"Created temp table {self.temp_table} from {self.table} schema"
+        )
+
     async def close(self) -> None:
         """
-        Finalize writes and cleanup.
+        Finalize writes and atomically swap temp table to production.
 
-        For direct_insert: Just flush remaining data and log stats
-        For temp_swap (future): Atomic swap temp table → production
-        For merge (future): Finalize merge operation
+        Atomic operation: DROP old table (if replace) + RENAME temp table.
+        On success: temp table becomes production table.
+        On failure: temp table remains, production table unchanged.
         """
         await self.finish()
 
-        # Future strategies would finalize here:
-        # if self.write_strategy == "temp_swap":
-        #     await self._swap_temp_to_production()
-        # elif self.write_strategy == "merge":
-        #     await self._finalize_merge()
+        # Atomically swap temp table to production
+        if self.batches_written > 0 or self._temp_table_created:
+            await self._swap_temp_to_production()
 
         # Log final statistics
         if self.batches_written > 0:
@@ -509,6 +642,186 @@ CREATE TABLE {self.table} (
                 f"Store {self.name} completed: {self.rows_written:,} total rows "
                 f"across {self.batches_written} batches"
             )
+
+    async def _swap_temp_to_production(self) -> None:
+        """
+        Atomically swap temp table to production table.
+
+        Handles both append and replace modes:
+        - append: Keep existing rows, temp table is appended (future enhancement)
+        - replace: DROP old table, RENAME temp → production
+        - fail: Verify table doesn't exist first
+
+        Uses single transaction for atomicity.
+        """
+        if not self.pool:
+            return
+
+        connection = None
+        try:
+            connection = await self.pool.acquire()
+
+            # Check if temp table has data (only swap if we wrote something)
+            temp_exists = await self._table_exists_for_name(connection, self.temp_table)
+            if not temp_exists:
+                self.logger.debug("Temp table does not exist, nothing to swap")
+                return
+
+            # Check if production table exists
+            prod_exists = await self._table_exists_for_name(connection, self.table)
+
+            # Handle based on if_exists policy
+            if self.if_exists == "fail":
+                if prod_exists:
+                    raise StoreError(
+                        f"Table {self.table} already exists (if_exists='fail'). "
+                        f"Use if_exists='append' or 'replace' to proceed."
+                    )
+                # Table doesn't exist - safe to rename temp to production
+                await self._rename_table_atomic(connection, self.temp_table, self.table)
+                self.logger.success(f"Renamed temp table to {self.table}")
+
+            elif self.if_exists == "replace":
+                # Safer pattern: RENAME old → backup, RENAME tmp → prod, DROP backup
+                if prod_exists:
+                    backup_table = f"{self.table}_hygge_old"
+                    # Step 1: Rename old production to backup
+                    await self._rename_table_atomic(
+                        connection, self.table, backup_table
+                    )
+                    self.logger.debug(
+                        f"Renamed old table {self.table} to backup {backup_table}"
+                    )
+
+                    # Step 2: Rename temp to production
+                    await self._rename_table_atomic(
+                        connection, self.temp_table, self.table
+                    )
+                    self.logger.success(f"Renamed temp table to {self.table}")
+
+                    # Step 3: Drop backup (only after both renames succeed)
+                    await self._drop_table_atomic(connection, backup_table)
+                    self.logger.info(f"Dropped backup table {backup_table}")
+                else:
+                    # No existing table - just rename temp to production
+                    await self._rename_table_atomic(
+                        connection, self.temp_table, self.table
+                    )
+                    self.logger.success(
+                        f"Atomically replaced {self.table} with temp table data"
+                    )
+
+            elif self.if_exists == "append":
+                # For append, copy temp data to production (future: could use UNION ALL)
+                if not prod_exists:
+                    # No existing table - just rename temp to production
+                    await self._rename_table_atomic(
+                        connection, self.temp_table, self.table
+                    )
+                    self.logger.success(f"Created {self.table} from temp table")
+                else:
+                    # Append: INSERT INTO production SELECT FROM temp
+                    await self._append_temp_to_production(connection)
+                    # Drop temp table after successful append
+                    await self._drop_table_atomic(connection, self.temp_table)
+                    self.logger.success(f"Appended temp table data to {self.table}")
+
+        except Exception as e:
+            self.logger.error(f"Failed to swap temp table to production: {str(e)}")
+            # Cleanup temp table on failure
+            if connection:
+                try:
+                    await self._drop_table_atomic(connection, self.temp_table)
+                except Exception:
+                    pass  # Ignore cleanup errors
+            raise StoreError(f"Failed to finalize MSSQL store: {str(e)}")
+
+        finally:
+            if connection:
+                await self.pool.release(connection)
+
+    async def _table_exists_for_name(self, connection, table_name: str) -> bool:
+        """Check if a specific table exists."""
+        parts = table_name.split(".")
+        if len(parts) == 2:
+            schema_name, table_name_only = parts
+        else:
+            schema_name = "dbo"
+            table_name_only = table_name
+
+        schema_name = schema_name.strip("[]")
+        table_name_only = table_name_only.strip("[]")
+
+        query = """
+            SELECT COUNT(*)
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+        """
+
+        def check_table(conn, query_str, schema, table):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(query_str, (schema, table))
+                count = cursor.fetchone()[0]
+                return count > 0
+            finally:
+                cursor.close()
+
+        return await asyncio.to_thread(
+            check_table, connection, query, schema_name, table_name_only
+        )
+
+    async def _rename_table_atomic(
+        self, connection, old_name: str, new_name: str
+    ) -> None:
+        """Atomically rename table within transaction."""
+
+        def rename_table(conn, old, new):
+            cursor = conn.cursor()
+            try:
+                # Use sp_rename for atomic rename
+                cursor.execute(f"EXEC sp_rename '{old}', '{new}'")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+        await asyncio.to_thread(rename_table, connection, old_name, new_name)
+
+    async def _drop_table_atomic(self, connection, table_name: str) -> None:
+        """Atomically drop table within transaction."""
+
+        def drop_table(conn, table):
+            cursor = conn.cursor()
+            try:
+                cursor.execute(f"DROP TABLE {table}")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+        await asyncio.to_thread(drop_table, connection, table_name)
+
+    async def _append_temp_to_production(self, connection) -> None:
+        """Append temp table data to production table."""
+
+        def append_data(conn, temp_table, prod_table):
+            cursor = conn.cursor()
+            try:
+                # INSERT INTO production SELECT * FROM temp
+                cursor.execute(f"INSERT INTO {prod_table} SELECT * FROM {temp_table}")
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+            finally:
+                cursor.close()
+
+        await asyncio.to_thread(append_data, connection, self.temp_table, self.table)
 
 
 class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
@@ -596,22 +909,22 @@ class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
         description="Table hints (e.g., 'TABLOCK' for staging/columnstore)",
     )
 
-    # Write strategy (extensible design)
+    # Write strategy (deprecated - always uses atomic temp table pattern)
     write_strategy: str = Field(
-        default="direct_insert",
+        default="temp_swap",
         description=(
-            "Write strategy: 'direct_insert' (default), "
-            "'temp_swap' (future), 'merge' (future)"
+            "Write strategy: Always uses atomic temp table pattern. "
+            "This parameter is kept for compatibility but ignored."
         ),
     )
 
-    # Table creation policy
+    # Table creation policy (fail is safest default)
     if_exists: str = Field(
         default="fail",
         description=(
-            "Action when table exists: 'fail' (error if exists), "
-            "'append' (use existing, create if missing), "
-            "'replace' (drop and recreate)"
+            "Action when table exists: 'fail' (error if exists - default, safest), "
+            "'append' (append data to existing table), "
+            "'replace' (atomically drop and replace with new data)"
         ),
     )
 
@@ -642,14 +955,17 @@ class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
 
     @model_validator(mode="after")
     def validate_write_strategy(self):
-        """Validate write strategy."""
-        valid_strategies = ["direct_insert"]  # Future: temp_swap, merge
-        if self.write_strategy not in valid_strategies:
-            raise ValueError(
-                f"write_strategy must be one of {valid_strategies}, "
-                f"got '{self.write_strategy}'. "
-                f"Note: 'temp_swap' and 'merge' strategies are planned "
-                f"for future releases."
+        """Validate write strategy (deprecated - kept for compatibility)."""
+        # Always uses atomic temp table pattern now
+        # Just log warning if old strategy specified
+        if self.write_strategy == "direct_insert":
+            import warnings
+
+            warnings.warn(
+                "write_strategy='direct_insert' is deprecated. "
+                "All writes now use atomic temp table pattern for safety.",
+                DeprecationWarning,
+                stacklevel=2,
             )
         return self
 

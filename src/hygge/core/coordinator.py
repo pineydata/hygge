@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 from hygge.connections import MSSQL_CONNECTION_DEFAULTS, ConnectionPool, MssqlConnection
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
+from hygge.utility.path_helper import PathHelper
 
 from .flow import Flow, FlowConfig
 from .home import Home
@@ -515,8 +516,8 @@ To get started, run:
                 if "path" in entity_home_config and "path" in home_config_dict:
                     flow_path = home_config_dict["path"]
                     entity_path = entity_home_config["path"]
-                    # Combine paths properly
-                    merged_path = f"{flow_path.rstrip('/')}/{entity_path.lstrip('/')}"
+                    # Combine paths properly using PathHelper
+                    merged_path = PathHelper.merge_paths(flow_path, entity_path)
                     merged_home_config = {
                         **home_config_dict,
                         **entity_home_config,

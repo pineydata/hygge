@@ -276,6 +276,8 @@ class TestADLSStorePathBuilding:
 
     def test_cloud_staging_path_with_entity(self):
         """Test that cloud staging path is Files/_tmp/entity/filename."""
+        from hygge.utility.path_helper import PathHelper
+
         config = ADLSStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -287,16 +289,11 @@ class TestADLSStorePathBuilding:
         # Test the internal _save logic would build correct path
         # staging_path from get_staging_directory would be "_tmp/filename.parquet"
         filename = "00000000000000000001.parquet"
-        staging_path = f"_tmp/{filename}"
 
-        # Simulate what _save does to build cloud staging path
-        base_parts = store.base_path.split("/")
-        if len(base_parts) >= 2:
-            root = base_parts[0]
-            entity = base_parts[1]
-            cloud_staging_path = f"{root}/_tmp/{entity}/{filename}"
-        else:
-            cloud_staging_path = f"{store.base_path}/{staging_path}"
+        # Use PathHelper to build staging path (same as _save does)
+        cloud_staging_path = PathHelper.build_staging_path(
+            store.base_path, store.entity_name, filename
+        )
 
         # Should be Files/_tmp/Account/filename.parquet
         assert cloud_staging_path == "Files/_tmp/Account/00000000000000000001.parquet"

@@ -678,5 +678,144 @@ source_config:
                 os.chdir(original_cwd)
 
 
+class TestCoordinatorEntityPathMerging:
+    """Test entity flow path merging with PathHelper."""
+
+    def test_entity_flow_path_merging_simple(self):
+        """Test that entity paths are merged correctly with flow paths."""
+        config_data = {
+            "flows": {
+                "test_flow": {
+                    "home": {"type": "parquet", "path": "data/source"},
+                    "store": {"type": "parquet", "path": "data/destination"},
+                    "entities": [
+                        {
+                            "name": "users",
+                            "home": {"path": "users"},
+                        }
+                    ],
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            coordinator = Coordinator(config_file)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            # Should create entity flow with merged path
+            assert len(coordinator.flows) == 1
+            flow = coordinator.flows[0]
+            assert flow.name == "test_flow_users"
+            # Path should be merged: "data/source" + "users" = "data/source/users"
+            assert flow.home.config.path == "data/source/users"
+
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+    def test_entity_flow_path_merging_with_trailing_slash(self):
+        """Test path merging handles trailing slashes correctly."""
+        config_data = {
+            "flows": {
+                "test_flow": {
+                    "home": {"type": "parquet", "path": "data/source/"},
+                    "store": {"type": "parquet", "path": "data/destination"},
+                    "entities": [
+                        {
+                            "name": "users",
+                            "home": {"path": "users"},
+                        }
+                    ],
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            coordinator = Coordinator(config_file)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            flow = coordinator.flows[0]
+            # Should merge correctly despite trailing slash: "data/source/" + "users"
+            assert flow.home.config.path == "data/source/users"
+
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+    def test_entity_flow_path_merging_with_leading_slash(self):
+        """Test path merging handles leading slashes correctly."""
+        config_data = {
+            "flows": {
+                "test_flow": {
+                    "home": {"type": "parquet", "path": "data/source"},
+                    "store": {"type": "parquet", "path": "data/destination"},
+                    "entities": [
+                        {
+                            "name": "users",
+                            "home": {"path": "/users"},
+                        }
+                    ],
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            coordinator = Coordinator(config_file)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            flow = coordinator.flows[0]
+            # Should merge correctly despite leading slash: "data/source" + "/users"
+            assert flow.home.config.path == "data/source/users"
+
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+    def test_entity_flow_path_merging_both_slashes(self):
+        """Test path merging handles both trailing and leading slashes."""
+        config_data = {
+            "flows": {
+                "test_flow": {
+                    "home": {"type": "parquet", "path": "data/source/"},
+                    "store": {"type": "parquet", "path": "data/destination"},
+                    "entities": [
+                        {
+                            "name": "users",
+                            "home": {"path": "/users"},
+                        }
+                    ],
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            coordinator = Coordinator(config_file)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            flow = coordinator.flows[0]
+            # Should merge correctly: "data/source/" + "/users" = "data/source/users"
+            assert flow.home.config.path == "data/source/users"
+
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
