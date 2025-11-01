@@ -32,11 +32,13 @@ class ADLSOperations:
         file_system_name: str,
         service_client,
         timeout: int = 300,
+        is_onelake: bool = False,
     ):
         self.file_system_client = file_system_client
         self.file_system_name = file_system_name
         self.service_client = service_client
         self.timeout = timeout
+        self.is_onelake = is_onelake
         self.logger = get_logger("hygge.adls_gen2_ops")
 
     @with_retry(
@@ -74,50 +76,59 @@ class ADLSOperations:
                 self.logger.error(f"Source file does not exist: {str(e)}")
                 raise StoreError(f"Source file does not exist: {str(e)}")
 
-            # Use server-side rename for atomic move operation
-            # This is more efficient than copy-then-delete and avoids downloading
+            # For OneLake, skip rename attempt and go straight to copy-then-delete
+            # because OneLake doesn't support rename_file API
+            if self.is_onelake:
+                self.logger.debug(
+                    "OneLake detected - using copy-then-delete for atomic move"
+                )
+                dest_client = self.file_system_client.get_file_client(dest_path)
+            else:
+                # Use server-side rename for atomic move operation (ADLS Gen2 only)
+                # This is more efficient than copy-then-delete and avoids downloading
+                try:
+                    # Rename_file performs a server-side move/rename operation
+                    # The destination path should be relative to the file system root
+                    source_client.rename_file(dest_path, timeout=self.timeout)
+                    self.logger.debug(f"Successfully moved file to: {dest_path}")
+                    return  # Successfully renamed, we're done
+                except Exception as rename_error:
+                    # If rename fails, fall back to copy-then-delete as a backup
+                    self.logger.warning(
+                        f"Rename failed, falling back to copy-then-delete: "
+                        f"{str(rename_error)}"
+                    )
+
+                    dest_client = self.file_system_client.get_file_client(dest_path)
+
+            # Copy-then-delete fallback (used for OneLake and when ADLS rename fails)
+            # Copy file data to destination in chunks
+            CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
+            download_stream = source_client.download_file()
+            dest_client.create_file()
+            offset = 0
+            while True:
+                chunk = download_stream.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                dest_client.append_data(chunk, offset, len(chunk))
+                offset += len(chunk)
+            dest_client.flush_data(offset)
+            # Verify destination file exists before deleting source
             try:
-                # Rename_file performs a server-side move/rename operation
-                # The destination path should be relative to the file system root
-                source_client.rename_file(dest_path, timeout=self.timeout)
-                self.logger.debug(f"Successfully moved file to: {dest_path}")
-            except Exception as rename_error:
-                # If rename fails (e.g., path issues with some OneLake configs),
-                # fall back to copy-then-delete as a backup
-                self.logger.warning(
-                    f"Rename failed, falling back to copy-then-delete: "
-                    f"{str(rename_error)}"
+                dest_client.get_file_properties()
+                self.logger.debug(
+                    f"Successfully verified destination file: {dest_path}"
                 )
 
-                dest_client = self.file_system_client.get_file_client(dest_path)
-
-                # Copy file data to destination in chunks
-                CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
-                download_stream = source_client.download_file()
-                dest_client.create_file()
-                offset = 0
-                while True:
-                    chunk = download_stream.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
-                    dest_client.append_data(chunk, offset, len(chunk))
-                    offset += len(chunk)
-                dest_client.flush_data(offset)
-                # Verify destination file exists before deleting source
-                try:
-                    dest_client.get_file_properties()
-                    self.logger.debug(
-                        f"Successfully verified destination file: {dest_path}"
-                    )
-
-                    # Now delete the source file
-                    source_client.delete_file(timeout=self.timeout)
-                    self.logger.debug(f"Successfully moved file to: {dest_path}")
-                except Exception as e:
-                    self.logger.error(
-                        f"Failed to verify destination file {dest_path}: {str(e)}"
-                    )
-                    raise
+                # Now delete the source file
+                source_client.delete_file(timeout=self.timeout)
+                self.logger.debug(f"Successfully moved file to: {dest_path}")
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to verify destination file {dest_path}: {str(e)}"
+                )
+                raise
 
         except Exception as e:
             if "timeout" in str(e).lower():

@@ -338,6 +338,10 @@ To get started, run:
                 if conn_type == "mssql":
                     # Use shared defaults to avoid duplication
                     defaults = MSSQL_CONNECTION_DEFAULTS
+                    # Convert timeout to int if it's a string
+                    timeout = conn_config.get("timeout", defaults.timeout)
+                    if isinstance(timeout, str):
+                        timeout = int(timeout)
                     factory = MssqlConnection(
                         server=conn_config.get("server"),
                         database=conn_config.get("database"),
@@ -347,7 +351,7 @@ To get started, run:
                             "trust_cert": conn_config.get(
                                 "trust_cert", defaults.trust_cert
                             ),
-                            "timeout": conn_config.get("timeout", defaults.timeout),
+                            "timeout": timeout,
                         },
                     )
                 else:
@@ -355,6 +359,9 @@ To get started, run:
 
                 # Create pool
                 pool_size = conn_config.get("pool_size", 5)
+                # Convert to int if it's a string (from environment variables)
+                if isinstance(pool_size, str):
+                    pool_size = int(pool_size)
                 pool = ConnectionPool(
                     name=conn_name, connection_factory=factory, pool_size=pool_size
                 )

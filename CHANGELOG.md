@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Path Management
 
-- Centralized temporary storage: `base_path/_tmp/entity/` instead of `base_path/entity/_tmp`
+- Centralized temporary storage: `Files/_tmp/entity/` instead of `Files/entity/_tmp`
 - Cloud-native paths - works seamlessly with Azure services
 - Dynamic path building based on Fabric type (Lakehouse vs Mirrored DB)
 

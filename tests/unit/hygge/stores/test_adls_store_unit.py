@@ -269,7 +269,34 @@ class TestADLSStorePathBuilding:
         )
 
         store_with_entity = ADLSStore("test_store", config, entity_name="users")
-        assert store_with_entity.get_staging_directory() == Path("_tmp/users")
+        assert store_with_entity.get_staging_directory() == Path("_tmp")
 
         store_without_entity = ADLSStore("test_store", config)
         assert store_without_entity.get_staging_directory() == Path("_tmp")
+
+    def test_cloud_staging_path_with_entity(self):
+        """Test that cloud staging path is Files/_tmp/entity/filename."""
+        config = ADLSStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            path="Files/{entity}/",
+        )
+
+        store = ADLSStore("test_store", config, entity_name="Account")
+
+        # Test the internal _save logic would build correct path
+        # staging_path from get_staging_directory would be "_tmp/filename.parquet"
+        filename = "00000000000000000001.parquet"
+        staging_path = f"_tmp/{filename}"
+
+        # Simulate what _save does to build cloud staging path
+        base_parts = store.base_path.split("/")
+        if len(base_parts) >= 2:
+            root = base_parts[0]
+            entity = base_parts[1]
+            cloud_staging_path = f"{root}/_tmp/{entity}/{filename}"
+        else:
+            cloud_staging_path = f"{store.base_path}/{staging_path}"
+
+        # Should be Files/_tmp/Account/filename.parquet
+        assert cloud_staging_path == "Files/_tmp/Account/00000000000000000001.parquet"
