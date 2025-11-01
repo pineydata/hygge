@@ -5,6 +5,7 @@ Writes data to MS SQL Server databases using connection pooling,
 parallel batch writes, and efficient bulk loading patterns.
 """
 import asyncio
+import re
 from typing import Any, Dict, Optional
 
 import polars as pl
@@ -243,7 +244,9 @@ class MssqlStore(Store, store_type="mssql"):
             column_list = ",".join([f"[{col}]" for col in columns])
 
             # Build SQL: INSERT INTO temp_table WITH (hints) (columns) VALUES (?)
-            sql = f"INSERT INTO {self.temp_table}"
+            # Quote table name to prevent SQL injection
+            safe_temp_table = self._quote_table_name(self.temp_table)
+            sql = f"INSERT INTO {safe_temp_table}"
             if self.table_hints:
                 sql += f" WITH ({self.table_hints})"
             sql += f" ({column_list}) VALUES ({placeholders})"
@@ -527,8 +530,12 @@ CREATE TABLE {target_table} (
         def add_columns(conn, table_name, column_defs):
             cursor = conn.cursor()
             try:
+                # Quote table name to prevent SQL injection
+                safe_table = self._quote_table_name(table_name)
                 for col_name, sql_type in column_defs:
-                    alter_sql = f"ALTER TABLE {table_name} ADD [{col_name}] {sql_type} NULL"
+                    alter_sql = (
+                        f"ALTER TABLE {safe_table} " f"ADD [{col_name}] {sql_type} NULL"
+                    )
                     cursor.execute(alter_sql)
                 conn.commit()
             except Exception:
@@ -599,11 +606,14 @@ CREATE TABLE {target_table} (
     async def _create_temp_table_from_production(self, connection) -> None:
         """Create temp table with same schema as production table."""
 
-        def create_temp_from_prod(conn, prod_table, temp_table):
+        def create_temp_from_prod(conn, prod_table_quoted, temp_table_quoted):
             cursor = conn.cursor()
             try:
                 # SELECT * INTO temp FROM prod WHERE 1=0 (schema only)
-                sql = f"SELECT * INTO {temp_table} FROM {prod_table} WHERE 1=0"
+                sql = (
+                    f"SELECT * INTO {temp_table_quoted} "
+                    f"FROM {prod_table_quoted} WHERE 1=0"
+                )
                 cursor.execute(sql)
                 conn.commit()
             except Exception:
@@ -612,8 +622,11 @@ CREATE TABLE {target_table} (
             finally:
                 cursor.close()
 
+        # Quote table names to prevent SQL injection
+        safe_prod_table = self._quote_table_name(self.table)
+        safe_temp_table = self._quote_table_name(self.temp_table)
         await asyncio.to_thread(
-            create_temp_from_prod, connection, self.table, self.temp_table
+            create_temp_from_prod, connection, safe_prod_table, safe_temp_table
         )
         self._temp_table_created = True
         self.logger.debug(
@@ -774,17 +787,11 @@ CREATE TABLE {target_table} (
     ) -> None:
         """Atomically rename table within transaction."""
 
-        def _escape_identifier(identifier: str) -> str:
-            # Escape closing brackets and wrap in square brackets
-            return "[" + identifier.replace("]", "]]") + "]"
-
-        def rename_table(conn, old, new):
+        def rename_table(conn, old_quoted, new_quoted):
             cursor = conn.cursor()
             try:
-                # Use sp_rename for atomic rename, safely escape identifiers
-                safe_old = _escape_identifier(old)
-                safe_new = _escape_identifier(new)
-                cursor.execute(f"EXEC sp_rename {safe_old}, {safe_new}")
+                # Use sp_rename for atomic rename with quoted identifiers
+                cursor.execute(f"EXEC sp_rename {old_quoted}, {new_quoted}")
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -792,15 +799,18 @@ CREATE TABLE {target_table} (
             finally:
                 cursor.close()
 
-        await asyncio.to_thread(rename_table, connection, old_name, new_name)
+        # Quote table names to prevent SQL injection
+        safe_old_name = self._quote_table_name(old_name)
+        safe_new_name = self._quote_table_name(new_name)
+        await asyncio.to_thread(rename_table, connection, safe_old_name, safe_new_name)
 
     async def _drop_table_atomic(self, connection, table_name: str) -> None:
         """Atomically drop table within transaction."""
 
-        def drop_table(conn, table):
+        def drop_table(conn, table_quoted):
             cursor = conn.cursor()
             try:
-                cursor.execute(f"DROP TABLE {table}")
+                cursor.execute(f"DROP TABLE {table_quoted}")
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -808,16 +818,22 @@ CREATE TABLE {target_table} (
             finally:
                 cursor.close()
 
-        await asyncio.to_thread(drop_table, connection, table_name)
+        # Quote table name to prevent SQL injection
+        safe_table_name = self._quote_table_name(table_name)
+        await asyncio.to_thread(drop_table, connection, safe_table_name)
 
     async def _append_temp_to_production(self, connection) -> None:
         """Append temp table data to production table."""
 
-        def append_data(conn, temp_table, prod_table):
+        def append_data(conn, temp_table_quoted, prod_table_quoted):
             cursor = conn.cursor()
             try:
                 # INSERT INTO production SELECT * FROM temp
-                cursor.execute(f"INSERT INTO {prod_table} SELECT * FROM {temp_table}")
+                sql = (
+                    f"INSERT INTO {prod_table_quoted} "
+                    f"SELECT * FROM {temp_table_quoted}"
+                )
+                cursor.execute(sql)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -825,7 +841,54 @@ CREATE TABLE {target_table} (
             finally:
                 cursor.close()
 
-        await asyncio.to_thread(append_data, connection, self.temp_table, self.table)
+        # Quote table names to prevent SQL injection
+        safe_temp_table = self._quote_table_name(self.temp_table)
+        safe_prod_table = self._quote_table_name(self.table)
+        await asyncio.to_thread(
+            append_data, connection, safe_temp_table, safe_prod_table
+        )
+
+    def _quote_table_name(self, table_name: str) -> str:
+        """
+        Safely validate and quote a table name for SQL Server.
+
+        Validates table name format and returns bracket-quoted identifier.
+        Supports schema.table format (e.g., "dbo.Users" -> "[dbo].[Users]").
+
+        Args:
+            table_name: Table name, optionally with schema
+                (e.g., "dbo.Users" or "Users")
+
+        Returns:
+            Bracket-quoted table name (e.g., "[dbo].[Users]" or "[Users]")
+
+        Raises:
+            StoreError: If table name contains invalid characters
+        """
+        if not table_name:
+            raise StoreError("Table name cannot be empty")
+
+        # Validate: only alphanumeric, underscore, and dot (for schema.table)
+        # First character must be letter or underscore
+        pattern = r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)?$"
+        if not re.match(pattern, table_name):
+            raise StoreError(
+                f"Invalid table name format: {table_name}. "
+                "Must be alphanumeric/underscore, optionally with schema "
+                "(e.g., 'dbo.Users')"
+            )
+
+        # Split schema and table if present
+        parts = table_name.split(".")
+        if len(parts) == 2:
+            schema, table = parts
+            # Escape brackets and quote
+            schema_quoted = "[" + schema.replace("]", "]]") + "]"
+            table_quoted = "[" + table.replace("]", "]]") + "]"
+            return f"{schema_quoted}.{table_quoted}"
+        else:
+            # Single identifier, just quote it
+            return "[" + table_name.replace("]", "]]") + "]"
 
 
 class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):

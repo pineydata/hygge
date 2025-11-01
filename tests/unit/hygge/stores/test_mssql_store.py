@@ -394,9 +394,12 @@ class TestAtomicTempTableOperations:
 
         await self.store._create_temp_table_from_production(mock_connection)
 
-        # Should execute SELECT INTO for schema copy
+        # Should execute SELECT INTO for schema copy (with quoted identifiers)
         sql_call = mock_cursor.execute.call_args[0][0]
-        assert "SELECT * INTO dbo.Test_hygge_tmp FROM dbo.Test WHERE 1=0" in sql_call
+        assert (
+            "SELECT * INTO [dbo].[Test_hygge_tmp] FROM [dbo].[Test] WHERE 1=0"
+            in sql_call
+        )
         mock_connection.commit.assert_called_once()
         assert self.store._temp_table_created is True
 
@@ -758,8 +761,11 @@ class TestAtomicSwapOperations:
         await store._append_temp_to_production(self.mock_connection)
 
         # Should execute INSERT INTO production SELECT FROM temp
+        # (with quoted identifiers)
         sql_call = self.mock_cursor.execute.call_args[0][0]
-        assert "INSERT INTO dbo.Test SELECT * FROM dbo.Test_hygge_tmp" in sql_call
+        assert (
+            "INSERT INTO [dbo].[Test] SELECT * FROM [dbo].[Test_hygge_tmp]" in sql_call
+        )
         self.mock_connection.commit.assert_called_once()
 
     @pytest.mark.asyncio

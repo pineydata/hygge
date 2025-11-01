@@ -76,6 +76,9 @@ class ADLSOperations:
                 self.logger.error(f"Source file does not exist: {str(e)}")
                 raise StoreError(f"Source file does not exist: {str(e)}")
 
+            # Determine which move strategy to use
+            dest_client = None
+
             # For OneLake, skip rename attempt and go straight to copy-then-delete
             # because OneLake doesn't support rename_file API
             if self.is_onelake:
@@ -98,10 +101,10 @@ class ADLSOperations:
                         f"Rename failed, falling back to copy-then-delete: "
                         f"{str(rename_error)}"
                     )
-
                     dest_client = self.file_system_client.get_file_client(dest_path)
 
             # Copy-then-delete fallback (used for OneLake and when ADLS rename fails)
+            # At this point, dest_client is guaranteed to be set
             # Copy file data to destination in chunks
             CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
             download_stream = source_client.download_file()
