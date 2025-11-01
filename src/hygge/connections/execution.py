@@ -184,11 +184,14 @@ class ThreadPoolEngine(ExecutionEngine):
                 yield batch
         finally:
             # Ensure extraction thread completes (might already be done)
+            # Exceptions are already handled via exception_holder and raised above
             try:
-                extraction_task.result(timeout=1.0)  # Re-raise any exceptions
+                extraction_task.result(timeout=1.0)  # Wait for completion
             except concurrent.futures.TimeoutError:
                 # Thread still running, that's ok - it will complete when queue drains
                 pass
+            # Note: Any other exception from result() would be unexpected since
+            # exceptions from extract_to_queue are caught and stored in exception_holder
 
     @classmethod
     def shutdown(cls) -> None:

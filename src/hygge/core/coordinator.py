@@ -331,11 +331,10 @@ To get started, run:
         max_pool_size = 8  # Default
         if self.config and self.config.connections:
             # Use the largest pool size as a hint for thread pool size
+            # int() handles strings, floats, and integers gracefully
             max_pool_size = max(
                 (
                     int(conn.get("pool_size", 5))
-                    if isinstance(conn.get("pool_size"), str)
-                    else conn.get("pool_size", 5)
                     for conn in self.config.connections.values()
                 ),
                 default=8,

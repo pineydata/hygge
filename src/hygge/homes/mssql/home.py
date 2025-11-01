@@ -111,7 +111,8 @@ class MssqlHome(Home, home_type="mssql"):
             self.logger.debug(f"Executing query: {query[:100]}...")
 
             # Let Polars handle the batching efficiently
-            batch_size = self.options.get("batch_size", 10_000)
+            # Default (25k) optimized for producer-consumer overlap
+            batch_size = self.options.get("batch_size", 25_000)
             row_multiplier = self.options.get(
                 "row_multiplier", 100_000
             )  # Progress logging interval
