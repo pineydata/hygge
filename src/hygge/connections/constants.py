@@ -28,7 +28,9 @@ class MssqlHomeBatchingDefaults(BaseModel):
     """Default MSSQL home (reading) configuration."""
 
     batch_size: int = Field(
-        default=50_000, ge=1, description="Number of rows to read per batch"
+        default=25_000,
+        ge=1,
+        description="Number of rows to read per batch",
     )
     row_multiplier: int = Field(
         default=250_000, ge=1000, description="Progress logging interval (rows)"

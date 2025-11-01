@@ -20,6 +20,7 @@ from .constants import (
     get_mssql_home_defaults,
     get_mssql_store_defaults,
 )
+from .execution import ThreadPoolEngine, get_engine, register_engine
 from .mssql import MssqlConnection
 from .pool import ConnectionPool
 
@@ -27,6 +28,9 @@ __all__ = [
     "BaseConnection",
     "ConnectionPool",
     "MssqlConnection",
+    "ThreadPoolEngine",
+    "get_engine",
+    "register_engine",
     "MSSQL_CONNECTION_DEFAULTS",
     "MSSQL_BATCHING_DEFAULTS",
     "MSSQL_HOME_BATCHING_DEFAULTS",
