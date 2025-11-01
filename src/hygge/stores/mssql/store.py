@@ -528,9 +528,7 @@ CREATE TABLE {target_table} (
             cursor = conn.cursor()
             try:
                 for col_name, sql_type in column_defs:
-                    alter_sql = (
-                        f"ALTER TABLE {table_name} " f"ADD [{col_name}] {sql_type} NULL"
-                    )
+                    alter_sql = f"ALTER TABLE {table_name} ADD [{col_name}] {sql_type} NULL"
                     cursor.execute(alter_sql)
                 conn.commit()
             except Exception:
