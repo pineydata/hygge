@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, field_validator
 from hygge.connections import MSSQL_CONNECTION_DEFAULTS, ConnectionPool, MssqlConnection
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
+from hygge.utility.path_helper import PathHelper
 
 from .flow import Flow, FlowConfig
 from .home import Home
@@ -338,6 +339,10 @@ To get started, run:
                 if conn_type == "mssql":
                     # Use shared defaults to avoid duplication
                     defaults = MSSQL_CONNECTION_DEFAULTS
+                    # Convert timeout to int if it's a string
+                    timeout = conn_config.get("timeout", defaults.timeout)
+                    if isinstance(timeout, str):
+                        timeout = int(timeout)
                     factory = MssqlConnection(
                         server=conn_config.get("server"),
                         database=conn_config.get("database"),
@@ -347,7 +352,7 @@ To get started, run:
                             "trust_cert": conn_config.get(
                                 "trust_cert", defaults.trust_cert
                             ),
-                            "timeout": conn_config.get("timeout", defaults.timeout),
+                            "timeout": timeout,
                         },
                     )
                 else:
@@ -355,6 +360,9 @@ To get started, run:
 
                 # Create pool
                 pool_size = conn_config.get("pool_size", 5)
+                # Convert to int if it's a string (from environment variables)
+                if isinstance(pool_size, str):
+                    pool_size = int(pool_size)
                 pool = ConnectionPool(
                     name=conn_name, connection_factory=factory, pool_size=pool_size
                 )
@@ -508,8 +516,8 @@ To get started, run:
                 if "path" in entity_home_config and "path" in home_config_dict:
                     flow_path = home_config_dict["path"]
                     entity_path = entity_home_config["path"]
-                    # Combine paths properly
-                    merged_path = f"{flow_path.rstrip('/')}/{entity_path.lstrip('/')}"
+                    # Combine paths properly using PathHelper
+                    merged_path = PathHelper.merge_paths(flow_path, entity_path)
                     merged_home_config = {
                         **home_config_dict,
                         **entity_home_config,

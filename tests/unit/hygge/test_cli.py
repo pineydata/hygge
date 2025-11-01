@@ -282,11 +282,11 @@ columns:
                 os.chdir(original_cwd)
 
 
-class TestHyggeStart:
-    """Test hygge start command functionality."""
+class TestHyggeGo:
+    """Test hygge go command functionality."""
 
-    def test_start_runs_flows(self, cli_runner):
-        """Test that hygge start runs flows successfully."""
+    def test_go_runs_flows(self, cli_runner):
+        """Test that hygge go runs flows successfully."""
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
 
@@ -333,7 +333,7 @@ store:
             os.chdir(temp_path)
 
             try:
-                result = cli_runner.invoke(hygge, ["start"])
+                result = cli_runner.invoke(hygge, ["go"])
 
                 # Should succeed even with no data
                 assert result.exit_code == 0
@@ -342,14 +342,14 @@ store:
             finally:
                 os.chdir(original_cwd)
 
-    def test_start_fails_when_no_project(self, cli_runner):
-        """Test that hygge start fails when no hygge project found."""
+    def test_go_fails_when_no_project(self, cli_runner):
+        """Test that hygge go fails when no hygge project found."""
         with tempfile.TemporaryDirectory() as temp_dir:
             original_cwd = Path.cwd()
             os.chdir(temp_dir)
 
             try:
-                result = cli_runner.invoke(hygge, ["start"])
+                result = cli_runner.invoke(hygge, ["go"])
 
                 assert result.exit_code == 1
                 assert "Configuration error" in result.output

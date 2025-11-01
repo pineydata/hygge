@@ -9,6 +9,7 @@ from pydantic import Field, field_validator
 
 from hygge.core.store import BaseStoreConfig, Store, StoreConfig
 from hygge.utility.exceptions import StoreError
+from hygge.utility.path_helper import PathHelper
 
 
 class ParquetStore(Store, store_type="parquet"):
@@ -49,9 +50,10 @@ class ParquetStore(Store, store_type="parquet"):
         self.config = config
         self.entity_name = entity_name
 
-        # If entity_name provided, append to base path
+        # If entity_name provided, append to base path using PathHelper
         if entity_name:
-            self.base_path = Path(config.path) / entity_name
+            merged_path = PathHelper.merge_paths(config.path, entity_name)
+            self.base_path = Path(merged_path)
         else:
             self.base_path = Path(config.path)
 
@@ -79,7 +81,15 @@ class ParquetStore(Store, store_type="parquet"):
     def get_staging_directory(self) -> Path:
         """Get the staging directory for temporary storage."""
         # Create tmp at the same level as base_path, not nested under it
-        return self.base_path.parent / "tmp" / self.name
+        # Use PathHelper for consistency, preserving absolute paths
+        parent_str = str(self.base_path.parent)
+        merged_path = PathHelper.merge_paths(parent_str, "tmp", self.name)
+        result = Path(merged_path)
+        # PathHelper should preserve absolute, but ensure it with resolve if needed
+        if self.base_path.is_absolute() and not result.is_absolute():
+            # Reconstruct absolute path from base_path parent
+            result = self.base_path.parent / "tmp" / self.name
+        return result
 
     def get_final_directory(self) -> Path:
         """Get the final directory for permanent storage."""

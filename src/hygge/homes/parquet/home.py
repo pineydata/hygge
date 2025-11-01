@@ -9,6 +9,7 @@ from pydantic import Field, field_validator
 
 from hygge.core.home import BaseHomeConfig, Home, HomeConfig
 from hygge.utility.exceptions import HomeError
+from hygge.utility.path_helper import PathHelper
 
 
 class ParquetHome(Home, home_type="parquet"):
@@ -40,9 +41,10 @@ class ParquetHome(Home, home_type="parquet"):
         self.config = config
         self.entity_name = entity_name
 
-        # If entity_name provided, append to base path
+        # If entity_name provided, append to base path using PathHelper
         if entity_name:
-            self.data_path = Path(config.path) / entity_name
+            merged_path = PathHelper.merge_paths(config.path, entity_name)
+            self.data_path = Path(merged_path)
         else:
             self.data_path = Path(config.path)
 
