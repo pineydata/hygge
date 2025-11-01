@@ -81,7 +81,6 @@ class ParquetStore(Store, store_type="parquet"):
     def get_staging_directory(self) -> Path:
         """Get the staging directory for temporary storage."""
         # Create tmp at the same level as base_path, not nested under it
-        # Use PathHelper for consistency, then convert to Path for filesystem ops
         # Use PathHelper for consistency, preserving absolute paths
         parent_str = str(self.base_path.parent)
         merged_path = PathHelper.merge_paths(parent_str, "tmp", self.name)
