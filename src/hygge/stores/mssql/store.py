@@ -774,11 +774,17 @@ CREATE TABLE {target_table} (
     ) -> None:
         """Atomically rename table within transaction."""
 
+        def _escape_identifier(identifier: str) -> str:
+            # Escape closing brackets and wrap in square brackets
+            return "[" + identifier.replace("]", "]]") + "]"
+
         def rename_table(conn, old, new):
             cursor = conn.cursor()
             try:
-                # Use sp_rename for atomic rename
-                cursor.execute(f"EXEC sp_rename '{old}', '{new}'")
+                # Use sp_rename for atomic rename, safely escape identifiers
+                safe_old = _escape_identifier(old)
+                safe_new = _escape_identifier(new)
+                cursor.execute(f"EXEC sp_rename {safe_old}, {safe_new}")
                 conn.commit()
             except Exception:
                 conn.rollback()
