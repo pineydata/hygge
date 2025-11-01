@@ -424,7 +424,7 @@ CREATE TABLE {target_table} (
             if temp_exists:
                 # Clean up orphaned temp table from previous run
                 self.logger.warning(
-                    f"Found existing temp table {self.temp_table}, " "dropping orphan"
+                    f"Found existing temp table {self.temp_table}, dropping orphan"
                 )
                 await self._drop_table_atomic(connection, self.temp_table)
 
