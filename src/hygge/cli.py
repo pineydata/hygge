@@ -55,7 +55,7 @@ def init(project_name: str, flows_dir: str, force: bool):
     # Check if project directory already exists
     if project_dir.exists() and not force:
         click.echo(
-            f"Project directory '{project_name}' already exists in " f"{current_dir}"
+            f"Project directory '{project_name}' already exists in {current_dir}"
         )
         click.echo("Use --force to overwrite it")
         sys.exit(1)
