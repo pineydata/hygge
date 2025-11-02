@@ -676,18 +676,21 @@ To get started, run:
             tasks.append(task)
 
         # Run all flows concurrently
-        try:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        except Exception as e:
-            self.logger.error(f"Some flows failed: {str(e)}")
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Check for exceptions and handle based on continue_on_error setting
+        exceptions = [r for r in results if isinstance(r, Exception)]
+        if exceptions and not self.options.get("continue_on_error", False):
+            # At least one flow failed and we're not continuing on error
             # Cancel remaining tasks
             for task in tasks:
                 if not task.done():
                     task.cancel()
-            raise
-        finally:
-            # Generate and log dbt-style summary
-            self._log_summary()
+            # Re-raise first exception
+            raise exceptions[0]
+
+        # Generate and log dbt-style summary
+        self._log_summary()
 
     async def _run_flow(self, flow: Flow, flow_num: int, total_flows: int) -> None:
         """Run a single flow with error handling and hygge-style logging."""
@@ -733,11 +736,18 @@ To get started, run:
                 f"[{flow_num} of {total_flows}] FAILED flow {flow.name} ...."
             )
 
-            if not self.options.get("continue_on_error", False):
-                raise
+            # Store exception for re-raising if needed
+            flow_result["_exception"] = e
 
-        # Track result for summary
+        # Track result for summary (always, even if we're about to raise)
         self.flow_results.append(flow_result)
+
+        # Re-raise if we should stop on error
+        should_stop = flow_result["status"] == "fail" and not self.options.get(
+            "continue_on_error", False
+        )
+        if should_stop:
+            raise flow_result["_exception"]
 
     async def _update_progress(self, rows: int, flow_num: int) -> None:
         """Update coordinator-level progress tracking (called by flows)."""
