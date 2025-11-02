@@ -15,13 +15,13 @@ colorama.init()
 class ColorFormatter(logging.Formatter):
     """Custom formatter with colors"""
 
-    # Color codes
+    # Color codes - Blue and Green scheme
     COLORS = {
-        "INFO": colorama.Fore.GREEN,
+        "INFO": colorama.Fore.BLUE,
         "WARNING": colorama.Fore.YELLOW,
         "ERROR": colorama.Fore.RED,
         "DEBUG": colorama.Fore.BLUE,
-        "START": colorama.Fore.CYAN,
+        "START": colorama.Fore.BLUE,
         "OK": colorama.Fore.GREEN,
     }
 

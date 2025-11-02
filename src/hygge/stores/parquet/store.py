@@ -48,6 +48,7 @@ class ParquetStore(Store, store_type="parquet"):
 
         super().__init__(name, merged_options)
         self.config = config
+        # Progress tracking is handled by base Store class
         self.entity_name = entity_name
 
         # If entity_name provided, append to base path using PathHelper
@@ -142,7 +143,8 @@ class ParquetStore(Store, store_type="parquet"):
                 self.logger.error(f"Failed to create parquet file: {staging_path}")
                 raise StoreError(f"File was not created after write: {staging_path}")
 
-            self.logger.success(f"Wrote {len(df):,} rows to {staging_path.name}")
+            # Log write progress using base class method
+            self._log_write_progress(len(df))
 
             # Track path for moving to final location
             self.saved_paths.append(str(staging_path))
@@ -186,7 +188,7 @@ class ParquetStore(Store, store_type="parquet"):
 
             # Move file
             staging_path.rename(final_path)
-            self.logger.success(f"Moved {staging_path.name} to final location")
+            self.logger.debug("Moved file to final location")
 
         except Exception as e:
             self.logger.error(f"Failed to move file to final location: {str(e)}")

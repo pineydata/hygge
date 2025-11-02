@@ -104,6 +104,12 @@ class Store(ABC):
         self.start_time = None
         self.logger = get_logger(f"hygge.store.{self.__class__.__name__}")
 
+        # Progress tracking (matches home read cadence)
+        self.rows_since_last_log = 0
+        self.progress_interval = self.options.get(
+            "progress_interval", self.row_multiplier
+        )
+
     async def write(self, data: pl.DataFrame) -> None:
         """
         Write data to this store.
@@ -161,6 +167,10 @@ class Store(ABC):
         if self.data_buffer:
             await self._flush_buffer()
 
+        # Log any remaining accumulated rows that didn't hit the interval
+        if hasattr(self, "rows_since_last_log") and self.rows_since_last_log > 0:
+            self.logger.debug(f"WROTE {self.rows_since_last_log:,} rows")
+
         # Move staged files to final location for file-based stores
         if self.uses_file_staging:
             if hasattr(self, "_move_staged_files_to_final"):
@@ -180,7 +190,7 @@ class Store(ABC):
         if self.start_time:
             duration = asyncio.get_event_loop().time() - self.start_time
             rows_per_sec = self.rows_written / duration if duration > 0 else 0
-            self.logger.success(
+            self.logger.debug(
                 f"Store {self.name} completed in {duration:.1f}s "
                 f"({rows_per_sec:,.0f} rows/sec)"
             )
@@ -264,6 +274,23 @@ class Store(ABC):
             # Combine multiple DataFrames
             return pl.concat(self.data_buffer)
 
+    def _log_write_progress(self, rows_written: int) -> None:
+        """
+        Log write progress at regular intervals (DEBUG level).
+
+        Called by subclasses after saving data. Accumulates rows
+        and logs at progress_interval (matches home read cadence).
+
+        Args:
+            rows_written: Number of rows just written
+        """
+        self.rows_since_last_log += rows_written
+
+        # Log only when we hit the progress interval (same as home reads)
+        if self.rows_since_last_log >= self.progress_interval:
+            self.logger.debug(f"WROTE {self.rows_since_last_log:,} rows")
+            self.rows_since_last_log = 0
+
     @abstractmethod
     async def _save(self, data: pl.DataFrame, path: Optional[str] = None) -> None:
         """
@@ -271,6 +298,8 @@ class Store(ABC):
 
         This method must be implemented by subclasses to provide
         the actual data persistence logic.
+
+        Subclasses should call self._log_write_progress(len(data)) after saving.
 
         Args:
             data: Polars DataFrame to save

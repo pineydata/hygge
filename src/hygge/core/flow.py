@@ -59,6 +59,11 @@ class Flow:
         self.total_rows = 0
         self.batches_processed = 0
         self.start_time = None
+        self.end_time = None
+        self.duration: float = 0.0
+
+        # Progress callback for coordinator-level tracking
+        self.progress_callback = None
 
         # Set up flow-scoped logging
         self.logger = get_logger(f"hygge.flow.{name}")
@@ -67,9 +72,13 @@ class Flow:
         self.home.logger = get_logger(f"hygge.flow.{name}.home")
         self.store.logger = get_logger(f"hygge.flow.{name}.store")
 
+    def set_progress_callback(self, callback):
+        """Set callback for coordinator-level progress tracking."""
+        self.progress_callback = callback
+
     async def start(self) -> None:
         """Start the flow from Home to Store."""
-        self.logger.info(f"Starting flow: {self.name}")
+        # START line already logged by Coordinator (dbt-style)
         self.start_time = asyncio.get_event_loop().time()
 
         producer = None
@@ -108,14 +117,20 @@ class Flow:
             else:
                 raise consumer_exception
 
-            duration = asyncio.get_event_loop().time() - self.start_time
-            rate = self.total_rows / duration if duration > 0 else 0
-            self.logger.success(
+            self.end_time = asyncio.get_event_loop().time()
+            self.duration = self.end_time - self.start_time if self.start_time else 0.0
+            rate = self.total_rows / self.duration if self.duration > 0 else 0
+            # Coordinator already logs OK line (dbt-style), so this is DEBUG
+            self.logger.debug(
                 f"Flow {self.name} completed: "
-                f"{self.total_rows:,} rows in {duration:.1f}s ({rate:.0f} rows/s)"
+                f"{self.total_rows:,} rows in {self.duration:.1f}s ({rate:.0f} rows/s)"
             )
 
         except Exception as e:
+            # Capture duration even on failure
+            if self.start_time:
+                self.end_time = asyncio.get_event_loop().time()
+                self.duration = self.end_time - self.start_time
             self.logger.error(f"Flow failed: {self.name}, error: {str(e)}")
 
             # Cancel tasks if they're still running
@@ -182,17 +197,15 @@ class Flow:
                     await self.store.write(batch)
 
                     # Update metrics
-                    self.total_rows += len(batch)
+                    batch_rows = len(batch)
+                    self.total_rows += batch_rows
                     self.batches_processed += 1
 
-                    # Log progress periodically
-                    if self.batches_processed % 10 == 0:
-                        duration = asyncio.get_event_loop().time() - self.start_time
-                        rate = self.total_rows / duration if duration > 0 else 0
-                        self.logger.info(
-                            f"Processed {self.total_rows:,} rows "
-                            f"in {duration:.1f}s ({rate:.0f} rows/s)"
-                        )
+                    # Notify coordinator of progress for milestone tracking
+                    if self.progress_callback:
+                        await self.progress_callback(batch_rows)
+
+                    # Progress logging now handled by store with combined message
 
                 except Exception as e:
                     self.logger.error(f"Failed to process batch: {str(e)}")

@@ -62,6 +62,10 @@ class Coordinator:
         self.connection_pools: Dict[str, ConnectionPool] = {}  # Named connection pools
         self.logger = get_logger("hygge.coordinator")
 
+        # Flow results tracking for dbt-style summary
+        self.flow_results: List[Dict[str, Any]] = []
+        self.run_start_time: Optional[float] = None
+
         # Load project config if we found hygge.yml
         self._load_project_config()
 
@@ -635,23 +639,45 @@ To get started, run:
         self.logger.debug(f"Created entity flow: {flow_name} for entity: {entity_name}")
 
     async def _run_flows(self) -> None:
-        """Run all flows in parallel."""
+        """Run all flows in parallel with dbt-style logging."""
         if not self.flows:
             self.logger.warning("No flows to run")
             return
 
-        self.logger.info(f"Running {len(self.flows)} flows in parallel")
+        # Reset flow results for this run
+        self.flow_results = []
+        self.run_start_time = asyncio.get_event_loop().time()
 
-        # Create tasks for all flows
+        # Progress tracking for coordinator-level milestones
+        self.total_rows_progress = 0
+        self.last_milestone_rows = 0
+        self.milestone_interval = 1_000_000  # Log every 1M rows
+        self.milestone_lock = asyncio.Lock()
+
+        # Log STARTING lines for all flows (hygge-style, blue)
+        total_flows = len(self.flows)
+        for i, flow in enumerate(self.flows, 1):
+            self.logger.info(
+                f"[{i} of {total_flows}] STARTING flow {flow.name}",
+                color_prefix="START",
+            )
+
+        # Create tasks for all flows with progress callback
         tasks = []
-        for flow in self.flows:
-            task = asyncio.create_task(self._run_flow(flow), name=f"flow_{flow.name}")
+        for i, flow in enumerate(self.flows, 1):
+            # Set progress callback so flow can report row updates
+            # Pass flow number (use default arg to capture value, not reference)
+            flow.set_progress_callback(
+                lambda rows, flow_num=i: self._update_progress(rows, flow_num)
+            )
+            task = asyncio.create_task(
+                self._run_flow(flow, i, total_flows), name=f"flow_{flow.name}"
+            )
             tasks.append(task)
 
         # Run all flows concurrently
         try:
-            await asyncio.gather(*tasks)
-            self.logger.success("All flows completed successfully")
+            await asyncio.gather(*tasks, return_exceptions=True)
         except Exception as e:
             self.logger.error(f"Some flows failed: {str(e)}")
             # Cancel remaining tasks
@@ -659,15 +685,149 @@ To get started, run:
                 if not task.done():
                     task.cancel()
             raise
+        finally:
+            # Generate and log dbt-style summary
+            self._log_summary()
 
-    async def _run_flow(self, flow: Flow) -> None:
-        """Run a single flow with error handling."""
+    async def _run_flow(self, flow: Flow, flow_num: int, total_flows: int) -> None:
+        """Run a single flow with error handling and hygge-style logging."""
+        flow_result = {
+            "name": flow.name,
+            "status": None,  # "pass", "fail", "skip"
+            "rows": 0,
+            "duration": 0.0,
+            "error": None,
+        }
+
         try:
             await flow.start()
+
+            # Determine status
+            if flow.total_rows == 0:
+                flow_result["status"] = "skip"
+                flow_result["rows"] = 0
+                flow_result["duration"] = flow.duration
+                # Log SKIP line (hygge-style, yellow/warning)
+                self.logger.warning(
+                    f"[{flow_num} of {total_flows}] SKIPPED flow {flow.name} "
+                    f".... (no rows)"
+                )
+            else:
+                flow_result["status"] = "pass"
+                flow_result["rows"] = flow.total_rows
+                flow_result["duration"] = flow.duration
+                # Log FINISHED line (hygge-style, green) - flow name, duration, and rows
+                self.logger.info(
+                    f"[{flow_num} of {total_flows}] FINISHED flow {flow.name} "
+                    f"completed in {flow.duration:.1f}s ({flow.total_rows:,} rows)",
+                    color_prefix="OK",
+                )
+
         except Exception as e:
-            self.logger.error(f"Error in flow {flow.name}: {e}")
+            flow_result["status"] = "fail"
+            flow_result["duration"] = flow.duration if flow.duration > 0 else 0.0
+            flow_result["error"] = str(e)
+
+            # Log FAILED line (hygge-style, red)
+            self.logger.error(
+                f"[{flow_num} of {total_flows}] FAILED flow {flow.name} ...."
+            )
+
             if not self.options.get("continue_on_error", False):
                 raise
+
+        # Track result for summary
+        self.flow_results.append(flow_result)
+
+    async def _update_progress(self, rows: int, flow_num: int) -> None:
+        """Update coordinator-level progress tracking (called by flows)."""
+        async with self.milestone_lock:
+            self.total_rows_progress += rows
+            current_total = self.total_rows_progress
+
+            # Check if we've crossed any milestones since last log
+            # Log at each 1M mark (1M, 2M, 3M, etc.)
+            while current_total >= self.last_milestone_rows + self.milestone_interval:
+                self.last_milestone_rows += self.milestone_interval
+                milestone = self.last_milestone_rows
+
+                elapsed = (
+                    asyncio.get_event_loop().time() - self.run_start_time
+                    if self.run_start_time
+                    else 0.0
+                )
+                if elapsed > 0:
+                    rate = milestone / elapsed
+                    self.logger.info(
+                        f"PROCESSED {milestone:,} rows in {elapsed:.1f}s "
+                        f"({rate:,.0f} rows/s)"
+                    )
+
+    def _log_summary(self) -> None:
+        """Log dbt-style summary after all flows complete."""
+        if not self.flow_results:
+            return
+
+        elapsed_time = (
+            asyncio.get_event_loop().time() - self.run_start_time
+            if self.run_start_time
+            else 0.0
+        )
+
+        total_rows = sum(r["rows"] for r in self.flow_results)
+        passed = sum(1 for r in self.flow_results if r["status"] == "pass")
+        failed = sum(1 for r in self.flow_results if r["status"] == "fail")
+        skipped = sum(1 for r in self.flow_results if r["status"] == "skip")
+
+        # dbt-style summary - clean and information-dense
+        hours = int(elapsed_time // 3600)
+        minutes = int((elapsed_time % 3600) // 60)
+        seconds = elapsed_time % 60
+
+        time_str = (
+            f"{hours} hours {minutes} minutes and {seconds:.2f} seconds"
+            if hours > 0
+            else f"{minutes} minutes and {seconds:.2f} seconds"
+        )
+
+        # Add cozy spacing
+        self.logger.info("")
+
+        # dbt-style summary line
+        self.logger.info(
+            f"Finished running {len(self.flow_results)} flows "
+            f"in {time_str} ({elapsed_time:.2f}s)."
+        )
+
+        # Final status line (green if all pass, red if failures)
+        if failed == 0:
+            self.logger.info("Completed successfully", color_prefix="OK")
+        else:
+            self.logger.error("Completed with errors")
+
+        # dbt-style status summary
+        self.logger.info(
+            f"Done. PASS={passed} WARN=0 ERROR={failed} SKIP={skipped} "
+            f"TOTAL={len(self.flow_results)}"
+        )
+
+        # Optional: Show total rows processed
+        if total_rows > 0:
+            self.logger.info(f"Total rows processed: {total_rows:,}")
+            if elapsed_time > 0:
+                rate = total_rows / elapsed_time
+                self.logger.info(f"Overall rate: {rate:,.0f} rows/s")
+
+        # Add cozy spacing at end
+        self.logger.info("")
+
+        # Show failed flow details
+        if failed > 0:
+            self.logger.error("Failed flows:")
+            for flow_result in self.flow_results:
+                if flow_result["status"] == "fail":
+                    error_msg = flow_result.get("error", "Unknown error")
+                    self.logger.error(f"  {flow_result['name']}: {error_msg}")
 
 
 class CoordinatorConfig(BaseModel):

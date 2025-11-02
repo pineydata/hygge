@@ -129,20 +129,16 @@ class Home(ABC):
         pass
 
     def _log_progress(self, total_rows: int) -> None:
-        """Log progress at regular intervals."""
+        """Log progress at regular intervals (DEBUG level)."""
         if total_rows % self.row_multiplier == 0:
-            duration = asyncio.get_event_loop().time() - self.start_time
-            rate = total_rows / duration if duration > 0 else 0
-            self.logger.info(
-                f"Read {total_rows:,} rows in {duration:.1f}s " f"({rate:.0f} rows/s)"
-            )
+            self.logger.debug(f"READ {total_rows:,} rows")
 
     def _log_completion(self, total_rows: int) -> None:
-        """Log completion summary."""
+        """Log completion summary at DEBUG level (coordinator shows OK line)."""
         if self.start_time:
             duration = asyncio.get_event_loop().time() - self.start_time
             rate = total_rows / duration if duration > 0 else 0
-            self.logger.success(
+            self.logger.debug(
                 f"Completed reading {total_rows:,} rows in {duration:.1f}s "
                 f"({rate:.0f} rows/s)"
             )

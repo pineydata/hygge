@@ -113,12 +113,8 @@ class MssqlHome(Home, home_type="mssql"):
             # Let Polars handle the batching efficiently
             # Default (25k) optimized for producer-consumer overlap
             batch_size = self.options.get("batch_size", 25_000)
-            row_multiplier = self.options.get(
-                "row_multiplier", 100_000
-            )  # Progress logging interval
             batch_num = 0
             total_rows = 0
-            start_time = asyncio.get_event_loop().time()
 
             self.logger.debug(
                 f"Starting batched extraction with batch_size={batch_size:,}"
@@ -130,36 +126,20 @@ class MssqlHome(Home, home_type="mssql"):
             engine = get_engine("thread_pool")
 
             # Stream batches as they're extracted (true streaming, not buffered)
+            # Base class Home.read() handles progress logging via _log_progress()
             async for batch_df, batch_rows in engine.execute_streaming(
                 self._extract_batches_sync, query, batch_size
             ):
                 batch_num += 1
                 total_rows += batch_rows
 
-                # Progress logging every N rows
-                if total_rows % row_multiplier == 0:
-                    elapsed = asyncio.get_event_loop().time() - start_time
-                    rows_per_sec = total_rows / elapsed if elapsed > 0 else 0
-                    self.logger.info(
-                        f"Extracted {total_rows:,} rows in {elapsed:.1f}s "
-                        f"({rows_per_sec:.0f} rows/sec)"
-                    )
-                else:
-                    self.logger.debug(f"Batch {batch_num}: {batch_rows:,} rows")
-
+                # Base class handles progress logging - just yield the data
                 if len(batch_df) > 0:
                     yield batch_df
 
-            # Final stats
+            # Final stats (DEBUG level - coordinator shows FINISHED)
             if batch_num == 0:
                 self.logger.warning(f"No data returned from query: {query}")
-            else:
-                total_time = asyncio.get_event_loop().time() - start_time
-                rows_per_sec = total_rows / total_time if total_time > 0 else 0
-                self.logger.success(
-                    f"Completed: {total_rows:,} total rows in {total_time:.1f}s "
-                    f"({rows_per_sec:.0f} rows/sec) across {batch_num} batches"
-                )
 
         except Exception as e:
             raise HomeError(f"Failed to read from MSSQL: {str(e)}")
