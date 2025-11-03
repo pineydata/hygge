@@ -413,12 +413,14 @@ class TestOpenMirroringStoreFileNaming:
 
         filename = await store.get_next_filename()
 
-        # Should be timestamp_000006.parquet format (increments before returning)
+        # Should be timestamp_microseconds_000006.parquet format
+        # (increments before returning)
         assert filename.endswith(".parquet")
-        # Should have timestamp prefix and sequence (which was incremented to 6)
+        # Should have timestamp prefix, microseconds, and sequence
+        # (which was incremented to 6)
         parts = filename.replace(".parquet", "").split("_")
-        assert len(parts) == 3  # date, time, sequence
-        assert parts[2] == "000006"
+        assert len(parts) == 4  # date, time, microseconds, sequence
+        assert parts[3] == "000006"  # Sequence is now 4th part (index 3)
         # Sequence counter should be incremented
         assert store.sequence_counter == 6
 
