@@ -2,13 +2,13 @@
 OneLake store implementation for Microsoft Fabric Lakehouse.
 
 Lightweight wrapper around ADLSStore that adds Fabric-specific path conventions
-for Lakehouse tables: Files/{entity}/ or Files/{schema}.schema/{entity}/
+for Lakehouse tables: Files/{entity}/ or Files/{schema_name}.schema/{entity}/
 
 For Mirrored Databases (Open Mirroring), use OpenMirroringStore instead.
 """
 from typing import Optional
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from hygge.stores.adls import ADLSStore, ADLSStoreConfig
 
@@ -37,13 +37,15 @@ class OneLakeStoreConfig(ADLSStoreConfig, config_type="onelake"):
           type: onelake
           account_url: ${ONELAKE_ACCOUNT_URL}
           filesystem: MyLake
-          schema: dbo
-          # path automatically becomes: Files/{schema}.schema/{entity}/
+          schema: dbo  # or schema_name: dbo
+          # path automatically becomes: Files/{schema_name}.schema/{entity}/
           credential: managed_identity
         ```
 
     Note: For Mirrored Databases (Open Mirroring), use type: open_mirroring instead.
     """
+
+    model_config = ConfigDict(populate_by_name=True)  # Allow both alias and field name
 
     type: str = Field(default="onelake", description="Store type")
     path: Optional[str] = Field(
@@ -51,58 +53,23 @@ class OneLakeStoreConfig(ADLSStoreConfig, config_type="onelake"):
     )
 
     # Optional: Schema support
-    schema: Optional[str] = Field(
+    schema_name: Optional[str] = Field(
         None,
         description=(
             "Schema name for organizing tables in Lakehouse. "
-            "Creates paths like Files/{schema}.schema/{entity}/"
+            "Creates paths like Files/{schema_name}.schema/{entity}/"
         ),
+        alias="schema",  # Allow 'schema' in YAML for user convenience
     )
 
     def _get_schema_value(self) -> Optional[str]:
         """
-        Get schema field value safely, avoiding Pydantic's schema method shadowing.
-
-        The 'schema' field name shadows Pydantic's built-in schema() method.
-        This helper accesses the field value directly via __dict__ to bypass
-        method resolution.
+        Get schema_name field value.
 
         Returns:
             Schema name string if set, None otherwise
         """
-        # Access field value via __dict__ to bypass method resolution
-        # Check if schema is in __dict__ and is a string (field value, not method)
-        if "schema" in self.__dict__:
-            schema_value = self.__dict__["schema"]
-            # Skip if it's callable (the Pydantic schema() method)
-            if callable(schema_value):
-                # This is the method, not the field value - skip to fallback
-                pass
-            elif isinstance(schema_value, str):
-                # It's the actual field value (string schema name)
-                return schema_value
-            elif schema_value is None:
-                # Explicitly set to None
-                return None
-            else:
-                # Unexpected type - return None
-                return None
-
-        # Fallback: use model_dump() to get actual field values
-        # This properly handles Pydantic field access and avoids method shadowing
-        try:
-            dumped = self.model_dump()
-            if "schema" in dumped:
-                schema_value = dumped["schema"]
-                if isinstance(schema_value, str):
-                    return schema_value
-                # Explicitly None or not set
-                return None
-        except Exception:
-            # If model_dump fails, return None
-            pass
-
-        return None
+        return self.schema_name
 
     @model_validator(mode="after")
     def build_lakehouse_path(self):

@@ -817,5 +817,186 @@ class TestCoordinatorEntityPathMerging:
             Path(config_file).unlink(missing_ok=True)
 
 
+class TestCoordinatorFlowOverrides:
+    """Test Coordinator flow-level overrides (CLI and config)."""
+
+    def test_apply_flow_overrides_full_drop(self):
+        """Test that flow-level full_drop is applied to store config."""
+        config_data = {
+            "flows": {
+                "test_flow": {
+                    "home": {"type": "parquet", "path": "data/source"},
+                    "store": {
+                        "type": "open_mirroring",
+                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
+                        "filesystem": "test",
+                        "mirror_name": "test-db",
+                        "key_columns": ["id"],
+                        "row_marker": 0,
+                        "full_drop": False,  # Store-level default
+                    },
+                    "full_drop": True,  # Flow-level override
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            # Import here to ensure OpenMirroringStoreConfig is registered
+            from hygge.stores.openmirroring import (
+                OpenMirroringStoreConfig,  # noqa: F401
+            )
+
+            coordinator = Coordinator(config_file)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            # Verify flow was created
+            assert len(coordinator.flows) == 1
+            flow = coordinator.flows[0]
+
+            # Verify flow-level full_drop was applied to store config
+            # (store should have full_drop=True from flow config, not False from store)
+            store = flow.store
+            if hasattr(store, "full_drop"):
+                # For OpenMirroringStore, full_drop should be True (from flow)
+                assert store.full_drop is True
+
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+    def test_apply_flow_overrides_via_cli(self):
+        """Test that CLI flow overrides are applied correctly."""
+        config_data = {
+            "flows": {
+                "test_flow": {
+                    "home": {"type": "parquet", "path": "data/source"},
+                    "store": {
+                        "type": "open_mirroring",
+                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
+                        "filesystem": "test",
+                        "mirror_name": "test-db",
+                        "key_columns": ["id"],
+                        "row_marker": 0,
+                        "full_drop": False,
+                    },
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            # Import here to ensure OpenMirroringStoreConfig is registered
+            from hygge.stores.openmirroring import (
+                OpenMirroringStoreConfig,  # noqa: F401
+            )
+
+            # Simulate CLI override: flow.test_flow.full_drop=true
+            flow_overrides = {"test_flow": {"full_drop": True}}
+
+            coordinator = Coordinator(config_file, flow_overrides=flow_overrides)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            # Verify flow was created
+            assert len(coordinator.flows) == 1
+            flow = coordinator.flows[0]
+
+            # Verify CLI override was applied
+            # Flow config should have full_drop=True
+            flow_config = coordinator.config.flows["test_flow"]
+            assert flow_config.full_drop is True
+
+            # Store should have full_drop=True (from flow-level override)
+            store = flow.store
+            if hasattr(store, "full_drop"):
+                assert store.full_drop is True
+
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+    def test_flow_overrides_not_applied_when_none(self):
+        """Test that flow overrides don't affect config when not provided."""
+        config_data = {
+            "flows": {
+                "test_flow": {
+                    "home": {"type": "parquet", "path": "data/source"},
+                    "store": {"type": "parquet", "path": "data/output"},
+                    "full_drop": False,  # Flow-level setting
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            coordinator = Coordinator(config_file)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            # Verify flow config has the original full_drop value
+            flow_config = coordinator.config.flows["test_flow"]
+            assert flow_config.full_drop is False
+
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+    def test_entity_flow_inherits_base_flow_full_drop(self):
+        """Test that entity flows inherit flow-level full_drop from base flow."""
+        config_data = {
+            "flows": {
+                "base_flow": {
+                    "home": {"type": "parquet", "path": "data/source"},
+                    "store": {
+                        "type": "open_mirroring",
+                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
+                        "filesystem": "test",
+                        "mirror_name": "test-db",
+                        "key_columns": ["id"],
+                        "row_marker": 0,
+                        "full_drop": False,
+                    },
+                    "full_drop": True,  # Flow-level setting
+                    "entities": ["Account", "Contact"],
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            # Import here to ensure OpenMirroringStoreConfig is registered
+            from hygge.stores.openmirroring import (
+                OpenMirroringStoreConfig,  # noqa: F401
+            )
+
+            coordinator = Coordinator(config_file)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            # Should create 2 entity flows
+            assert len(coordinator.flows) == 2
+
+            # Both entity flows should inherit full_drop=True from base flow
+            for flow in coordinator.flows:
+                assert flow.name.startswith("base_flow_")
+                store = flow.store
+                if hasattr(store, "full_drop"):
+                    assert store.full_drop is True
+
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -9,10 +9,12 @@ Extends OneLakeStore to add Open Mirroring specific requirements:
 - _partnerEvents.json at database level (optional)
 """
 import asyncio
+import io
 import json
 import os
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import polars as pl
@@ -21,6 +23,7 @@ from pydantic import Field, field_validator, model_validator
 from hygge.stores.onelake import OneLakeStore, OneLakeStoreConfig
 from hygge.utility.azure_onelake import ADLSOperations
 from hygge.utility.exceptions import StoreError
+from hygge.utility.path_helper import PathHelper
 
 
 class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring"):
@@ -35,9 +38,9 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         ```yaml
         store:
           type: open_mirroring
-          account_url: ${ONELAKE_ACCOUNT_URL}
-          filesystem: MyLake
-          mirror_name: MyMirror  # Required: identifies mirrored database
+          account_url: https://onelake.dfs.fabric.microsoft.com
+          filesystem: <workspace-guid>  # Workspace GUID from Fabric
+          mirror_name: <database-guid>  # Database GUID from landing zone URL
           key_columns: ["id"]
           row_marker: 0  # Required: 0=Insert, 1=Update, 2=Delete, 4=Upsert
           credential: managed_identity
@@ -47,10 +50,10 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         ```yaml
         store:
           type: open_mirroring
-          account_url: ${ONELAKE_ACCOUNT_URL}
-          filesystem: MyLake
-          mirror_name: MyMirror  # Required
-          schema: dbo
+          account_url: https://onelake.dfs.fabric.microsoft.com
+          filesystem: <workspace-guid>  # Workspace GUID
+          mirror_name: <database-guid>  # Database GUID (required)
+          schema: dbo  # or schema_name: dbo
           key_columns: ["id", "user_id"]
           row_marker: 4  # Required: Upsert for updates
           full_drop: true  # Clear existing data before writing
@@ -60,12 +63,17 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
 
     type: str = Field(default="open_mirroring", description="Store type")
 
-    # Required for Open Mirroring - mirror_name
+    # Required for Open Mirroring - database GUID
     mirror_name: str = Field(
         ...,
         description=(
-            "Name of the Mirrored Database (required). "
-            "This identifies which mirrored database to write to."
+            "Mirrored Database GUID (required). "
+            "This is the database ID GUID found in your Fabric mirrored "
+            "database landing zone URL. "
+            "Example: If landing zone URL is "
+            "https://onelake.dfs.fabric.microsoft.com/"
+            "<workspace-guid>/<database-guid>/Files/LandingZone, "
+            "then mirror_name should be the <database-guid>."
         ),
     )
 
@@ -158,7 +166,14 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         """
         Build the base path for Open Mirroring.
 
-        Open Mirroring always uses LandingZone paths.
+        Open Mirroring URL structure:
+        https://onelake.dfs.fabric.microsoft.com/<workspace-guid>/<database-guid>/Files/LandingZone
+
+        Where:
+        - filesystem (inherited) = workspace GUID
+        - mirror_name = database GUID (must be in path)
+        - path = /<database-guid>/Files/LandingZone/{entity}/
+
         Schema support is inherited from OneLakeStoreConfig.
         """
         # Get schema value safely using shared helper
@@ -167,35 +182,37 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
 
         # If custom path is provided that doesn't start with "Files/", preserve it as-is
         if self.path is not None and not self.path.startswith("Files/"):
-            return self
-
-        # If custom path is provided with LandingZone, use it as-is
-        if self.path is not None and "LandingZone" in self.path:
-            return self
-
-        # Open Mirroring always uses LandingZone path
-        # Build path based on schema (inherited from OneLakeStoreConfig)
-        # Note: Parent's build_lakehouse_path() may have set path already,
-        # so we need to add LandingZone if it's missing
-        if self.path and "LandingZone" not in self.path:
-            # Parent built path like "Files/{entity}/" - add LandingZone
-            if self.path.startswith("Files/"):
-                # Replace "Files/" with "Files/LandingZone/"
-                self.path = self.path.replace("Files/", "Files/LandingZone/", 1)
-            else:
-                # Unexpected path format - rebuild it
-                if schema_value:
-                    self.path = f"Files/LandingZone/{schema_value}.schema/{{entity}}/"
+            # But ensure database GUID is included if path doesn't start with it
+            if not self.path.startswith(f"/{self.mirror_name}/"):
+                # Prepend database GUID
+                if self.path.startswith("/"):
+                    self.path = f"/{self.mirror_name}{self.path}"
                 else:
-                    self.path = "Files/LandingZone/{entity}/"
-        elif self.path is None:
-            # No path set yet - build it
-            if schema_value:
-                # With schema: Files/LandingZone/{schema}.schema/{entity}/
-                self.path = f"Files/LandingZone/{schema_value}.schema/{{entity}}/"
-            else:
-                # Without schema: Files/LandingZone/{entity}/
-                self.path = "Files/LandingZone/{entity}/"
+                    self.path = f"/{self.mirror_name}/{self.path}"
+            return self
+
+        # If custom path has LandingZone, check if database GUID is included
+        if self.path is not None and "LandingZone" in self.path:
+            # Ensure database GUID is in the path
+            db_guid_prefix = f"/{self.mirror_name}/"
+            if not self.path.startswith(db_guid_prefix):
+                # Prepend database GUID before Files/LandingZone
+                if self.path.startswith("Files/"):
+                    self.path = f"/{self.mirror_name}/Files/LandingZone{self.path[5:]}"
+                else:
+                    self.path = f"/{self.mirror_name}/{self.path}"
+            return self
+
+        # Build path with database GUID prefix
+        # Open Mirroring path structure: /<database-guid>/Files/LandingZone/{entity}/
+        db_guid_prefix = f"/{self.mirror_name}/Files/LandingZone/"
+        if schema_value:
+            # With schema_name: /<database-guid>/Files/LandingZone/
+            # {schema_name}.schema/{entity}/
+            self.path = f"{db_guid_prefix}{schema_value}.schema/{{entity}}/"
+        else:
+            # Without schema: /<database-guid>/Files/LandingZone/{entity}/
+            self.path = f"{db_guid_prefix}{{entity}}/"
 
         return self
 
@@ -259,24 +276,45 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         # Log full drop mode
         if self.full_drop:
-            self.logger.info(
+            self.logger.debug(
                 "Full drop mode: will clear existing data files before writing"
             )
         self.partner_name = config.partner_name
         self.source_type = config.source_type
         self.source_version = config.source_version
-        self.schema = config.schema
+        self.schema_name = config.schema_name
         self.starting_sequence = config.starting_sequence
 
         # Track if metadata files have been written
         self._metadata_written = False
         self._partner_events_written = False
 
+        # Track if table folder has been prepared (full_drop + metadata)
+        self._table_folder_prepared = False
+
         # Track sequence counter - will be initialized from existing files
         self.sequence_counter = None  # Will be set lazily from existing files
 
         # Prepare table folder (clear if full_drop)
         # Note: We'll do this lazily on first write to ensure ADLS client is ready
+
+    async def write(self, data: pl.DataFrame) -> None:
+        """
+        Write data to Open Mirroring store.
+
+        Overrides base Store.write() to ensure table folder is prepared
+        BEFORE any data is written (not during the first _save call).
+
+        This ensures metadata files are written before Open Mirroring
+        scans the folder, especially important for full_drop mode.
+        """
+        # Prepare table folder ONCE before any data writes
+        # This ensures metadata is available when Open Mirroring scans
+        if not self._table_folder_prepared:
+            await self._prepare_table_folder()
+
+        # Now call parent write() which handles buffering and calls _save()
+        await super().write(data)
 
     def _get_adls_ops(self) -> "ADLSOperations":
         """
@@ -325,8 +363,9 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             max_sequence = self.starting_sequence - 1
 
             try:
-                directory_client = file_system_client.get_directory_client(table_path)
-                paths = directory_client.list_paths(recursive=False)
+                # Use FileSystemClient.get_paths() instead of
+                # DirectoryClient.list_paths() (not available in newer SDK)
+                paths = file_system_client.get_paths(path=table_path, recursive=False)
 
                 for path in paths:
                     # Extract just the filename from the full path
@@ -574,7 +613,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         This file contains keyColumns and is required for update/delete operations.
 
         Path (without schema): Files/LandingZone/{entity}/_metadata.json
-        Path (with schema): Files/LandingZone/{schema}.schema/{entity}/_metadata.json
+        Path (with schema_name):
+        Files/LandingZone/{schema_name}.schema/{entity}/_metadata.json
 
         Note: If file already exists, validates keyColumns match.
         According to spec, keyColumns cannot be changed once set.
@@ -627,9 +667,28 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         # Note: write_json uses overwrite=False, but we allow overwrite here
         json_data = json.dumps(metadata, indent=2).encode("utf-8")
         file_client = adls_ops.file_system_client.get_file_client(metadata_path)
+
+        # Ensure directory exists before writing file
+        directory_path = str(Path(metadata_path).parent)
+        try:
+            directory_client = adls_ops.file_system_client.get_directory_client(
+                directory_path
+            )
+            if not directory_client.exists():
+                directory_client.create_directory(timeout=adls_ops.timeout)
+                self.logger.debug(f"Created directory for metadata: {directory_path}")
+        except Exception as e:
+            self.logger.debug(
+                f"Directory check/create failed (may already exist): {str(e)}"
+            )
+
+        # Write metadata file with overwrite
         file_client.upload_data(json_data, overwrite=True, timeout=adls_ops.timeout)
 
-        self.logger.debug(f"Wrote _metadata.json to {metadata_path}")
+        self.logger.debug(
+            f"Wrote _metadata.json to {metadata_path} "
+            f"with keyColumns: {self.key_columns}"
+        )
         self._metadata_written = True
 
     async def _write_partner_events_json(self) -> None:
@@ -717,7 +776,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             file_system_client = self._get_file_system_client()
             table_path = self.base_path
 
-            self.logger.info(
+            self.logger.debug(
                 f"Deleting table folder {table_path} for full_drop mode "
                 f"(triggers Open Mirroring table drop/recreate)"
             )
@@ -734,7 +793,9 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             # (Required before deleting directory in ADLS)
             deleted_files = 0
             try:
-                paths = directory_client.list_paths(recursive=False)
+                # Use FileSystemClient.get_paths() instead of
+                # DirectoryClient.list_paths() (not available in newer SDK)
+                paths = file_system_client.get_paths(path=table_path, recursive=False)
                 for path in paths:
                     # Delete all files (not just .parquet - also _metadata.json)
                     # path.name returns full path from container root, use directly
@@ -753,14 +814,13 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
             # Step 2: Delete the directory itself
             # This triggers Open Mirroring to drop the table
+            # Use recursive=True to delete directory and any remaining files
             folder_deleted = False
             try:
-                directory_client.delete_directory()
+                # Try deleting directory (recursive=True deletes directory and contents)
+                directory_client.delete_directory(recursive=True)
                 folder_deleted = True
-                self.logger.success(
-                    f"Deleted table folder {table_path} "
-                    f"(Open Mirroring will drop and recreate table)"
-                )
+                self.logger.success("Deleted table folder")
                 if deleted_files > 0:
                     self.logger.debug(f"Deleted {deleted_files} file(s) before folder")
 
@@ -792,6 +852,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                     or "being used" in error_str
                     or "in use" in error_str
                     or "conflict" in error_str
+                    or "directorynotempty" in error_str
+                    or "recursive" in error_str
                 ):
                     self.logger.warning(
                         f"Could not delete folder {table_path}: {str(e)}. "
@@ -803,7 +865,9 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                     if deleted_files == 0:
                         # Try again to delete files only
                         try:
-                            paths = directory_client.list_paths(recursive=False)
+                            paths = file_system_client.get_paths(
+                                path=table_path, recursive=False
+                            )
                             for path in paths:
                                 # path.name returns full path from container root
                                 file_path = path.name
@@ -814,7 +878,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                                     file_client.delete_file()
                                     deleted_files += 1
                             if deleted_files > 0:
-                                self.logger.info(
+                                self.logger.debug(
                                     f"Deleted {deleted_files} data file(s) "
                                     f"(folder deletion failed but files cleared)"
                                 )
@@ -839,14 +903,30 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
           to drop and recreate the table)
         - Writes metadata files (_metadata.json, _partnerEvents.json)
           (recreates folder if it was deleted)
+
+        Note: This is called once per flow to avoid deleting metadata repeatedly.
         """
+        # Only prepare once per flow
+        if self._table_folder_prepared:
+            return
+
         # Delete folder if full drop (triggers Open Mirroring drop/recreate)
         if self.full_drop:
             await self._delete_table_folder()
 
-        # Write metadata files (will skip if already written)
+        # Write metadata files FIRST (before any data files)
+        # Open Mirroring needs _metadata.json to process the table correctly
+        # Write immediately after folder deletion (if full_drop) so it's available
+        # when Open Mirroring scans the folder
         await self._write_metadata_json()
         await self._write_partner_events_json()
+
+        # Small delay to ensure metadata file is fully written and propagated
+        # before Open Mirroring scans (especially important after full_drop)
+        await asyncio.sleep(0.5)
+
+        # Mark as prepared to avoid re-running
+        self._table_folder_prepared = True
 
     async def _save(self, df: pl.DataFrame, staging_path: Optional[str] = None) -> None:
         """
@@ -871,9 +951,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 self.logger.debug("Skipping empty DataFrame")
                 return
 
-            # Prepare table folder (first write only)
-            # This handles full_drop clearing and metadata file writing
-            await self._prepare_table_folder()
+            # Table folder preparation is now handled in write() method
+            # before any data is written, so we don't need to do it here
 
             # Validate key columns exist
             self._validate_key_columns(df)
@@ -890,8 +969,54 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             # Ensure __rowMarker__ is last column (CRITICAL)
             df = self._ensure_row_marker_last(df)
 
-            # Now call parent _save() to do the actual upload
-            await super()._save(df, staging_path)
+            # Build staging path that maintains schema structure:
+            # Files/_tmp/schema_name.schema/entity/ instead of Files/LandingZone/...
+            # We need to handle this specially because PathHelper.build_staging_path()
+            # inserts _tmp before entity, but we want _tmp to replace LandingZone
+            # while preserving the schema folder structure.
+
+            # Generate filename if not provided
+            if not staging_path:
+                filename = await self.get_next_filename()
+                staging_dir = self.get_staging_directory()
+                staging_path = (staging_dir / filename).as_posix()
+            else:
+                filename = PathHelper.get_filename(staging_path)
+
+            # Build staging path: replace LandingZone with _tmp, keep schema structure
+            # base_path: /<guid>/Files/LandingZone/istar.schema/Account/
+            # staging: /<guid>/Files/_tmp/istar.schema/Account/filename
+            if self.base_path and "LandingZone" in self.base_path:
+                # Replace LandingZone with _tmp, preserving everything after Files/
+                staging_base_path = self.base_path.replace(
+                    "/Files/LandingZone/", "/Files/_tmp/"
+                )
+                # Append filename to the entity path (entity is last segment)
+                cloud_staging_path = Path(staging_base_path) / filename
+                cloud_staging_path = cloud_staging_path.as_posix()
+            else:
+                # Fallback: use parent's logic
+                cloud_staging_path = PathHelper.build_staging_path(
+                    self.base_path,
+                    self.entity_name,
+                    filename,
+                )
+
+            # Get ADLS operations and upload (reusing parent's upload logic)
+            adls_ops = self._get_adls_ops()
+            buffer = io.BytesIO()
+            df.write_parquet(buffer, compression=self.compression)
+            data = buffer.getvalue()
+            await adls_ops.upload_bytes(data, cloud_staging_path)
+
+            # Log and track (reusing parent's tracking logic)
+            self._log_write_progress(len(df))
+            if not hasattr(self, "saved_paths"):
+                self.saved_paths = []
+            self.saved_paths.append(cloud_staging_path)
+            if not hasattr(self, "uploaded_files"):
+                self.uploaded_files = []
+            self.uploaded_files.append(filename)
 
         except Exception as e:
             self.logger.error(f"Failed to save to Open Mirroring store: {str(e)}")

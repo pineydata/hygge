@@ -49,7 +49,11 @@ class Coordinator:
     - Handles flow-level error management
     """
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+        flow_overrides: Optional[Dict[str, Any]] = None,
+    ):
         if config_path is None:
             # Project discovery mode - look for hygge.yml
             config_path = self._find_project_config()
@@ -60,6 +64,7 @@ class Coordinator:
         self.options: Dict[str, Any] = {}
         self.project_config: Dict[str, Any] = {}
         self.connection_pools: Dict[str, ConnectionPool] = {}  # Named connection pools
+        self.flow_overrides = flow_overrides or {}  # CLI overrides for flow configs
         self.logger = get_logger("hygge.coordinator")
 
         # Flow results tracking for dbt-style summary
@@ -457,14 +462,24 @@ To get started, run:
         """Create Flow instances from configuration."""
         self.flows = []
 
-        for flow_name, flow_config in self.config.flows.items():
+        for base_flow_name, flow_config in self.config.flows.items():
             try:
+                # Apply CLI flow-level overrides (use base flow name, not entity name)
+                # Update the config in place so tests can verify it
+                if self.flow_overrides:
+                    flow_config = self._apply_flow_overrides(
+                        flow_config, base_flow_name
+                    )
+                    # Update config in place so it's accessible later
+                    self.config.flows[base_flow_name] = flow_config
+
                 # Check if entities are defined
                 if flow_config.entities and len(flow_config.entities) > 0:
                     # Create one flow per entity
                     num_entities = len(flow_config.entities)
                     self.logger.debug(
-                        f"Creating flows for {num_entities} entities in {flow_name}"
+                        f"Creating flows for {num_entities} entities "
+                        f"in {base_flow_name}"
                     )
                     for entity in flow_config.entities:
                         # Handle simple string entities (landing zone pattern)
@@ -475,7 +490,8 @@ To get started, run:
                             entity_name = entity.get("name")
                             if not entity_name:
                                 raise ConfigError(
-                                    f"Entity in flow {flow_name} missing 'name' field"
+                                    f"Entity in flow {base_flow_name} "
+                                    f"missing 'name' field"
                                 )
                         else:
                             raise ConfigError(
@@ -483,17 +499,42 @@ To get started, run:
                             )
 
                         # Create entity-specific flow
-                        entity_flow_name = f"{flow_name}_{entity_name}"
+                        # Note: entity flows use base_flow_name for overrides
+                        entity_flow_name = f"{base_flow_name}_{entity_name}"
                         self._create_entity_flow(
-                            entity_flow_name, flow_config, entity_name, entity
+                            entity_flow_name,
+                            flow_config,
+                            entity_name,
+                            entity,
+                            base_flow_name,
                         )
                 else:
                     # Create single flow without entities
                     home = flow_config.home_instance
-                    store = flow_config.store_instance
+
+                    # Get store config and apply flow-level full_drop
+                    # BEFORE creating store
+                    store_config = flow_config.store_config
+
+                    # Apply flow-level full_drop to store config (if set)
+                    # Flow-level takes precedence over store-level
+                    if flow_config.full_drop is not None:
+                        if hasattr(store_config, "full_drop"):
+                            store_config_dict = (
+                                store_config.model_dump()
+                                if hasattr(store_config, "model_dump")
+                                else store_config.__dict__
+                            )
+                            store_config_dict["full_drop"] = flow_config.full_drop
+                            store_config = type(store_config)(**store_config_dict)
+
+                    # Create store with updated config (includes flow-level full_drop)
+                    store = Store.create(
+                        f"{base_flow_name}_store", store_config, base_flow_name, None
+                    )
 
                     # Inject connection pool into stores that need it
-                    self._inject_store_pool(store, store.config)
+                    self._inject_store_pool(store, store_config)
 
                     # Create flow with options
                     flow_options = flow_config.options.copy()
@@ -504,13 +545,13 @@ To get started, run:
                         }
                     )
 
-                    flow = Flow(flow_name, home, store, flow_options)
+                    flow = Flow(base_flow_name, home, store, flow_options)
                     self.flows.append(flow)
 
-                    self.logger.debug(f"Created flow: {flow_name}")
+                    self.logger.debug(f"Created flow: {base_flow_name}")
 
             except Exception as e:
-                raise ConfigError(f"Failed to create flow {flow_name}: {str(e)}")
+                raise ConfigError(f"Failed to create flow {base_flow_name}: {str(e)}")
 
     def _create_entity_flow(
         self,
@@ -518,6 +559,7 @@ To get started, run:
         flow_config: FlowConfig,
         entity_name: str,
         entity_config: dict,
+        base_flow_name: str,
     ) -> None:
         """Create a flow for a specific entity with entity subdirectories."""
         # Get the original config from home/store instances
@@ -619,6 +661,21 @@ To get started, run:
             else:
                 home = Home.create(f"{flow_name}_home", home_config, entity_name)
 
+        # Apply flow-level full_drop to store config (if set)
+        # Entity flows inherit base flow settings (base_flow_name used for overrides)
+        # Flow-level takes precedence over store-level for strategy decisions
+        if flow_config.full_drop is not None:
+            # Merge flow-level full_drop into store config for OpenMirroringStore
+            if hasattr(store_config, "full_drop"):
+                store_config_dict = (
+                    store_config.model_dump()
+                    if hasattr(store_config, "model_dump")
+                    else store_config.__dict__
+                )
+                store_config_dict["full_drop"] = flow_config.full_drop
+                store_config = type(store_config)(**store_config_dict)
+
+        # Store config is already updated with flow-level full_drop above
         store = Store.create(f"{flow_name}_store", store_config, flow_name, entity_name)
 
         # Inject connection pool into stores that need it
@@ -842,6 +899,44 @@ To get started, run:
                 if flow_result["status"] == "fail":
                     error_msg = flow_result.get("error", "Unknown error")
                     self.logger.error(f"  {flow_result['name']}: {error_msg}")
+
+    def _apply_flow_overrides(
+        self, flow_config: FlowConfig, flow_name: str
+    ) -> FlowConfig:
+        """
+        Apply CLI flow-level overrides to flow configuration.
+
+        Args:
+            flow_config: FlowConfig to override
+            flow_name: Name of the flow
+
+        Returns:
+            Updated FlowConfig with overrides applied
+        """
+        if not self.flow_overrides or flow_name not in self.flow_overrides:
+            return flow_config
+
+        overrides = self.flow_overrides[flow_name]
+        if not overrides:
+            return flow_config
+
+        # Convert to dict, apply overrides, recreate
+        config_dict = flow_config.model_dump()
+
+        # Deep merge overrides
+        def deep_merge(base: dict, override: dict):
+            for key, value in override.items():
+                if (
+                    key in base
+                    and isinstance(base[key], dict)
+                    and isinstance(value, dict)
+                ):
+                    deep_merge(base[key], value)
+                else:
+                    base[key] = value
+
+        deep_merge(config_dict, overrides)
+        return FlowConfig(**config_dict)
 
 
 class CoordinatorConfig(BaseModel):

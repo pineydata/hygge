@@ -48,11 +48,11 @@ class TestOpenMirroringStoreConfig:
             mirror_name="MyMirror",
             key_columns=["id"],
             row_marker=0,
-            schema=None,  # Explicitly set to None
+            schema_name=None,
             # path not provided - should auto-build to Files/LandingZone/{entity}/
         )
 
-        # schema=None needed because schema shawdows Pydantic's schema method
+        # Using schema_name to avoid Pydantic method shadowing
         # We test the path building logic, which should produce LandingZone path
         assert "LandingZone" in config.path
         assert "{entity}" in config.path
@@ -63,7 +63,7 @@ class TestOpenMirroringStoreConfig:
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
             mirror_name="MyMirror",
-            schema="dbo",
+            schema_name="dbo",
             key_columns=["id"],
             row_marker=0,
         )
@@ -261,7 +261,7 @@ class TestOpenMirroringStoreInitialization:
             mirror_name="MyMirror",
             key_columns=["id"],
             row_marker=0,
-            schema=None,  # Explicitly set to None to avoid schema method shadowing
+            schema_name=None,
         )
 
         store = OpenMirroringStore("test_store", config, entity_name="users")
@@ -281,14 +281,14 @@ class TestOpenMirroringStoreInitialization:
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
             mirror_name="MyMirror",
-            schema="dbo",
+            schema_name="dbo",
             key_columns=["id"],
             row_marker=0,
         )
 
         store = OpenMirroringStore("test_store", config, entity_name="users")
 
-        assert store.schema == "dbo"
+        assert store.schema_name == "dbo"
         assert "LandingZone" in store.base_path
         assert "dbo.schema" in store.base_path
         assert "users" in store.base_path
@@ -619,14 +619,17 @@ class TestOpenMirroringStorePathBuilding:
             mirror_name="MyMirror",
             key_columns=["id"],
             row_marker=0,
-            schema=None,  # Explicitly set to None
+            schema_name=None,
         )
 
-        # Path should include LandingZone
+        # Path should include database GUID prefix and LandingZone
+        assert config.path.startswith("/MyMirror/")
         assert "LandingZone" in config.path
         assert "{entity}" in config.path
         # Should not have schema folder structure
         assert ".schema" not in config.path
+        # Expected: /MyMirror/Files/LandingZone/{entity}/
+        assert config.path == "/MyMirror/Files/LandingZone/{entity}/"
 
     def test_path_building_with_schema(self):
         """Test path building with schema."""
@@ -634,18 +637,21 @@ class TestOpenMirroringStorePathBuilding:
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
             mirror_name="MyMirror",
-            schema="dbo",
+            schema_name="dbo",
             key_columns=["id"],
             row_marker=0,
         )
 
-        # Path should include LandingZone and schema structure
+        # Path should include database GUID prefix, LandingZone, and schema structure
+        assert config.path.startswith("/MyMirror/")
         assert "LandingZone" in config.path
         assert "dbo.schema" in config.path
         assert "{entity}" in config.path
+        # Expected: /MyMirror/Files/LandingZone/dbo.schema/{entity}/
+        assert config.path == "/MyMirror/Files/LandingZone/dbo.schema/{entity}/"
 
     def test_path_building_with_custom_path(self):
-        """Test that custom path is preserved."""
+        """Test that custom path includes database GUID prefix."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -655,7 +661,9 @@ class TestOpenMirroringStorePathBuilding:
             path="custom/path/{entity}/",
         )
 
-        assert config.path == "custom/path/{entity}/"
+        # Custom path should have database GUID prepended
+        assert config.path.startswith("/MyMirror/")
+        assert config.path == "/MyMirror/custom/path/{entity}/"
 
 
 class TestOpenMirroringStorePartnerEvents:
