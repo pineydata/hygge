@@ -351,7 +351,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         then sets sequence_counter to continue from there.
 
         For sequential mode: extracts from 20-digit filenames
-        For timestamp mode: extracts sequence from timestamp_sequence.parquet format
+        For timestamp mode: extracts sequence from
+        timestamp_microseconds_sequence.parquet format
         """
         if self.sequence_counter is not None:
             return  # Already initialized
@@ -382,7 +383,10 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                             max_sequence = max(max_sequence, sequence)
                     else:
                         # Extract sequence from timestamp format
-                        match = re.match(r"^\d{8}_\d{6}_(\d{6})\.parquet$", filename)
+                        # Format: YYYYMMDD_HHMMSS_microseconds_sequence.parquet
+                        match = re.match(
+                            r"^\d{8}_\d{6}_\d{6}_(\d{6})\.parquet$", filename
+                        )
                         if match:
                             sequence = int(match.group(1))
                             max_sequence = max(max_sequence, sequence)
@@ -416,7 +420,9 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         If file_detection is "timestamp":
         - Format: {timestamp}_{sequence:06d}.parquet
-        - Example: 20250910_143052_000001.parquet
+        - Example: 20250910_143052_123456_000001.parquet
+        - Timestamp includes microseconds for better uniqueness
+        - Sequence counter ensures uniqueness even if timestamps collide
         - Hybrid approach: timestamp for detection + sequence for uniqueness
 
         If file_detection is "sequential":
@@ -432,8 +438,11 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         if self.file_detection == "timestamp":
             # Timestamp + sequence hybrid approach
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            return f"{timestamp}_{self.sequence_counter:06d}.parquet"
+            # Include microseconds to reduce timestamp collisions within same second
+            now = datetime.now()
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            microseconds = now.strftime("%f")  # 6-digit microseconds
+            return f"{timestamp}_{microseconds}_{self.sequence_counter:06d}.parquet"
         else:
             # Sequential: 20-digit format per spec
             return f"{self.sequence_counter:020d}.parquet"
@@ -718,10 +727,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         if self.source_version:
             partner_events["sourceInfo"]["sourceVersion"] = self.source_version
 
-        # Add additional info if present
-        additional_info = {}
-        if self.source_type or self.source_version:
-            partner_events["sourceInfo"]["additionalInformation"] = additional_info
+        # Note: additionalInformation can be added here in the future if needed
+        # Only add it when there's actual data to include
 
         # Build partner events file path (database level, not table level)
         # Path: Files/LandingZone/_partnerEvents.json

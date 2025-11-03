@@ -5,6 +5,7 @@ Tests configuration, path management, row marker handling, metadata files,
 and Open Mirroring specific features without requiring an actual OneLake account.
 Integration tests should be in tests/integration/.
 """
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import polars as pl
@@ -481,8 +482,6 @@ class TestOpenMirroringStoreMetadata:
         # Check metadata content
         call_args = mock_file_client.upload_data.call_args
         json_data = call_args[0][0].decode("utf-8")
-        import json
-
         metadata = json.loads(json_data)
         assert metadata["keyColumns"] == ["id"]
         # file_detection default "timestamp", so include fileDetectionStrategy
@@ -519,8 +518,6 @@ class TestOpenMirroringStoreMetadata:
         # Check metadata includes fileDetectionStrategy
         call_args = mock_file_client.upload_data.call_args
         json_data = call_args[0][0].decode("utf-8")
-        import json
-
         metadata = json.loads(json_data)
         assert metadata["fileDetectionStrategy"] == "LastUpdateTimeFileDetection"
 
@@ -553,8 +550,6 @@ class TestOpenMirroringStoreMetadata:
         # Check metadata includes isUpsertDefaultRowMarker
         call_args = mock_file_client.upload_data.call_args
         json_data = call_args[0][0].decode("utf-8")
-        import json
-
         metadata = json.loads(json_data)
         assert metadata["isUpsertDefaultRowMarker"] is True
 
