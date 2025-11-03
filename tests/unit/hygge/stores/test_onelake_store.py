@@ -52,7 +52,7 @@ class TestOneLakeStoreConfig:
 
     def test_config_path_optional_with_auto_build(self):
         """Test that path is optional and auto-built if not provided."""
-        # Path is now optional - will be auto-built by build_fabric_path
+        # Path is now optional - will be auto-built by build_lakehouse_path
         config = OneLakeStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -251,7 +251,7 @@ class TestOneLakeStoreErrorHandling:
 
     def test_empty_path_allowed(self):
         """Test that empty path is allowed (will be auto-built from mirror_name)."""
-        # Empty path should be allowed - build_fabric_path will handle it
+        # Empty path should be allowed - build_lakehouse_path will handle it
         config = OneLakeStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
