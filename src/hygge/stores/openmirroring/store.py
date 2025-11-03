@@ -10,6 +10,7 @@ Extends OneLakeStore to add Open Mirroring specific requirements:
 """
 import asyncio
 import json
+import os
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -160,21 +161,9 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         Open Mirroring always uses LandingZone paths.
         Schema support is inherited from OneLakeStoreConfig.
         """
-        # Get schema value safely (avoiding Pydantic's schema method shadowing)
-        # Access field value via __dict__ to bypass method resolution
-        schema_value = self.__dict__.get("schema", None)
-        if schema_value is None and hasattr(self, "model_fields"):
-            # Fallback: check if field exists and get default
-            if "schema" in self.model_fields:
-                field_info = self.model_fields["schema"]
-                # For Pydantic v2, check if field has a default
-                if hasattr(field_info, "default") and field_info.default is not None:
-                    schema_value = field_info.default
-                elif hasattr(self, "__pydantic_fields__"):
-                    # Try to get from pydantic fields directly
-                    pydantic_field = self.__pydantic_fields__.get("schema")
-                    if pydantic_field:
-                        schema_value = getattr(pydantic_field, "default", None)
+        # Get schema value safely using shared helper
+        # (inherited from OneLakeStoreConfig)
+        schema_value = self._get_schema_value()
 
         # If custom path is provided that doesn't start with "Files/", preserve it as-is
         if self.path is not None and not self.path.startswith("Files/"):
@@ -340,7 +329,9 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 paths = directory_client.list_paths(recursive=False)
 
                 for path in paths:
-                    filename = path.name
+                    # Extract just the filename from the full path
+                    # path.name returns full relative path from container root
+                    filename = os.path.basename(path.name)
                     if not filename.endswith(".parquet"):
                         continue
 
@@ -746,12 +737,14 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 paths = directory_client.list_paths(recursive=False)
                 for path in paths:
                     # Delete all files (not just .parquet - also _metadata.json)
-                    file_client = file_system_client.get_file_client(
-                        f"{table_path}/{path.name}"
-                    )
+                    # path.name returns full path from container root, use directly
+                    file_path = path.name
+                    file_client = file_system_client.get_file_client(file_path)
                     file_client.delete_file()
                     deleted_files += 1
-                    self.logger.debug(f"Deleted file: {path.name}")
+                    # Extract filename for logging
+                    filename = os.path.basename(file_path)
+                    self.logger.debug(f"Deleted file: {filename}")
             except Exception as e:
                 self.logger.warning(
                     f"Error listing/deleting files in {table_path}: {str(e)}"
@@ -812,9 +805,11 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                         try:
                             paths = directory_client.list_paths(recursive=False)
                             for path in paths:
-                                if path.name.endswith(".parquet"):
+                                # path.name returns full path from container root
+                                file_path = path.name
+                                if os.path.basename(file_path).endswith(".parquet"):
                                     file_client = file_system_client.get_file_client(
-                                        f"{table_path}/{path.name}"
+                                        file_path
                                     )
                                     file_client.delete_file()
                                     deleted_files += 1

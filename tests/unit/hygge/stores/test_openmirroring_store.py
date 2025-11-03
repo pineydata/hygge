@@ -52,7 +52,7 @@ class TestOpenMirroringStoreConfig:
             # path not provided - should auto-build to Files/LandingZone/{entity}/
         )
 
-        # schema=None needed because schema shawdow's Pydantic's schema method
+        # schema=None needed because schema shawdows Pydantic's schema method
         # We test the path building logic, which should produce LandingZone path
         assert "LandingZone" in config.path
         assert "{entity}" in config.path

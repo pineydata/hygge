@@ -59,6 +59,51 @@ class OneLakeStoreConfig(ADLSStoreConfig, config_type="onelake"):
         ),
     )
 
+    def _get_schema_value(self) -> Optional[str]:
+        """
+        Get schema field value safely, avoiding Pydantic's schema method shadowing.
+
+        The 'schema' field name shadows Pydantic's built-in schema() method.
+        This helper accesses the field value directly via __dict__ to bypass
+        method resolution.
+
+        Returns:
+            Schema name string if set, None otherwise
+        """
+        # Access field value via __dict__ to bypass method resolution
+        # Check if schema is in __dict__ and is a string (field value, not method)
+        if "schema" in self.__dict__:
+            schema_value = self.__dict__["schema"]
+            # Skip if it's callable (the Pydantic schema() method)
+            if callable(schema_value):
+                # This is the method, not the field value - skip to fallback
+                pass
+            elif isinstance(schema_value, str):
+                # It's the actual field value (string schema name)
+                return schema_value
+            elif schema_value is None:
+                # Explicitly set to None
+                return None
+            else:
+                # Unexpected type - return None
+                return None
+
+        # Fallback: use model_dump() to get actual field values
+        # This properly handles Pydantic field access and avoids method shadowing
+        try:
+            dumped = self.model_dump()
+            if "schema" in dumped:
+                schema_value = dumped["schema"]
+                if isinstance(schema_value, str):
+                    return schema_value
+                # Explicitly None or not set
+                return None
+        except Exception:
+            # If model_dump fails, return None
+            pass
+
+        return None
+
     @model_validator(mode="after")
     def build_lakehouse_path(self):
         """Build the base path for Fabric OneLake Lakehouse."""
@@ -67,9 +112,7 @@ class OneLakeStoreConfig(ADLSStoreConfig, config_type="onelake"):
             return self
 
         # Build Lakehouse path (always uses Files/ prefix)
-        # Get schema value safely (avoiding Pydantic's schema method shadowing)
-        # Access field value via __dict__ to bypass method resolution
-        schema_value = self.__dict__.get("schema", None)
+        schema_value = self._get_schema_value()
 
         if schema_value:
             # With schema: Files/{schema}.schema/{entity}/
