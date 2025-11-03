@@ -773,7 +773,6 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         which triggers Open Mirroring's recreate cycle.
         """
         try:
-            file_system_client = self._get_file_system_client()
             table_path = self.base_path
 
             self.logger.debug(
@@ -781,114 +780,31 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 f"(triggers Open Mirroring table drop/recreate)"
             )
 
-            # Get directory client for table folder
-            directory_client = file_system_client.get_directory_client(table_path)
+            # Use ADLSOperations for directory deletion
+            # (handles SDK version differences and parameter conflicts)
+            adls_ops = self._get_adls_ops()
+            folder_deleted = await adls_ops.delete_directory(table_path, recursive=True)
 
-            # Check if directory exists
-            if not directory_client.exists():
-                self.logger.debug(f"Table folder {table_path} does not exist yet")
-                return
-
-            # Step 1: Delete all files in the directory first
-            # (Required before deleting directory in ADLS)
-            deleted_files = 0
-            try:
-                # Use FileSystemClient.get_paths() instead of
-                # DirectoryClient.list_paths() (not available in newer SDK)
-                paths = file_system_client.get_paths(path=table_path, recursive=False)
-                for path in paths:
-                    # Delete all files (not just .parquet - also _metadata.json)
-                    # path.name returns full path from container root, use directly
-                    file_path = path.name
-                    file_client = file_system_client.get_file_client(file_path)
-                    file_client.delete_file()
-                    deleted_files += 1
-                    # Extract filename for logging
-                    filename = os.path.basename(file_path)
-                    self.logger.debug(f"Deleted file: {filename}")
-            except Exception as e:
-                self.logger.warning(
-                    f"Error listing/deleting files in {table_path}: {str(e)}"
-                )
-                # Continue to try directory deletion anyway
-
-            # Step 2: Delete the directory itself
-            # This triggers Open Mirroring to drop the table
-            # Use recursive=True to delete directory and any remaining files
-            folder_deleted = False
-            try:
-                # Try deleting directory (recursive=True deletes directory and contents)
-                directory_client.delete_directory(recursive=True)
-                folder_deleted = True
+            if folder_deleted:
                 self.logger.success("Deleted table folder")
-                if deleted_files > 0:
-                    self.logger.debug(f"Deleted {deleted_files} file(s) before folder")
+            else:
+                # Folder deletion failed but files were deleted (graceful fallback)
+                self.logger.debug(
+                    "Directory deletion failed but files were cleared. "
+                    "Open Mirroring may be using the folder."
+                )
 
-                # Step 3: Wait briefly to allow:
-                # - ADLS propagation of deletion
-                # - Open Mirroring to detect folder deletion (if polling)
-                # - Reduce race conditions between delete and recreate
-                wait_time = self.config.folder_deletion_wait_seconds
-                if wait_time > 0:
-                    self.logger.debug(
-                        f"Waiting {wait_time}s after folder deletion "
-                        f"for propagation and Open Mirroring detection"
-                    )
-                    await asyncio.sleep(wait_time)
-
-            except Exception as e:
-                # If folder was successfully deleted (and wait completed),
-                # any exception here is unexpected - re-raise
-                if folder_deleted:
-                    raise
-
-                # Open Mirroring might be using the folder - this is expected
-                # Spec says: "there is a chance that open mirroring is still using
-                # the data from the folder, causing a delete failure"
-                error_str = str(e).lower()
-                if (
-                    "notfound" in error_str
-                    or "does not exist" in error_str
-                    or "being used" in error_str
-                    or "in use" in error_str
-                    or "conflict" in error_str
-                    or "directorynotempty" in error_str
-                    or "recursive" in error_str
-                ):
-                    self.logger.warning(
-                        f"Could not delete folder {table_path}: {str(e)}. "
-                        f"Open Mirroring may be using it. "
-                        f"Falling back to file-only deletion."
-                    )
-                    # Fall back: ensure all data files are deleted at least
-                    # (This will leave _metadata.json, but that's acceptable)
-                    if deleted_files == 0:
-                        # Try again to delete files only
-                        try:
-                            paths = file_system_client.get_paths(
-                                path=table_path, recursive=False
-                            )
-                            for path in paths:
-                                # path.name returns full path from container root
-                                file_path = path.name
-                                if os.path.basename(file_path).endswith(".parquet"):
-                                    file_client = file_system_client.get_file_client(
-                                        file_path
-                                    )
-                                    file_client.delete_file()
-                                    deleted_files += 1
-                            if deleted_files > 0:
-                                self.logger.debug(
-                                    f"Deleted {deleted_files} data file(s) "
-                                    f"(folder deletion failed but files cleared)"
-                                )
-                        except Exception:
-                            pass  # Already logged the warning above
-                else:
-                    # Unexpected error - re-raise
-                    raise StoreError(
-                        f"Failed to delete table folder {table_path}: {str(e)}"
-                    )
+            # Step 3: Wait briefly to allow:
+            # - ADLS propagation of deletion
+            # - Open Mirroring to detect folder deletion (if polling)
+            # - Reduce race conditions between delete and recreate
+            wait_time = self.config.folder_deletion_wait_seconds
+            if wait_time > 0:
+                self.logger.debug(
+                    f"Waiting {wait_time}s after folder deletion "
+                    f"for propagation and Open Mirroring detection"
+                )
+                await asyncio.sleep(wait_time)
 
         except StoreError:
             raise
