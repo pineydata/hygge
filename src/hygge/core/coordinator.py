@@ -667,27 +667,27 @@ To get started, run:
         for i, flow in enumerate(self.flows, 1):
             # Set progress callback so flow can report row updates
             # Pass flow number (use default arg to capture value, not reference)
-            flow.set_progress_callback(
-                lambda rows, flow_num=i: self._update_progress(rows, flow_num)
-            )
+            async def progress_callback(rows, flow_num=i):
+                await self._update_progress(rows, flow_num)
+
+            flow.set_progress_callback(progress_callback)
             task = asyncio.create_task(
                 self._run_flow(flow, i, total_flows), name=f"flow_{flow.name}"
             )
             tasks.append(task)
 
         # Run all flows concurrently
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Use return_exceptions=True so all flows complete even if some fail,
+        # allowing us to generate a complete summary
+        await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Check for exceptions and handle based on continue_on_error setting
-        exceptions = [r for r in results if isinstance(r, Exception)]
-        if exceptions and not self.options.get("continue_on_error", False):
+        # Check for failed flows based on continue_on_error setting
+        # Since _run_flow no longer re-raises, we check flow_results instead
+        failed_flows = [r for r in self.flow_results if r.get("status") == "fail"]
+        if failed_flows and not self.options.get("continue_on_error", False):
             # At least one flow failed and we're not continuing on error
-            # Cancel remaining tasks
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            # Re-raise first exception
-            raise exceptions[0]
+            # Re-raise the first exception that was stored
+            raise failed_flows[0]["_exception"]
 
         # Generate and log dbt-style summary
         self._log_summary()
@@ -742,12 +742,8 @@ To get started, run:
         # Track result for summary (always, even if we're about to raise)
         self.flow_results.append(flow_result)
 
-        # Re-raise if we should stop on error
-        should_stop = flow_result["status"] == "fail" and not self.options.get(
-            "continue_on_error", False
-        )
-        if should_stop:
-            raise flow_result["_exception"]
+        # Don't re-raise here - let _run_flows handle exception propagation
+        # based on continue_on_error setting after all flows complete
 
     async def _update_progress(self, rows: int, flow_num: int) -> None:
         """Update coordinator-level progress tracking (called by flows)."""
@@ -794,11 +790,19 @@ To get started, run:
         minutes = int((elapsed_time % 3600) // 60)
         seconds = elapsed_time % 60
 
-        time_str = (
-            f"{hours} hours {minutes} minutes and {seconds:.2f} seconds"
-            if hours > 0
-            else f"{minutes} minutes and {seconds:.2f} seconds"
-        )
+        # Build time string conditionally based on non-zero units
+        time_parts = []
+        if hours > 0:
+            time_parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+        if minutes > 0:
+            time_parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+        # Always include seconds
+        time_parts.append(f"{seconds:.2f} second{'s' if seconds != 1.0 else ''}")
+
+        if len(time_parts) > 1:
+            time_str = ", ".join(time_parts[:-1]) + f" and {time_parts[-1]}"
+        else:
+            time_str = time_parts[0]
 
         # Add cozy spacing
         self.logger.info("")

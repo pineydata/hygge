@@ -9,7 +9,7 @@ hygge is built on Polars + PyArrow for data movement.
 Flows orchestrate the movement of Polars DataFrames from Home to Store.
 """
 import asyncio
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -72,7 +72,9 @@ class Flow:
         self.home.logger = get_logger(f"hygge.flow.{name}.home")
         self.store.logger = get_logger(f"hygge.flow.{name}.store")
 
-    def set_progress_callback(self, callback):
+    def set_progress_callback(
+        self, callback: Optional[Callable[[int], Awaitable[None]]]
+    ) -> None:
         """Set callback for coordinator-level progress tracking."""
         self.progress_callback = callback
 

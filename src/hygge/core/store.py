@@ -168,7 +168,7 @@ class Store(ABC):
             await self._flush_buffer()
 
         # Log any remaining accumulated rows that didn't hit the interval
-        if hasattr(self, "rows_since_last_log") and self.rows_since_last_log > 0:
+        if self.rows_since_last_log > 0:
             self.logger.debug(f"WROTE {self.rows_since_last_log:,} rows")
 
         # Move staged files to final location for file-based stores
