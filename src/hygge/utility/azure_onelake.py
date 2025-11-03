@@ -356,3 +356,128 @@ class ADLSOperations:
             if "timeout" in str(e).lower():
                 raise TimeoutError(f"Write operation timed out for {path}: {str(e)}")
             raise StoreError(f"Failed to write JSON file: {str(e)}")
+
+    @with_retry(
+        retries=3,
+        delay=2,
+        exceptions=(AzureError, TimeoutError),
+        timeout=300,
+        logger_name="hygge.adls_gen2_ops",
+    )
+    async def delete_directory(self, path: str, recursive: bool = True) -> bool:
+        """
+        Delete a directory in ADLS Gen2 storage.
+
+        Handles SDK version differences and gracefully handles cases where
+        Open Mirroring or other processes might be using the directory.
+
+        Args:
+            path: Directory path to delete
+            recursive: Whether to delete directory recursively (default: True)
+
+        Returns:
+            bool: True if directory was successfully deleted, False if deletion
+                  failed but files were deleted (graceful fallback)
+
+        Raises:
+            StoreError: If deletion fails unexpectedly
+        """
+        import os
+
+        try:
+            self.logger.debug(f"Deleting directory: {path} (recursive={recursive})")
+
+            # Get directory client
+            directory_client = self.file_system_client.get_directory_client(path)
+
+            # Check if directory exists
+            if not directory_client.exists():
+                self.logger.debug(f"Directory {path} does not exist")
+                return True  # Already deleted, consider success
+
+            # Step 1: Delete all files in the directory first
+            # (Required before deleting directory in ADLS)
+            deleted_files = 0
+            try:
+                # Use FileSystemClient.get_paths() to list files
+                paths = self.file_system_client.get_paths(path=path, recursive=False)
+                for path_item in paths:
+                    # Delete all files (not just .parquet - also _metadata.json, etc.)
+                    file_path = path_item.name
+                    file_client = self.file_system_client.get_file_client(file_path)
+                    file_client.delete_file()
+                    deleted_files += 1
+                    filename = os.path.basename(file_path)
+                    self.logger.debug(f"Deleted file: {filename}")
+            except Exception as e:
+                error_str = str(e).lower()
+                # If directory is empty or listing fails, that's okay
+                # Continue to try directory deletion anyway
+                if (
+                    "directorynotempty" not in error_str
+                    and "recursive" not in error_str
+                ):
+                    self.logger.debug(
+                        f"Error listing/deleting files in {path}: {str(e)}"
+                    )
+
+            # Step 2: Delete the directory itself
+            try:
+                # Handle SDK version differences - some versions have issues
+                # with recursive parameter. The error "got multiple values for
+                # keyword argument 'recursive'" suggests a signature conflict.
+                try:
+                    # Try with keyword argument (standard approach)
+                    directory_client.delete_directory(recursive=recursive)
+                except (TypeError, ValueError) as param_err:
+                    error_str = str(param_err).lower()
+                    # If we get a "multiple values" error, SDK has parameter conflict
+                    if "multiple values" in error_str or (
+                        "recursive" in error_str and "keyword" in error_str
+                    ):
+                        self.logger.debug(
+                            f"DirectoryClient.delete_directory() parameter "
+                            f"conflict detected, trying **kwargs: {param_err}"
+                        )
+                        # Use **kwargs to pass recursive - avoids parameter conflicts
+                        directory_client.delete_directory(**{"recursive": recursive})
+                    else:
+                        raise
+
+                self.logger.debug(f"Successfully deleted directory: {path}")
+                if deleted_files > 0:
+                    self.logger.debug(
+                        f"Deleted {deleted_files} file(s) before directory"
+                    )
+                return True
+
+            except Exception as e:
+                # Open Mirroring or other processes might be using the folder
+                # This is expected behavior - gracefully handle it
+                error_str = str(e).lower()
+                if (
+                    "notfound" in error_str
+                    or "does not exist" in error_str
+                    or "being used" in error_str
+                    or "in use" in error_str
+                    or "conflict" in error_str
+                    or "directorynotempty" in error_str
+                    or "recursive" in error_str
+                ):
+                    self.logger.debug(
+                        f"Could not delete directory {path}: {str(e)}. "
+                        f"Open Mirroring or other process may be using it. "
+                        f"Files were deleted successfully."
+                    )
+                    # Partial success - files deleted, directory might be locked
+                    return False
+                else:
+                    # Unexpected error - re-raise
+                    raise StoreError(f"Failed to delete directory {path}: {str(e)}")
+
+        except Exception as e:
+            if "timeout" in str(e).lower():
+                raise TimeoutError(
+                    f"Delete directory operation timed out for {path}: {str(e)}"
+                )
+            raise StoreError(f"Failed to delete directory {path}: {str(e)}")

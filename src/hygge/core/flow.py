@@ -269,6 +269,15 @@ class FlowConfig(BaseModel):
     entities: Optional[Union[List[str], List[Dict[str, Any]]]] = Field(
         default=None, description="Entity names or definitions for this flow"
     )
+    # Flow-level strategy: full_drop for full reloads
+    full_drop: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Flow-level strategy: true for full reload (drops/recreates tables), "
+            "false for incremental updates. "
+            "If not set, uses store-level configuration."
+        ),
+    )
 
     @field_validator("home", mode="before")
     @classmethod

@@ -8,13 +8,27 @@ This module provides the `hygge` command-line interface for hygge projects.
 import asyncio
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import click
 
 from hygge import Coordinator
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
+
+
+def _parse_var_value(value: str) -> Any:
+    """Parse CLI variable value to appropriate type."""
+    if value.lower() in ("true", "1", "yes"):
+        return True
+    elif value.lower() in ("false", "0", "no"):
+        return False
+    elif value.isdigit():
+        return int(value)
+    elif value.replace(".", "", 1).isdigit():
+        return float(value)
+    else:
+        return value
 
 
 @click.group()
@@ -148,11 +162,19 @@ source_config:
 )
 @click.option(
     "--verbose",
-    "-v",
     is_flag=True,
     help="Enable verbose logging",
 )
-def go(flow: Optional[str], verbose: bool):
+@click.option(
+    "--var",
+    multiple=True,
+    help=(
+        "Override flow configuration values. "
+        "Format: flow.<flow_name>.field=value. "
+        "Example: --var flow.mssql_to_mirrored_db.full_drop=true"
+    ),
+)
+def go(flow: Optional[str], verbose: bool, var: tuple):
     """Execute all flows in the current hygge project."""
     logger = get_logger("hygge.cli.go")
 
@@ -161,8 +183,52 @@ def go(flow: Optional[str], verbose: bool):
         pass
 
     try:
+        # Parse CLI variable overrides
+        # Supports: flow.<flow_name>.field=value (flow-level overrides)
+        flow_overrides = {}  # Flow-specific overrides
+
+        for var_str in var:
+            # Format: flow.<flow_name>.full_drop=true
+            if "=" not in var_str:
+                example = "flow.mssql_to_mirrored_db.full_drop=true"
+                click.echo(
+                    f"Error: Invalid --var format: {var_str}. "
+                    f"Use flow.<flow_name>.field=value "
+                    f"(e.g., {example})"
+                )
+                sys.exit(1)
+
+            key, value = var_str.split("=", 1)
+            key_parts = key.split(".")
+
+            if len(key_parts) < 3 or key_parts[0] != "flow":
+                click.echo(
+                    "Error: --var must start with 'flow.<flow_name>.' "
+                    "(e.g., flow.mssql_to_mirrored_db.full_drop=true)"
+                )
+                sys.exit(1)
+
+            # Format: flow.<flow_name>.field
+            flow_name = key_parts[1]
+            field_parts = key_parts[2:]
+
+            if flow_name not in flow_overrides:
+                flow_overrides[flow_name] = {}
+
+            # Build nested dict for the field path
+            current = flow_overrides[flow_name]
+            for part in field_parts[:-1]:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+
+            final_key = field_parts[-1]
+            current[final_key] = _parse_var_value(value)
+
         # Create coordinator (will discover project automatically)
-        coordinator = Coordinator()
+        coordinator = Coordinator(
+            flow_overrides=flow_overrides if flow_overrides else None
+        )
 
         if flow:
             click.echo(f"Starting flow: {flow}")

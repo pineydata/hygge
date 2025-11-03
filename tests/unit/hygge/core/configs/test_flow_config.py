@@ -236,6 +236,23 @@ class TestFlowConfig:
         # Should have defaults
         assert config.queue_size == 10  # Default from FlowConfig
         assert config.timeout == 300  # Default from FlowConfig
+        assert config.full_drop is None  # Default for flow-level strategy
+
+    def test_flow_config_with_full_drop(self):
+        """Test FlowConfig with flow-level full_drop setting."""
+        config = FlowConfig(
+            home="data/users.parquet",
+            store="data/output",
+            full_drop=True,
+        )
+
+        assert config.full_drop is True
+
+    def test_flow_config_full_drop_defaults_to_none(self):
+        """Test that full_drop defaults to None (uses store config)."""
+        config = FlowConfig(home="data/users.parquet", store="data/output")
+
+        assert config.full_drop is None
 
 
 class TestConfigurationPropertyAccess:

@@ -1,29 +1,27 @@
 """
-OneLake store implementation for Microsoft Fabric.
+OneLake store implementation for Microsoft Fabric Lakehouse.
 
-Lightweight wrapper around ADLSStore that adds Fabric-specific path conventions:
-- Files/{entity}/ for Lakehouse
-- Files/LandingZone/{entity}/ for Mirrored Databases
+Lightweight wrapper around ADLSStore that adds Fabric-specific path conventions
+for Lakehouse tables: Files/{entity}/ or Files/{schema_name}.schema/{entity}/
 
-Extends ADLSStore to inherit all ADLS Gen2 functionality while adding
-Fabric-specific path handling on top.
+For Mirrored Databases (Open Mirroring), use OpenMirroringStore instead.
 """
 from typing import Optional
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from hygge.stores.adls import ADLSStore, ADLSStoreConfig
 
 
 class OneLakeStoreConfig(ADLSStoreConfig, config_type="onelake"):
     """
-    Configuration for OneLake store (Fabric-specific ADLS Gen2).
+    Configuration for OneLake store (Fabric Lakehouse).
 
-    Extends ADLSStoreConfig with Fabric-specific path conventions.
+    Extends ADLSStoreConfig with Fabric-specific path conventions for Lakehouse.
 
     Examples:
 
-        Lakehouse (default):
+        Basic Lakehouse:
         ```yaml
         store:
           type: onelake
@@ -33,46 +31,61 @@ class OneLakeStoreConfig(ADLSStoreConfig, config_type="onelake"):
           credential: managed_identity
         ```
 
-        Mirrored Database:
+        Lakehouse with Schema:
         ```yaml
         store:
           type: onelake
           account_url: ${ONELAKE_ACCOUNT_URL}
           filesystem: MyLake
-          mirror_name: MyMirrorName
-          # path automatically becomes: Files/LandingZone/{entity}/
+          schema: dbo  # or schema_name: dbo
+          # path automatically becomes: Files/{schema_name}.schema/{entity}/
           credential: managed_identity
         ```
+
+    Note: For Mirrored Databases (Open Mirroring), use type: open_mirroring instead.
     """
+
+    model_config = ConfigDict(populate_by_name=True)  # Allow both alias and field name
 
     type: str = Field(default="onelake", description="Store type")
     path: Optional[str] = Field(
         None, description="Base path for data files (auto-built if None)"
     )
 
-    # Path configuration - either specify mirror_name OR path
-    mirror_name: Optional[str] = Field(
+    # Optional: Schema support
+    schema_name: Optional[str] = Field(
         None,
         description=(
-            "Name of the Mirrored Database. "
-            "If set, writes to Files/LandingZone/{entity}/. "
-            "If not set (None), uses Files/{entity}/ for Lakehouse."
+            "Schema name for organizing tables in Lakehouse. "
+            "Creates paths like Files/{schema_name}.schema/{entity}/"
         ),
+        alias="schema",  # Allow 'schema' in YAML for user convenience
     )
 
+    def _get_schema_value(self) -> Optional[str]:
+        """
+        Get schema_name field value.
+
+        Returns:
+            Schema name string if set, None otherwise
+        """
+        return self.schema_name
+
     @model_validator(mode="after")
-    def build_fabric_path(self):
-        """Build the base path for Fabric OneLake."""
+    def build_lakehouse_path(self):
+        """Build the base path for Fabric OneLake Lakehouse."""
         # If custom path is provided, use it as-is
         if self.path is not None:
             return self
 
-        # Build path based on mirror_name
-        if self.mirror_name:
-            # Mirrored DB: Files/LandingZone/{entity}/
-            self.path = "Files/LandingZone/{entity}/"
+        # Build Lakehouse path (always uses Files/ prefix)
+        schema_value = self._get_schema_value()
+
+        if schema_value:
+            # With schema: Files/{schema}.schema/{entity}/
+            self.path = f"Files/{schema_value}.schema/{{entity}}/"
         else:
-            # Lakehouse: Files/{entity}/
+            # Without schema: Files/{entity}/
             self.path = "Files/{entity}/"
 
         return self
@@ -80,16 +93,16 @@ class OneLakeStoreConfig(ADLSStoreConfig, config_type="onelake"):
 
 class OneLakeStore(ADLSStore, store_type="onelake"):
     """
-    OneLake data store for Microsoft Fabric.
+    OneLake data store for Microsoft Fabric Lakehouse.
 
-    Lightweight wrapper around ADLSStore that adds Fabric-specific path conventions.
+    Lightweight wrapper around ADLSStore that adds Fabric-specific path conventions
+    for Lakehouse tables.
 
     Example:
         ```python
         config = OneLakeStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
-            mirror_name="MyMirror",
             credential="managed_identity"
         )
         store = OneLakeStore("test_store", config, entity_name="users")
