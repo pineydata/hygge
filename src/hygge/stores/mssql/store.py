@@ -185,9 +185,13 @@ class MssqlStore(Store, store_type="mssql"):
         # Track statistics
         self.batches_written += 1
         self.rows_written += len(df)
-        rows_per_sec = len(df) / elapsed if elapsed > 0 else 0
 
-        self.logger.success(
+        # Log write progress using base class method (DEBUG level)
+        self._log_write_progress(len(df))
+
+        # Detailed batch info at DEBUG level
+        rows_per_sec = len(df) / elapsed if elapsed > 0 else 0
+        self.logger.debug(
             f"Wrote batch {self.batches_written}: {len(df):,} rows to temp table "
             f"in {elapsed:.2f}s ({rows_per_sec:,.0f} rows/sec)"
         )
