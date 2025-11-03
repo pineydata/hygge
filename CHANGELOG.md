@@ -7,7 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] - TBD
+## [0.3.0] - 2025-11-03
+
+### Added
+
+#### Open Mirroring Store for Microsoft Fabric
+
+- Full support for Microsoft Fabric Open Mirroring
+- Automatic `__rowMarker__` column injection (required for Open Mirroring)
+- `_metadata.json` file generation with key columns configuration
+- `_partnerEvents.json` file support at database level
+- Timestamp + sequence file naming with microseconds for better uniqueness
+- Sequential file naming (20-digit format per Open Mirroring spec)
+- Full drop mode - deletes and recreates table folders
+- Schema support for organized table structure
+- Robust directory deletion with Azure SDK version compatibility
+
+#### Collapsed Entities Pattern
+
+- Entities can now be defined inline in flow configurations
+- No need for separate entity files - all config in one place
+- Universal defaults at flow level, entity-specific overrides
+- Supports large-scale scenarios (60+ entities in single flow)
+- Clear hierarchy: flow defaults → entity overrides
+- Demonstrates DRY principle - minimal repetition
+
+### Improved
+
+#### Azure Data Lake Storage Operations
+
+- Centralized directory deletion in `azure_onelake.py`
+- Handles Azure SDK version differences gracefully
+- Better error handling for directory operations
+- Retry logic for Azure operations
+
+#### File Naming
+
+- Timestamp-based file naming now includes microseconds
+- Reduces timestamp collisions within same second
+- Format: `YYYYMMDD_HHMMSS_microseconds_sequence.parquet`
+
+#### Code Quality
+
+- Removed empty `additionalInformation` from JSON output
+- Moved imports to module level (better performance and consistency)
+- Fixed linting issues and line length compliance
+
+### Fixed
+
+- Directory deletion parameter conflicts with Azure SDK
+- Empty JSON objects in `_partnerEvents.json`
+- Test failures due to timestamp format changes
+
+## [0.2.0] - 2025-10-18
 
 ### Added
 
@@ -130,6 +182,7 @@ Future plans for upcoming releases:
 - Cloud storage support: S3, Azure Blob, GCS (ADLS/OneLake completed in v0.2.0)
 - Advanced error recovery: Retry strategies, dead letter queues
 
-[Unreleased]: https://github.com/pineydata/hygge/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/pineydata/hygge/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/pineydata/hygge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/pineydata/hygge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/pineydata/hygge/releases/tag/v0.1.0
