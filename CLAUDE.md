@@ -82,6 +82,42 @@ hygge (pronounced "hoo-ga") is a data movement framework for solo developers/sma
 - **Type safety**: Pydantic validation throughout
 - **Async patterns**: Use async/await for I/O operations
 
+### Code Quality & Review Principles
+
+**DO NOT RUSH CHANGES** - Always consider the greater codebase and adhere to strong development standards:
+
+1. **DRY (Don't Repeat Yourself)**
+   - Extract duplicated logic into helper methods or base classes
+   - If you're copying code, stop and refactor
+   - Before adding code, check if similar logic already exists elsewhere
+   - When overriding methods, prefer calling `super()` over duplicating logic
+
+2. **KISS (Keep It Simple, Stupid)**
+   - Prefer simple, clear solutions over clever ones
+   - Complex logic should be broken into smaller, understandable pieces
+   - If a solution feels convoluted, there's probably a simpler way
+   - Code should be readable by someone who didn't write it
+
+3. **YAGNI (You Aren't Gonna Need It)**
+   - Don't add functionality "just in case"
+   - Solve the current problem, not hypothetical future problems
+   - Avoid over-engineering or premature optimization
+   - Add complexity only when there's a concrete need
+
+**Code Review Checklist:**
+- [ ] Have I checked if similar code exists elsewhere in the codebase?
+- [ ] Am I duplicating logic that could be extracted or reused?
+- [ ] Is this the simplest solution that solves the problem?
+- [ ] Am I adding unnecessary complexity or abstractions?
+- [ ] Does this change maintain consistency with existing patterns?
+- [ ] Have I considered how this fits into the broader architecture?
+
+**When making changes:**
+- Search the codebase for similar patterns before implementing
+- Look for opportunities to reuse existing methods or extract helpers
+- Question every line of code - does it need to be there?
+- Refactor during review, not after - fix issues as you find them
+
 ### Configuration System
 - Centralized defaults in individual config classes
 - Smart defaults with validation

@@ -661,8 +661,13 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 )
                 metadata_path = f"{tmp_base_path}/_metadata.json"
             else:
-                # Fallback: construct _tmp path
-                metadata_path = f"{self.base_path}/_metadata.json"
+                # Cannot construct _tmp path - fail fast to preserve ACID guarantees
+                raise StoreError(
+                    f"Cannot construct _tmp path for metadata: "
+                    f"base_path '{self.base_path}' does not contain 'LandingZone'. "
+                    f"Atomic operation aborted to prevent writing metadata "
+                    f"to production."
+                )
         else:
             metadata_path = f"{self.base_path}/_metadata.json"
 
@@ -801,6 +806,33 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         self.logger.debug(f"Wrote _partnerEvents.json to {partner_events_path}")
         self._partner_events_written = True
+
+    def _convert_tmp_to_production_path(self, tmp_path: str) -> str:
+        """
+        Convert a _tmp path to production path by replacing /Files/_tmp/
+        with /Files/LandingZone/.
+
+        Args:
+            tmp_path: Path in _tmp directory (e.g., Files/_tmp/table/file.parquet)
+
+        Returns:
+            Production path (e.g., Files/LandingZone/table/file.parquet)
+        """
+        return tmp_path.replace("/Files/_tmp/", "/Files/LandingZone/")
+
+    def _log_completion_stats(self) -> None:
+        """
+        Log completion statistics (duration and rows/sec).
+
+        Extracted from base class to avoid duplication when overriding finish().
+        """
+        if self.start_time:
+            duration = asyncio.get_event_loop().time() - self.start_time
+            rows_per_sec = self.rows_written / duration if duration > 0 else 0
+            self.logger.debug(
+                f"Store {self.name} completed in {duration:.1f}s "
+                f"({rows_per_sec:,.0f} rows/sec)"
+            )
 
     async def _delete_table_folder(self) -> None:
         """
@@ -1031,11 +1063,19 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
                     # Build final path: replace _tmp with LandingZone
                     if "_tmp" in staging_path_str:
-                        final_path_str = staging_path_str.replace(
-                            "/Files/_tmp/", "/Files/LandingZone/"
+                        final_path_str = self._convert_tmp_to_production_path(
+                            staging_path_str
                         )
                     else:
                         # Fallback: build final path from staging path
+                        # This should not happen in full_drop mode (all paths should
+                        # contain _tmp), but we handle it defensively
+                        self.logger.warning(
+                            f"full_drop mode: staging path '{staging_path_str}' "
+                            "does not contain '_tmp'. This is unexpected and may "
+                            "indicate a configuration issue. Using fallback path "
+                            "construction."
+                        )
                         staging_path = Path(staging_path_str)
                         final_dir = self.get_final_directory()
                         if final_dir:
@@ -1063,8 +1103,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             # Step 3: Move metadata files from _tmp to production (if they exist)
             if self._metadata_tmp_path:
                 # Build final metadata path: replace _tmp with LandingZone
-                final_metadata_path = self._metadata_tmp_path.replace(
-                    "/Files/_tmp/", "/Files/LandingZone/"
+                final_metadata_path = self._convert_tmp_to_production_path(
+                    self._metadata_tmp_path
                 )
                 try:
                     await adls_ops.move_file(
@@ -1079,8 +1119,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             # Step 4: Move partner events file (if it exists and was written to _tmp)
             if self._partner_events_tmp_path:
                 # Build final partner events path: replace _tmp with LandingZone
-                final_partner_events_path = self._partner_events_tmp_path.replace(
-                    "/Files/_tmp/", "/Files/LandingZone/"
+                final_partner_events_path = self._convert_tmp_to_production_path(
+                    self._partner_events_tmp_path
                 )
                 try:
                     await adls_ops.move_file(
@@ -1100,7 +1140,9 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                     f"full_drop atomic operation partially failed. "
                     f"{len(move_errors)} file(s) failed to move from _tmp "
                     f"to production. Production folder was deleted, but some "
-                    f"files remain in _tmp. Errors: {'; '.join(move_errors)}"
+                    f"files remain in _tmp. "
+                    f"Manual intervention required: Files in _tmp may need to be "
+                    f"moved manually or cleaned up. Errors: {'; '.join(move_errors)}"
                 )
                 raise StoreError(error_summary)
 
@@ -1108,28 +1150,11 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 "Atomic full_drop operation completed: "
                 "All data successfully moved from _tmp to production"
             )
-        else:
-            # Normal mode: use parent's finish() which moves files via
-            # _move_to_final(). For normal mode, metadata files were written to
-            # production directly, so we just need to move data files
-            if self.uses_file_staging:
-                if hasattr(self, "_move_staged_files_to_final"):
-                    await self._move_staged_files_to_final()
-                elif hasattr(self, "saved_paths") and hasattr(self, "_move_to_final"):
-                    # Move staged files to final location
-                    for staging_path_str in self.saved_paths:
-                        if staging_path_str:
-                            staging_path = Path(staging_path_str)
-                            final_dir = self.get_final_directory()
-                            if final_dir:
-                                final_path = final_dir / staging_path.name
-                                await self._move_to_final(staging_path, final_path)
 
-        # Log completion stats (from parent finish())
-        if self.start_time:
-            duration = asyncio.get_event_loop().time() - self.start_time
-            rows_per_sec = self.rows_written / duration if duration > 0 else 0
-            self.logger.debug(
-                f"Store {self.name} completed in {duration:.1f}s "
-                f"({rows_per_sec:,.0f} rows/sec)"
-            )
+            # Log completion stats using shared helper
+            self._log_completion_stats()
+        else:
+            # Normal mode: use parent's finish() which moves files and logs stats
+            # Buffer already flushed and rows logged above, so parent will skip
+            # those steps (checks if buffer exists and rows_since_last_log > 0)
+            await super().finish()
