@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2025-01-XX
+
+### Fixed
+
+#### Open Mirroring Store ACID Compliance
+
+- **Critical Fix**: Fixed ACID compliance issue in `full_drop` mode
+  - Previously deleted production folder before data was written, risking data loss
+  - Now writes all data and metadata to `_tmp` staging area first
+  - Only deletes production folder after all writes succeed
+  - Atomically moves files from `_tmp` to production after successful writes
+  - Prevents data loss if write operations fail mid-process
+
+### Improved
+
+#### Code Quality
+
+- Extracted helper methods to reduce duplication (`_convert_tmp_to_production_path`, `_log_completion_stats`)
+- Use `super().finish()` for normal mode instead of duplicating base class logic
+- Added defensive error handling for unexpected path states
+- Improved error messages with recovery guidance for manual intervention
+- Added warning logs for unexpected conditions
+
 ## [0.3.0] - 2025-11-03
 
 ### Added
