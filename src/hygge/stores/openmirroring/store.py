@@ -289,6 +289,10 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         self._metadata_written = False
         self._partner_events_written = False
 
+        # Track metadata file paths (for full_drop atomic operation)
+        self._metadata_tmp_path = None
+        self._partner_events_tmp_path = None
+
         # Track if table folder has been prepared (full_drop + metadata)
         self._table_folder_prepared = False
 
@@ -615,7 +619,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             f"Validated {len(update_rows)} update rows have full column data"
         )
 
-    async def _write_metadata_json(self) -> None:
+    async def _write_metadata_json(self, to_tmp: bool = False) -> None:
         """
         Write _metadata.json file to table folder.
 
@@ -625,8 +629,14 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         Path (with schema_name):
         Files/LandingZone/{schema_name}.schema/{entity}/_metadata.json
 
+        For full_drop mode: writes to _tmp first (atomic operation).
+
         Note: If file already exists, validates keyColumns match.
         According to spec, keyColumns cannot be changed once set.
+
+        Args:
+            to_tmp: If True, write to _tmp path instead of production
+                (for ACID operations)
         """
         if self._metadata_written:
             return
@@ -642,7 +652,19 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             metadata["isUpsertDefaultRowMarker"] = True
 
         # Build metadata file path
-        metadata_path = f"{self.base_path}/_metadata.json"
+        if to_tmp:
+            # For full_drop mode: write to _tmp first (atomic operation)
+            # Replace LandingZone with _tmp in the path
+            if self.base_path and "LandingZone" in self.base_path:
+                tmp_base_path = self.base_path.replace(
+                    "/Files/LandingZone/", "/Files/_tmp/"
+                )
+                metadata_path = f"{tmp_base_path}/_metadata.json"
+            else:
+                # Fallback: construct _tmp path
+                metadata_path = f"{self.base_path}/_metadata.json"
+        else:
+            metadata_path = f"{self.base_path}/_metadata.json"
 
         # Get ADLS operations client
         adls_ops = self._get_adls_ops()
@@ -694,20 +716,30 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         # Write metadata file with overwrite
         file_client.upload_data(json_data, overwrite=True, timeout=adls_ops.timeout)
 
+        # Track tmp path for full_drop atomic operation
+        if to_tmp:
+            self._metadata_tmp_path = metadata_path
+
         self.logger.debug(
             f"Wrote _metadata.json to {metadata_path} "
             f"with keyColumns: {self.key_columns}"
         )
         self._metadata_written = True
 
-    async def _write_partner_events_json(self) -> None:
+    async def _write_partner_events_json(self, to_tmp: bool = False) -> None:
         """
         Write _partnerEvents.json file at database level (optional).
 
         This file provides source system metadata and should be placed at:
         Files/LandingZone/_partnerEvents.json (not per table)
 
+        For full_drop mode: writes to _tmp first (atomic operation).
+
         Only writes if partner_name is configured.
+
+        Args:
+            to_tmp: If True, write to _tmp path instead of production
+                (for ACID operations)
         """
         if self._partner_events_written:
             return
@@ -732,7 +764,11 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         # Build partner events file path (database level, not table level)
         # Path: Files/LandingZone/_partnerEvents.json
-        base_landing_zone = "Files/LandingZone"
+        # For full_drop mode: write to _tmp first (atomic operation)
+        if to_tmp:
+            base_landing_zone = "Files/_tmp"
+        else:
+            base_landing_zone = "Files/LandingZone"
         partner_events_path = f"{base_landing_zone}/_partnerEvents.json"
 
         # Get ADLS operations client
@@ -758,6 +794,10 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         # Write partner events file
         await adls_ops.write_json(partner_events_path, partner_events)
+
+        # Track tmp path for full_drop atomic operation
+        if to_tmp:
+            self._partner_events_tmp_path = partner_events_path
 
         self.logger.debug(f"Wrote _partnerEvents.json to {partner_events_path}")
         self._partner_events_written = True
@@ -822,30 +862,30 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         """
         Prepare table folder for writing.
 
-        - If full_drop mode: Deletes entire table folder (triggers Open Mirroring
-          to drop and recreate the table)
-        - Writes metadata files (_metadata.json, _partnerEvents.json)
-          (recreates folder if it was deleted)
+        - If full_drop mode: Writes metadata files to _tmp (not production)
+          for atomic operation. Production folder will be deleted in finish()
+          after all data is successfully written.
+        - If not full_drop: Writes metadata files to production folder as normal.
 
-        Note: This is called once per flow to avoid deleting metadata repeatedly.
+        Note: This is called once per flow to avoid writing metadata repeatedly.
         """
         # Only prepare once per flow
         if self._table_folder_prepared:
             return
 
-        # Delete folder if full drop (triggers Open Mirroring drop/recreate)
+        # For full_drop mode: Write metadata to _tmp, NOT production
+        # Production folder will be deleted in finish() after all data is written
+        # This ensures atomic operation: all data written before deletion
         if self.full_drop:
-            await self._delete_table_folder()
+            # Write metadata files to _tmp (atomic operation - data must succeed first)
+            await self._write_metadata_json(to_tmp=True)
+            await self._write_partner_events_json(to_tmp=True)
+        else:
+            # Normal mode: Write metadata files to production folder
+            await self._write_metadata_json()
+            await self._write_partner_events_json()
 
-        # Write metadata files FIRST (before any data files)
-        # Open Mirroring needs _metadata.json to process the table correctly
-        # Write immediately after folder deletion (if full_drop) so it's available
-        # when Open Mirroring scans the folder
-        await self._write_metadata_json()
-        await self._write_partner_events_json()
-
-        # Small delay to ensure metadata file is fully written and propagated
-        # before Open Mirroring scans (especially important after full_drop)
+        # Small delay to ensure metadata file is fully written
         await asyncio.sleep(0.5)
 
         # Mark as prepared to avoid re-running
@@ -944,3 +984,152 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         except Exception as e:
             self.logger.error(f"Failed to save to Open Mirroring store: {str(e)}")
             raise StoreError(f"Failed to save to Open Mirroring store: {str(e)}")
+
+    async def finish(self) -> None:
+        """
+        Finish writing data to Open Mirroring store.
+
+        Overrides base Store.finish() to add:
+        - Full drop mode atomic operation (delete production, move files from _tmp)
+        - Metadata file cleanup.
+
+        For full_drop mode:
+        1. Flush remaining buffered data (all writes to _tmp)
+        2. Delete production folder (ACID: only after all writes succeed)
+        3. Move all files from _tmp to production (atomic swap)
+
+        For normal mode:
+        - Calls parent finish() which moves files normally
+        """
+        # Always flush remaining buffered data first
+        if self.data_buffer:
+            await self._flush_buffer()
+
+        # Log any remaining accumulated rows that didn't hit the interval
+        if self.rows_since_last_log > 0:
+            self.logger.debug(f"WROTE {self.rows_since_last_log:,} rows")
+
+        if self.full_drop:
+            # Atomic operation: Delete production folder AFTER all data written
+            self.logger.debug(
+                "full_drop mode: Performing atomic operation - "
+                "deleting production folder and moving files from _tmp"
+            )
+
+            # Step 1: Delete production folder (ACID: only after all writes succeed)
+            await self._delete_table_folder()
+
+            # Step 2: Move all data files from _tmp to production
+            # Collect any errors but continue moving files to minimize data loss
+            adls_ops = self._get_adls_ops()
+            move_errors = []
+
+            if hasattr(self, "saved_paths") and self.saved_paths:
+                for staging_path_str in self.saved_paths:
+                    if not staging_path_str:
+                        continue
+
+                    # Build final path: replace _tmp with LandingZone
+                    if "_tmp" in staging_path_str:
+                        final_path_str = staging_path_str.replace(
+                            "/Files/_tmp/", "/Files/LandingZone/"
+                        )
+                    else:
+                        # Fallback: build final path from staging path
+                        staging_path = Path(staging_path_str)
+                        final_dir = self.get_final_directory()
+                        if final_dir:
+                            final_path = final_dir / staging_path.name
+                            final_path_str = final_path.as_posix()
+                        else:
+                            # Build from base_path
+                            filename = PathHelper.get_filename(staging_path_str)
+                            final_path_str = f"{self.base_path}/{filename}"
+
+                    # Move file from _tmp to production
+                    try:
+                        await adls_ops.move_file(staging_path_str, final_path_str)
+                        self.logger.debug(
+                            f"Moved {PathHelper.get_filename(staging_path_str)} "
+                            f"from _tmp to production"
+                        )
+                    except Exception as e:
+                        filename = PathHelper.get_filename(staging_path_str)
+                        error_msg = f"Failed to move {filename}: {str(e)}"
+                        move_errors.append(error_msg)
+                        self.logger.error(error_msg)
+                        # Continue moving other files to minimize data loss
+
+            # Step 3: Move metadata files from _tmp to production (if they exist)
+            if self._metadata_tmp_path:
+                # Build final metadata path: replace _tmp with LandingZone
+                final_metadata_path = self._metadata_tmp_path.replace(
+                    "/Files/_tmp/", "/Files/LandingZone/"
+                )
+                try:
+                    await adls_ops.move_file(
+                        self._metadata_tmp_path, final_metadata_path
+                    )
+                    self.logger.debug("Moved _metadata.json from _tmp to production")
+                except Exception as e:
+                    error_msg = f"Failed to move _metadata.json: {str(e)}"
+                    move_errors.append(error_msg)
+                    self.logger.error(error_msg)
+
+            # Step 4: Move partner events file (if it exists and was written to _tmp)
+            if self._partner_events_tmp_path:
+                # Build final partner events path: replace _tmp with LandingZone
+                final_partner_events_path = self._partner_events_tmp_path.replace(
+                    "/Files/_tmp/", "/Files/LandingZone/"
+                )
+                try:
+                    await adls_ops.move_file(
+                        self._partner_events_tmp_path, final_partner_events_path
+                    )
+                    self.logger.debug(
+                        "Moved _partnerEvents.json from _tmp to production"
+                    )
+                except Exception as e:
+                    error_msg = f"Failed to move _partnerEvents.json: {str(e)}"
+                    move_errors.append(error_msg)
+                    self.logger.error(error_msg)
+
+            # If any moves failed, raise a comprehensive error
+            if move_errors:
+                error_summary = (
+                    f"full_drop atomic operation partially failed. "
+                    f"{len(move_errors)} file(s) failed to move from _tmp "
+                    f"to production. Production folder was deleted, but some "
+                    f"files remain in _tmp. Errors: {'; '.join(move_errors)}"
+                )
+                raise StoreError(error_summary)
+
+            self.logger.success(
+                "Atomic full_drop operation completed: "
+                "All data successfully moved from _tmp to production"
+            )
+        else:
+            # Normal mode: use parent's finish() which moves files via
+            # _move_to_final(). For normal mode, metadata files were written to
+            # production directly, so we just need to move data files
+            if self.uses_file_staging:
+                if hasattr(self, "_move_staged_files_to_final"):
+                    await self._move_staged_files_to_final()
+                elif hasattr(self, "saved_paths") and hasattr(self, "_move_to_final"):
+                    # Move staged files to final location
+                    for staging_path_str in self.saved_paths:
+                        if staging_path_str:
+                            staging_path = Path(staging_path_str)
+                            final_dir = self.get_final_directory()
+                            if final_dir:
+                                final_path = final_dir / staging_path.name
+                                await self._move_to_final(staging_path, final_path)
+
+        # Log completion stats (from parent finish())
+        if self.start_time:
+            duration = asyncio.get_event_loop().time() - self.start_time
+            rows_per_sec = self.rows_written / duration if duration > 0 else 0
+            self.logger.debug(
+                f"Store {self.name} completed in {duration:.1f}s "
+                f"({rows_per_sec:,.0f} rows/sec)"
+            )
