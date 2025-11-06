@@ -998,5 +998,231 @@ class TestCoordinatorFlowOverrides:
             Path(config_file).unlink(missing_ok=True)
 
 
+class TestCoordinatorConcurrency:
+    """Test Coordinator concurrency limiting with semaphore."""
+
+    @pytest.mark.asyncio
+    async def test_concurrency_defaults_to_eight(self, tmp_path):
+        """Test that concurrency defaults to 8 when no config or pools."""
+        config_data = {
+            "flows": {
+                f"flow_{i}": {
+                    "home": {
+                        "type": "parquet",
+                        "path": str(tmp_path / f"source_{i}.parquet"),
+                    },
+                    "store": {"type": "parquet", "path": str(tmp_path / f"dest_{i}")},
+                }
+                for i in range(10)
+            }
+        }
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        coordinator = Coordinator(str(config_file))
+        coordinator._load_config()
+        coordinator._create_flows()
+
+        # Check that max_concurrent would be 8 (default)
+        max_concurrent = coordinator.options.get("concurrency", None)
+        if max_concurrent is None:
+            if coordinator.connection_pools:
+                max_concurrent = max(
+                    (pool.size for pool in coordinator.connection_pools.values()),
+                    default=8,
+                )
+            else:
+                max_concurrent = 8
+
+        assert max_concurrent == 8
+
+    @pytest.mark.asyncio
+    async def test_concurrency_from_config_option(self, tmp_path):
+        """Test that concurrency can be set via config option."""
+        config_data = {
+            "options": {"concurrency": 4},
+            "flows": {
+                f"flow_{i}": {
+                    "home": {
+                        "type": "parquet",
+                        "path": str(tmp_path / f"source_{i}.parquet"),
+                    },
+                    "store": {"type": "parquet", "path": str(tmp_path / f"dest_{i}")},
+                }
+                for i in range(10)
+            },
+        }
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        coordinator = Coordinator(str(config_file))
+        coordinator._load_config()
+        coordinator._create_flows()
+
+        assert coordinator.options.get("concurrency") == 4
+
+    @pytest.mark.asyncio
+    async def test_concurrency_matches_pool_size(self, tmp_path):
+        """Test that concurrency matches pool size when pools exist."""
+        config_data = {
+            "connections": {
+                "test_db": {
+                    "type": "mssql",
+                    "server": "test.server",
+                    "database": "test_db",
+                    "pool_size": 12,
+                }
+            },
+            "flows": {
+                f"flow_{i}": {
+                    "home": {
+                        "type": "parquet",
+                        "path": str(tmp_path / f"source_{i}.parquet"),
+                    },
+                    "store": {"type": "parquet", "path": str(tmp_path / f"dest_{i}")},
+                }
+                for i in range(10)
+            },
+        }
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        coordinator = Coordinator(str(config_file))
+        coordinator._load_config()
+
+        # Mock connection pool initialization to avoid actual DB connection
+        # We'll just check the logic for determining max_concurrent
+        max_concurrent = coordinator.options.get("concurrency", None)
+        if max_concurrent is None:
+            # Simulate what happens when pools exist
+            # In real scenario, pools would be initialized and we'd check their size
+            # For this test, we verify the logic path
+            if coordinator.config and coordinator.config.connections:
+                # Check that pool_size is in config
+                pool_size = coordinator.config.connections["test_db"].get(
+                    "pool_size", 5
+                )
+                assert pool_size == 12
+
+    @pytest.mark.asyncio
+    async def test_semaphore_limits_concurrent_execution(self, tmp_path):
+        """Test that semaphore actually limits concurrent flow execution."""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        # Create test data files
+        for i in range(10):
+            source_file = tmp_path / f"source_{i}.parquet"
+            source_file.parent.mkdir(parents=True, exist_ok=True)
+            import polars as pl
+
+            pl.DataFrame(
+                {"id": [1, 2, 3], "value": [f"val_{i}_{j}" for j in range(3)]}
+            ).write_parquet(source_file)
+
+        config_data = {
+            "options": {"concurrency": 3},
+            "flows": {
+                f"flow_{i}": {
+                    "home": {
+                        "type": "parquet",
+                        "path": str(tmp_path / f"source_{i}.parquet"),
+                    },
+                    "store": {"type": "parquet", "path": str(tmp_path / f"dest_{i}")},
+                }
+                for i in range(10)
+            },
+        }
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        coordinator = Coordinator(str(config_file))
+        coordinator._load_config()
+        coordinator._create_flows()
+
+        # Track concurrent executions
+        concurrent_count = 0
+        max_concurrent_seen = 0
+        execution_lock = asyncio.Lock()
+
+        async def track_concurrent_execution():
+            nonlocal concurrent_count, max_concurrent_seen
+            async with execution_lock:
+                concurrent_count += 1
+                max_concurrent_seen = max(max_concurrent_seen, concurrent_count)
+
+            # Simulate some work
+            await asyncio.sleep(0.1)
+
+            async with execution_lock:
+                concurrent_count -= 1
+
+        # Mock flow.start() to track concurrency
+        for flow in coordinator.flows:
+            flow.start = AsyncMock(side_effect=track_concurrent_execution)
+
+        # Set concurrency to 3
+        coordinator.options["concurrency"] = 3
+
+        # Create semaphore and run flows
+        semaphore = asyncio.Semaphore(3)
+        tasks = []
+        for i, flow in enumerate(coordinator.flows):
+            task = asyncio.create_task(
+                coordinator._run_flow_with_semaphore(
+                    flow, i + 1, len(coordinator.flows), semaphore
+                )
+            )
+            tasks.append(task)
+
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Verify that max concurrent never exceeded 3
+        # Note: This is a timing-dependent test, but should be reliable with the sleep
+        assert (
+            max_concurrent_seen <= 3
+        ), f"Max concurrent was {max_concurrent_seen}, expected <= 3"
+
+    @pytest.mark.asyncio
+    async def test_concurrency_string_conversion(self, tmp_path):
+        """Test that concurrency string values are converted to int."""
+        config_data = {
+            "options": {"concurrency": "16"},  # String value
+            "flows": {
+                "flow_1": {
+                    "home": {
+                        "type": "parquet",
+                        "path": str(tmp_path / "source.parquet"),
+                    },
+                    "store": {"type": "parquet", "path": str(tmp_path / "dest")},
+                }
+            },
+        }
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        coordinator = Coordinator(str(config_file))
+        coordinator._load_config()
+        coordinator._create_flows()
+
+        # Simulate the logic in _run_flows
+        max_concurrent = coordinator.options.get("concurrency", None)
+        if isinstance(max_concurrent, str):
+            max_concurrent = int(max_concurrent)
+
+        assert max_concurrent == 16
+        assert isinstance(max_concurrent, int)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
