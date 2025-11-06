@@ -696,7 +696,7 @@ To get started, run:
         self.logger.debug(f"Created entity flow: {flow_name} for entity: {entity_name}")
 
     async def _run_flows(self) -> None:
-        """Run all flows in parallel with dbt-style logging."""
+        """Run all flows in parallel with dbt-style logging and concurrency limiting."""
         if not self.flows:
             self.logger.warning("No flows to run")
             return
@@ -710,6 +710,32 @@ To get started, run:
         self.last_milestone_rows = 0
         self.milestone_interval = 1_000_000  # Log every 1M rows
         self.milestone_lock = asyncio.Lock()
+
+        # Determine max concurrent flows
+        # Limits how many flows run concurrently using a semaphore
+        # to prevent connection contention.
+        max_concurrent = self.options.get("concurrency", None)
+        if max_concurrent is None:
+            # Try to match pool size if we have connection pools
+            if self.connection_pools:
+                # Use the largest pool size as a hint
+                max_concurrent = max(
+                    (pool.size for pool in self.connection_pools.values()),
+                    default=8,
+                )
+            else:
+                max_concurrent = 8
+
+        # Convert to int if it's a string (from environment variables)
+        if isinstance(max_concurrent, str):
+            max_concurrent = int(max_concurrent)
+
+        self.logger.info(
+            f"Running {len(self.flows)} flows with max concurrency of {max_concurrent}"
+        )
+
+        # Create semaphore to limit concurrent flow execution
+        semaphore = asyncio.Semaphore(max_concurrent)
 
         # Log STARTING lines for all flows (hygge-style, blue)
         total_flows = len(self.flows)
@@ -729,11 +755,12 @@ To get started, run:
 
             flow.set_progress_callback(progress_callback)
             task = asyncio.create_task(
-                self._run_flow(flow, i, total_flows), name=f"flow_{flow.name}"
+                self._run_flow_with_semaphore(flow, i, total_flows, semaphore),
+                name=f"flow_{flow.name}",
             )
             tasks.append(task)
 
-        # Run all flows concurrently
+        # Run all flows concurrently (but limited by semaphore)
         # Use return_exceptions=True so all flows complete even if some fail,
         # allowing us to generate a complete summary
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -748,6 +775,17 @@ To get started, run:
 
         # Generate and log dbt-style summary
         self._log_summary()
+
+    async def _run_flow_with_semaphore(
+        self,
+        flow: Flow,
+        flow_num: int,
+        total_flows: int,
+        semaphore: asyncio.Semaphore,
+    ) -> None:
+        """Acquires semaphore before running flow and releases after completion to limit concurrent execution and prevent connection contention."""
+        async with semaphore:
+            await self._run_flow(flow, flow_num, total_flows)
 
     async def _run_flow(self, flow: Flow, flow_num: int, total_flows: int) -> None:
         """Run a single flow with error handling and hygge-style logging."""

@@ -161,6 +161,16 @@ source_config:
     help="Run specific flow by name",
 )
 @click.option(
+    "--concurrency",
+    "-c",
+    type=int,
+    help=(
+        "Maximum number of flows to run concurrently "
+        "(default: matches connection pool size, or 8). "
+        "Uses async tasks with a semaphore to limit concurrency."
+    ),
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Enable verbose logging",
@@ -174,7 +184,7 @@ source_config:
         "Example: --var flow.mssql_to_mirrored_db.full_drop=true"
     ),
 )
-def go(flow: Optional[str], verbose: bool, var: tuple):
+def go(flow: Optional[str], concurrency: Optional[int], verbose: bool, var: tuple):
     """Execute all flows in the current hygge project."""
     logger = get_logger("hygge.cli.go")
 
@@ -229,6 +239,10 @@ def go(flow: Optional[str], verbose: bool, var: tuple):
         coordinator = Coordinator(
             flow_overrides=flow_overrides if flow_overrides else None
         )
+
+        # Apply CLI concurrency override if provided
+        if concurrency is not None:
+            coordinator.options["concurrency"] = concurrency
 
         if flow:
             click.echo(f"Starting flow: {flow}")
