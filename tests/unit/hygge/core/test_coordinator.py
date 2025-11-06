@@ -5,10 +5,13 @@ These tests focus on testing actual behavior rather than complex mocking.
 They verify that the registry pattern works correctly with real configurations.
 """
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock
 
+import polars as pl
 import pytest
 import yaml
 
@@ -1113,14 +1116,10 @@ class TestCoordinatorConcurrency:
     @pytest.mark.asyncio
     async def test_semaphore_limits_concurrent_execution(self, tmp_path):
         """Test that semaphore actually limits concurrent flow execution."""
-        import asyncio
-        from unittest.mock import AsyncMock
-
         # Create test data files
         for i in range(10):
             source_file = tmp_path / f"source_{i}.parquet"
             source_file.parent.mkdir(parents=True, exist_ok=True)
-            import polars as pl
 
             pl.DataFrame(
                 {"id": [1, 2, 3], "value": [f"val_{i}_{j}" for j in range(3)]}
