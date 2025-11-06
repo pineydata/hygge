@@ -1168,9 +1168,6 @@ class TestCoordinatorConcurrency:
         for flow in coordinator.flows:
             flow.start = AsyncMock(side_effect=track_concurrent_execution)
 
-        # Set concurrency to 3
-        coordinator.options["concurrency"] = 3
-
         # Create semaphore and run flows
         semaphore = asyncio.Semaphore(3)
         tasks = []
