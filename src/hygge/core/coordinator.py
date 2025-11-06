@@ -783,13 +783,7 @@ To get started, run:
         total_flows: int,
         semaphore: asyncio.Semaphore,
     ) -> None:
-        """
-        Run a single flow with semaphore-based concurrency limiting.
-
-        Acquires semaphore before running, releases after completion.
-        This ensures only N flows run concurrently, preventing connection contention.
-        Uses async tasks with a semaphore to limit concurrency.
-        """
+        """Acquires semaphore before running flow and releases after completion to limit concurrent execution and prevent connection contention."""
         async with semaphore:
             await self._run_flow(flow, flow_num, total_flows)
 
