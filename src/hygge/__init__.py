@@ -28,6 +28,8 @@ from .stores import (  # noqa: F401
     OneLakeStoreConfig,
     ParquetStore,
     ParquetStoreConfig,
+    SqliteStore,
+    SqliteStoreConfig,
 )
 
 __all__ = [
