@@ -9,14 +9,17 @@ hygge is built on Polars + PyArrow for data movement.
 Flows orchestrate the movement of Polars DataFrames from Home to Store.
 """
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
+import polars as pl
 from pydantic import BaseModel, Field, field_validator
 
 from hygge.utility.exceptions import FlowError
 from hygge.utility.logger import get_logger
 
 from .home import Home, HomeConfig
+from .journal import Journal, JournalConfig
 from .store import Store, StoreConfig
 
 
@@ -45,6 +48,14 @@ class Flow:
         home: Home,
         store: Store,
         options: Optional[Dict[str, Any]] = None,
+        journal: Optional[Journal] = None,
+        coordinator_run_id: Optional[str] = None,
+        flow_run_id: Optional[str] = None,
+        coordinator_name: Optional[str] = None,
+        base_flow_name: Optional[str] = None,
+        entity_name: Optional[str] = None,
+        run_type: Optional[str] = None,
+        watermark_config: Optional[Dict[str, str]] = None,
     ):
         self.name = name
         self.home = home
@@ -55,12 +66,24 @@ class Flow:
         self.queue_size = self.options.get("queue_size", 10)
         self.timeout = self.options.get("timeout", 300)
 
+        # Journal integration
+        self.journal = journal
+        self.coordinator_run_id = coordinator_run_id
+        self.flow_run_id = flow_run_id
+        self.coordinator_name = coordinator_name
+        self.base_flow_name = base_flow_name or name
+        self.entity_name = entity_name
+        self.run_type = run_type or "full_drop"
+        self.watermark_config = watermark_config
+
         # State tracking
         self.total_rows = 0
         self.batches_processed = 0
         self.start_time = None
         self.end_time = None
         self.duration: float = 0.0
+        self.entity_start_time: Optional[datetime] = None
+        self.written_data: Optional[pl.DataFrame] = None  # Accumulate for watermark
 
         # Progress callback for coordinator-level tracking
         self.progress_callback = None
@@ -82,6 +105,7 @@ class Flow:
         """Start the flow from Home to Store."""
         # START line already logged by Coordinator (dbt-style)
         self.start_time = asyncio.get_event_loop().time()
+        self.entity_start_time = datetime.now(timezone.utc)
 
         producer = None
         consumer = None
@@ -128,12 +152,18 @@ class Flow:
                 f"{self.total_rows:,} rows in {self.duration:.1f}s ({rate:.0f} rows/s)"
             )
 
+            # Record entity run in journal (if enabled)
+            await self._record_entity_run(status="success")
+
         except Exception as e:
             # Capture duration even on failure
             if self.start_time:
                 self.end_time = asyncio.get_event_loop().time()
                 self.duration = self.end_time - self.start_time
             self.logger.error(f"Flow failed: {self.name}, error: {str(e)}")
+
+            # Record entity run in journal (if enabled) with failure status
+            await self._record_entity_run(status="fail", message=str(e))
 
             # Cancel tasks if they're still running
             if producer and not producer.done():
@@ -198,6 +228,12 @@ class Flow:
                     # Write to store
                     await self.store.write(batch)
 
+                    # Accumulate data for watermark extraction
+                    if self.watermark_config and self.written_data is None:
+                        self.written_data = batch
+                    elif self.watermark_config and self.written_data is not None:
+                        self.written_data = pl.concat([self.written_data, batch])
+
                     # Update metrics
                     batch_rows = len(batch)
                     self.total_rows += batch_rows
@@ -224,6 +260,120 @@ class Flow:
         except Exception as e:
             self.logger.error(f"Consumer error: {str(e)}")
             raise FlowError(f"Consumer failed: {str(e)}")
+
+    async def _record_entity_run(
+        self, status: str, message: Optional[str] = None
+    ) -> None:
+        """
+        Record entity run in journal (if enabled).
+
+        Args:
+            status: Run status: "success", "fail", or "skip"
+            message: Optional message (error message, skip reason, etc.)
+        """
+        if not self.journal:
+            return
+
+        if not self.coordinator_run_id or not self.flow_run_id:
+            self.logger.warning(
+                "Journal enabled but run IDs not provided - skipping journal record"
+            )
+            return
+
+        try:
+            # Extract entity name (if not provided, extract from flow name)
+            entity = self.entity_name
+            if not entity and self.name != self.base_flow_name:
+                # Entity flow: extract entity name from flow name
+                # Flow name format: {base_flow_name}_{entity_name}
+                if self.name.startswith(f"{self.base_flow_name}_"):
+                    entity = self.name[len(f"{self.base_flow_name}_") :]
+                else:
+                    entity = None
+
+            # Determine final status
+            if status == "success" and self.total_rows == 0:
+                final_status = "skip"
+                final_message = message or "No rows processed"
+            else:
+                final_status = status
+                final_message = message
+
+            # Extract watermark if configured and successful
+            watermark_value = None
+            watermark_type = None
+            primary_key = None
+            watermark_column = None
+
+            if (
+                final_status == "success"
+                and self.watermark_config
+                and self.written_data is not None
+                and len(self.written_data) > 0
+            ):
+                primary_key = self.watermark_config.get("primary_key")
+                watermark_column = self.watermark_config.get("watermark_column")
+
+                if primary_key and watermark_column:
+                    try:
+                        # Validate primary key exists
+                        # (for reference, not used in watermark value)
+                        if primary_key not in self.written_data.columns:
+                            self.logger.warning(
+                                f"Primary key '{primary_key}' not found in data"
+                            )
+
+                        # Extract max watermark value
+                        if watermark_column in self.written_data.columns:
+                            max_watermark = self.written_data[watermark_column].max()
+
+                            # Infer watermark type from DataFrame column
+                            watermark_dtype = self.written_data[watermark_column].dtype
+                            if watermark_dtype == pl.Datetime:
+                                watermark_type = "datetime"
+                                watermark_value = max_watermark.isoformat()
+                            elif watermark_dtype in [pl.Int64, pl.Int32, pl.UInt64]:
+                                watermark_type = "int"
+                                watermark_value = str(max_watermark)
+                            elif watermark_dtype == pl.Utf8:
+                                watermark_type = "string"
+                                watermark_value = str(max_watermark)
+                            else:
+                                self.logger.warning(
+                                    f"Unsupported watermark type: {watermark_dtype}"
+                                )
+                        else:
+                            self.logger.warning(
+                                f"Watermark column '{watermark_column}' "
+                                f"not found in data"
+                            )
+                    except Exception as e:
+                        self.logger.warning(f"Failed to extract watermark: {str(e)}")
+
+            # Record in journal
+            finish_time = datetime.now(timezone.utc)
+            await self.journal.record_entity_run(
+                coordinator_run_id=self.coordinator_run_id,
+                flow_run_id=self.flow_run_id,
+                coordinator=self.coordinator_name or "unknown",
+                flow=self.base_flow_name,
+                entity=entity or self.base_flow_name,
+                start_time=self.entity_start_time or datetime.now(timezone.utc),
+                finish_time=finish_time,
+                status=final_status,
+                run_type=self.run_type,
+                row_count=self.total_rows if self.total_rows > 0 else None,
+                duration=self.duration,
+                primary_key=primary_key,
+                watermark_column=watermark_column,
+                watermark_type=watermark_type,
+                watermark=watermark_value,
+                message=final_message,
+            )
+
+        except Exception as e:
+            # Journal failures should not break flows
+            self.logger.warning(f"Failed to record entity run in journal: {str(e)}")
 
 
 class FlowConfig(BaseModel):
@@ -276,6 +426,28 @@ class FlowConfig(BaseModel):
             "Flow-level strategy: true for full reload (drops/recreates tables), "
             "false for incremental updates. "
             "If not set, uses store-level configuration."
+        ),
+    )
+    # Journal configuration (optional)
+    journal: Optional[Union[Dict[str, Any], JournalConfig]] = Field(
+        default=None,
+        description="Journal configuration for tracking flow execution metadata",
+    )
+    # Watermark configuration (flow-level, applies to all entities unless overridden)
+    watermark: Optional[Dict[str, str]] = Field(
+        default=None,
+        description=(
+            "Watermark configuration for incremental loads. "
+            "Applies to all entities unless overridden at entity level. "
+            "Requires 'primary_key' and 'watermark_column'."
+        ),
+    )
+    # Run type (flow-level default, can be overridden at entity level)
+    run_type: Optional[str] = Field(
+        default="full_drop",
+        description=(
+            "Run type for this flow: 'full_drop' (default) or 'incremental'. "
+            "Can be overridden at entity level."
         ),
     )
 
