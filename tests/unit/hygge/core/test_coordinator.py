@@ -17,6 +17,7 @@ import yaml
 
 from hygge.core.coordinator import Coordinator, CoordinatorConfig, validate_config
 from hygge.core.flow import FlowConfig
+from hygge.core.journal import Journal, JournalConfig
 
 # Import Parquet implementations to register them
 from hygge.homes.parquet.home import ParquetHome, ParquetHomeConfig  # noqa: F401
@@ -39,6 +40,19 @@ class TestCoordinatorConfig:
         assert len(config.flows) == 1
         assert "test_flow" in config.flows
         assert isinstance(config.flows["test_flow"], FlowConfig)
+
+    def test_coordinator_config_journal_conversion(self):
+        """Test that CoordinatorConfig converts journal config properly."""
+        config_data = {
+            "journal": {"path": "/tmp/journal"},
+            "flows": {
+                "test_flow": {"home": "data/test.parquet", "store": "output/test"}
+            },
+        }
+
+        config = CoordinatorConfig.from_dict(config_data)
+        assert isinstance(config.journal, JournalConfig)
+        assert config.journal.path == "/tmp/journal"
 
     def test_coordinator_config_empty_flows_validation(self):
         """Test that empty flows are rejected."""
@@ -136,6 +150,151 @@ class TestCoordinatorInitialization:
 
 
 class TestCoordinatorConfigLoading:
+    """Legacy configuration loading helpers remain covered elsewhere."""
+
+    pass
+
+
+class TestCoordinatorJournalIntegration:
+    """Test journal integration hooks inside Coordinator."""
+
+    def test_coordinator_flow_receives_journal_context(self, tmp_path):
+        """Coordinator should attach journal and metadata to flows."""
+        journal_dir = tmp_path / "journal_dir"
+        config_data = {
+            "journal": {"path": str(journal_dir)},
+            "flows": {
+                "users_flow": {
+                    "home": {
+                        "type": "parquet",
+                        "path": str(tmp_path / "source.parquet"),
+                    },
+                    "store": {"type": "parquet", "path": str(tmp_path / "dest")},
+                    "run_type": "incremental",
+                    "watermark": {
+                        "primary_key": "id",
+                        "watermark_column": "updated_at",
+                    },
+                }
+            },
+        }
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        coordinator = Coordinator(str(config_file))
+        coordinator._load_single_file_config()
+        coordinator.coordinator_run_id = "coord_run_123"
+        coordinator.coordinator_name = "test_coordinator"
+        coordinator._create_flows()
+
+        assert len(coordinator.flows) == 1
+        flow = coordinator.flows[0]
+        assert isinstance(flow.journal, Journal)
+        assert flow.journal.journal_path == (journal_dir / "journal.parquet")
+        assert flow.coordinator_run_id == "coord_run_123"
+        assert flow.coordinator_name == "test_coordinator"
+        assert flow.run_type == "incremental"
+        assert flow.watermark_config == {
+            "primary_key": "id",
+            "watermark_column": "updated_at",
+        }
+        assert coordinator.journal is flow.journal
+
+    @pytest.mark.asyncio
+    async def test_run_flow_assigns_flow_run_id(self, tmp_path, monkeypatch):
+        """_run_flow should assign deterministic flow_run_id."""
+        config_data = {
+            "flows": {
+                "users_flow": {
+                    "home": {
+                        "type": "parquet",
+                        "path": str(tmp_path / "source.parquet"),
+                    },
+                    "store": {"type": "parquet", "path": str(tmp_path / "dest")},
+                }
+            }
+        }
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        coordinator = Coordinator(str(config_file))
+        coordinator._load_single_file_config()
+        coordinator._create_flows()
+
+        coordinator.coordinator_name = "test_coord"
+        coordinator.coordinator_run_id = "coord_run"
+        coordinator.flow_run_ids = {}
+
+        generated_ids = []
+
+        def fake_generate_run_id(components):
+            generated_ids.append(tuple(components))
+            return f"run_{len(generated_ids)}"
+
+        monkeypatch.setattr(
+            "hygge.core.coordinator.generate_run_id", fake_generate_run_id
+        )
+
+        flow = coordinator.flows[0]
+        flow.start = AsyncMock()
+
+        await coordinator._run_flow(flow, 1, 1)
+
+        assert flow.flow_run_id == "run_1"
+        assert coordinator.flow_run_ids[flow.base_flow_name] == "run_1"
+        assert flow.coordinator_run_id == "coord_run"
+        assert generated_ids[0][0] == "test_coord"
+
+    @pytest.mark.asyncio
+    async def test_flow_run_id_shared_across_entities(self, tmp_path, monkeypatch):
+        """Entity flows for same base flow share a flow_run_id."""
+        config_data = {
+            "flows": {
+                "users_flow": {
+                    "home": {
+                        "type": "parquet",
+                        "path": str(tmp_path / "source.parquet"),
+                    },
+                    "store": {"type": "parquet", "path": str(tmp_path / "dest")},
+                    "entities": ["users", "orders"],
+                }
+            }
+        }
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(config_data, f)
+
+        coordinator = Coordinator(str(config_file))
+        coordinator._load_single_file_config()
+        coordinator._create_flows()
+
+        coordinator.coordinator_name = "test_coord"
+        coordinator.coordinator_run_id = "coord_run"
+        coordinator.flow_run_ids = {}
+
+        generated_ids = []
+
+        def fake_generate_run_id(components):
+            generated_ids.append(tuple(components))
+            return f"run_{len(generated_ids)}"
+
+        monkeypatch.setattr(
+            "hygge.core.coordinator.generate_run_id", fake_generate_run_id
+        )
+
+        for idx, flow in enumerate(coordinator.flows, start=1):
+            flow.start = AsyncMock()
+            await coordinator._run_flow(flow, idx, len(coordinator.flows))
+
+        flow_ids = {flow.flow_run_id for flow in coordinator.flows}
+        assert len(flow_ids) == 1
+        assert len(generated_ids) == 1
+
     """Test Coordinator configuration loading."""
 
     def test_load_single_file_config(self):

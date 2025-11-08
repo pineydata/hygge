@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from hygge.core.flow import FlowConfig
 from hygge.core.home import Home
+from hygge.core.journal import JournalConfig
 from hygge.core.store import Store
 
 # Import concrete implementations to register them
@@ -107,6 +108,17 @@ class TestFlowConfig:
 
         assert config.options["custom_flow_option"] == "value"
         assert config.options["timeout"] == 600
+
+    def test_journal_config_conversion(self):
+        """Test journal configuration is converted to JournalConfig."""
+        config = FlowConfig(
+            home="data/users.parquet",
+            store="data/output",
+            journal={"path": "/tmp/journal"},
+        )
+
+        assert isinstance(config.journal, JournalConfig)
+        assert config.journal.path == "/tmp/journal"
 
     def test_empty_flow_options_default(self):
         """Test flow configuration with no additional options."""

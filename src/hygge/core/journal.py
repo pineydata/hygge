@@ -414,15 +414,15 @@ class Journal:
                 "end_time": None,
             }
 
-        # Aggregate
-        summary = flow_records.agg(
+        # Aggregate using select with aggregation expressions
+        summary = flow_records.select(
             [
-                pl.count().alias("n_entities"),
-                pl.sum(pl.col("status") == "success").alias("n_success"),
-                pl.sum(pl.col("status") == "fail").alias("n_fail"),
-                pl.sum(pl.col("status") == "skip").alias("n_skip"),
-                pl.min("start_time").alias("start_time"),
-                pl.max("finish_time").alias("end_time"),
+                pl.len().alias("n_entities"),
+                (pl.col("status") == "success").cast(pl.Int32).sum().alias("n_success"),
+                (pl.col("status") == "fail").cast(pl.Int32).sum().alias("n_fail"),
+                (pl.col("status") == "skip").cast(pl.Int32).sum().alias("n_skip"),
+                pl.col("start_time").min().alias("start_time"),
+                pl.col("finish_time").max().alias("end_time"),
             ]
         )
 
@@ -473,13 +473,13 @@ class Journal:
                 "end_time": None,
             }
 
-        # Aggregate
-        summary = coordinator_records.agg(
+        # Aggregate using select with aggregation expressions
+        summary = coordinator_records.select(
             [
-                pl.n_unique("flow").alias("n_flows"),
-                pl.n_unique("entity").alias("n_entities"),
-                pl.min("start_time").alias("start_time"),
-                pl.max("finish_time").alias("end_time"),
+                pl.col("flow").n_unique().alias("n_flows"),
+                pl.col("entity").n_unique().alias("n_entities"),
+                pl.col("start_time").min().alias("start_time"),
+                pl.col("finish_time").max().alias("end_time"),
             ]
         )
 

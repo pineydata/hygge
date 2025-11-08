@@ -495,6 +495,20 @@ class FlowConfig(BaseModel):
                 raise e
         return v
 
+    @field_validator("journal", mode="before")
+    @classmethod
+    def validate_journal(cls, v):
+        """Ensure journal configuration is parsed into JournalConfig."""
+        if v is None:
+            return None
+        if isinstance(v, JournalConfig):
+            return v
+        if isinstance(v, dict):
+            return JournalConfig(**v)
+        raise ValueError(
+            "Journal configuration must be a dict or JournalConfig instance"
+        )
+
     @property
     def home_instance(self) -> Home:
         """Get home instance - converts raw config to Home instance."""
