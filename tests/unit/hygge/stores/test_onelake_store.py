@@ -112,6 +112,29 @@ class TestOneLakeStoreInitialization:
         assert store.base_path == "landing/{entity}/"
         assert store.file_pattern == "{sequence:020d}.parquet"  # Default
 
+    def test_onelake_configure_for_run_uses_full_drop_flag(self):
+        """Inherited ADLS behaviour toggles truncate mode per run."""
+        config = OneLakeStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            path="Files/{entity}/",
+        )
+
+        store = OneLakeStore("test_store", config, entity_name="users")
+        store.saved_paths = ["Files/_tmp/users/file.parquet"]
+        store.uploaded_files = ["file.parquet"]
+        store.sequence_counter = 9
+        store.full_drop_mode = True
+
+        store.configure_for_run("incremental")
+        assert store.full_drop_mode is False
+        assert store.saved_paths == []
+        assert store.uploaded_files == []
+        assert store.sequence_counter == 0
+
+        store.configure_for_run("full_drop")
+        assert store.full_drop_mode is True
+
     def test_onelake_store_with_entity_name(self):
         """Test OneLake store with entity name substitution."""
         config = OneLakeStoreConfig(

@@ -5,7 +5,7 @@ Tests configuration, path management, and authentication setup without
 requiring an actual ADLS account. Integration tests are in tests/integration/.
 """
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -105,6 +105,30 @@ class TestADLSStoreInitialization:
         assert store.sequence_counter == 0
         assert store.uploaded_files == []
 
+    def test_configure_for_run_resets_state(self):
+        """Run-level configuration resets counters and flags."""
+        config = ADLSStoreConfig(
+            account_url="https://mystorage.dfs.core.windows.net",
+            filesystem="mycontainer",
+            path="data/{entity}/",
+        )
+
+        store = ADLSStore("test_store", config, entity_name="users")
+        store.saved_paths = ["Files/_tmp/users/file.parquet"]
+        store.uploaded_files = ["file.parquet"]
+        store.sequence_counter = 7
+        store.full_drop_mode = True
+
+        store.configure_for_run("incremental")
+
+        assert store.full_drop_mode is False
+        assert store.saved_paths == []
+        assert store.uploaded_files == []
+        assert store.sequence_counter == 0
+
+        store.configure_for_run("full_drop")
+        assert store.full_drop_mode is True
+
     def test_adls_store_with_entity_name(self):
         """Test ADLS store with entity name substitution."""
         config = ADLSStoreConfig(
@@ -197,6 +221,33 @@ class TestADLSStoreAuthentication:
             client_id="test-client",
             client_secret="test-secret",
         )
+
+
+@pytest.mark.asyncio
+async def test_move_staged_files_to_final_full_drop_truncates_destination():
+    """full_drop runs delete destination data before publishing new files."""
+    config = ADLSStoreConfig(
+        account_url="https://mystorage.dfs.core.windows.net",
+        filesystem="mycontainer",
+        path="data/{entity}/",
+    )
+
+    store = ADLSStore("test_store", config, entity_name="users")
+    store.full_drop_mode = True
+    store.saved_paths = ["Files/_tmp/users/00000000000000000001.parquet"]
+
+    adls_ops = AsyncMock()
+    move_mock = AsyncMock()
+
+    with patch.object(store, "_get_adls_ops", return_value=adls_ops):
+        with patch.object(store, "_move_to_final", move_mock):
+            await store._move_staged_files_to_final()
+
+    adls_ops.delete_directory.assert_awaited_once_with("data/users", recursive=True)
+    move_mock.assert_awaited_once()
+    staging_arg, final_arg = move_mock.await_args.args
+    assert str(staging_arg).endswith("00000000000000000001.parquet")
+    assert str(final_arg).endswith("00000000000000000001.parquet")
 
     @patch("hygge.stores.adls.store.AzureNamedKeyCredential")
     def test_storage_key_authentication(self, mock_named_key):

@@ -232,6 +232,17 @@ class ADLSOperations:
         """
         return await self.upload_file(source=data, dest_path=dest_path)
 
+    async def read_file_bytes(self, path: str) -> bytes:
+        """Read an entire file into memory."""
+        try:
+            file_client = self.file_system_client.get_file_client(path)
+            download = file_client.download_file(timeout=self.timeout)
+            return download.readall()
+        except Exception as e:
+            if "timeout" in str(e).lower():
+                raise TimeoutError(f"Read operation timed out for {path}: {str(e)}")
+            raise StoreError(f"Failed to read file {path}: {str(e)}")
+
     async def directory_exists(self, path: str) -> bool:
         """Check if a directory exists in ADLS Gen2 storage"""
         try:
