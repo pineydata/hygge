@@ -10,7 +10,7 @@ Flows orchestrate the movement of Polars DataFrames from Home to Store.
 """
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional, Union
 
 import polars as pl
 from pydantic import BaseModel, Field, field_validator
@@ -75,6 +75,8 @@ class Flow:
         self.entity_name = entity_name
         self.run_type = run_type or "full_drop"
         self.watermark_config = watermark_config
+        self.initial_watermark_info: Optional[Dict[str, Any]] = None
+        self.watermark_message: Optional[str] = None
 
         # State tracking
         self.total_rows = 0
@@ -83,7 +85,10 @@ class Flow:
         self.end_time = None
         self.duration: float = 0.0
         self.entity_start_time: Optional[datetime] = None
-        self.written_data: Optional[pl.DataFrame] = None  # Accumulate for watermark
+        self._watermark_candidate: Optional[Any] = None
+        self._watermark_type: Optional[str] = None
+        self._watermark_primary_key_warned = False
+        self._watermark_column_warned = False
 
         # Progress callback for coordinator-level tracking
         self.progress_callback = None
@@ -113,6 +118,9 @@ class Flow:
         try:
             queue = asyncio.Queue(maxsize=self.queue_size)
             producer_done = asyncio.Event()
+
+            self._reset_watermark_tracker()
+            await self._prepare_incremental_context()
 
             # Start producer and consumer tasks
             producer = asyncio.create_task(
@@ -153,7 +161,9 @@ class Flow:
             )
 
             # Record entity run in journal (if enabled)
-            await self._record_entity_run(status="success")
+            await self._record_entity_run(
+                status="success", message=self.watermark_message
+            )
 
         except Exception as e:
             # Capture duration even on failure
@@ -191,7 +201,7 @@ class Flow:
         """Read batches from Home and put them in queue."""
         try:
             self.logger.debug(f"Starting producer for {self.name}")
-            async for batch in self.home.read():
+            async for batch in self._iterate_home_batches():
                 if batch is not None:
                     await queue.put(batch)
                     self.logger.debug(
@@ -209,6 +219,151 @@ class Flow:
             self.logger.error(f"Producer error: {str(e)}")
             producer_done.set()  # Signal done even on error
             raise FlowError(f"Producer failed: {str(e)}")
+
+    async def _iterate_home_batches(self) -> AsyncIterator[pl.DataFrame]:
+        """Yield batches from the home, applying watermark filtering when available."""
+        if self.initial_watermark_info and hasattr(self.home, "read_with_watermark"):
+            async for batch in self.home.read_with_watermark(
+                self.initial_watermark_info
+            ):
+                yield batch
+        else:
+            if self.initial_watermark_info and not hasattr(
+                self.home, "read_with_watermark"
+            ):
+                self.logger.warning(
+                    f"Home '{self.home.__class__.__name__}' does not support "
+                    "watermark-based reads. Performing full load."
+                )
+            async for batch in self.home.read():
+                yield batch
+
+    def _reset_watermark_tracker(self) -> None:
+        """Reset watermark aggregation state for a new run."""
+        self._watermark_candidate = None
+        self._watermark_type = None
+        self._watermark_primary_key_warned = False
+        self._watermark_column_warned = False
+
+    def _update_watermark_tracker(self, batch: pl.DataFrame) -> None:
+        """Update tracked watermark value based on a batch."""
+        if not self.watermark_config:
+            return
+
+        primary_key = self.watermark_config.get("primary_key")
+        watermark_column = self.watermark_config.get("watermark_column")
+
+        if not primary_key or not watermark_column:
+            return
+
+        if primary_key not in batch.columns and not self._watermark_primary_key_warned:
+            self.logger.warning(f"Primary key '{primary_key}' not found in data")
+            self._watermark_primary_key_warned = True
+
+        if watermark_column not in batch.columns:
+            if not self._watermark_column_warned:
+                self.logger.warning(
+                    f"Watermark column '{watermark_column}' not found in data"
+                )
+                self._watermark_column_warned = True
+            return
+
+        column_series = batch[watermark_column]
+        if column_series.is_null().all():
+            return
+
+        dtype = column_series.dtype
+        candidate_type: Optional[str] = None
+        candidate_value: Optional[Any] = None
+
+        if dtype == pl.Datetime:
+            candidate_type = "datetime"
+            candidate_value = column_series.max()
+        elif dtype in (
+            pl.Int8,
+            pl.Int16,
+            pl.Int32,
+            pl.Int64,
+            pl.UInt8,
+            pl.UInt16,
+            pl.UInt32,
+            pl.UInt64,
+        ):
+            candidate_type = "int"
+            candidate_value = int(column_series.max())
+        elif dtype == pl.Utf8:
+            candidate_type = "string"
+            candidate_value = str(column_series.max())
+        else:
+            if not self._watermark_column_warned:
+                self.logger.warning(f"Unsupported watermark type: {dtype}")
+                self._watermark_column_warned = True
+            return
+
+        if candidate_value is None:
+            return
+
+        if self._watermark_candidate is None:
+            self._watermark_candidate = candidate_value
+            self._watermark_type = candidate_type
+            return
+
+        if self._watermark_type != candidate_type:
+            self.logger.warning(
+                f"Inconsistent watermark types across batches: "
+                f"{self._watermark_type} vs {candidate_type}"
+            )
+            return
+
+        if candidate_type == "datetime":
+            if candidate_value > self._watermark_candidate:
+                self._watermark_candidate = candidate_value
+        elif candidate_type == "int":
+            if candidate_value > self._watermark_candidate:
+                self._watermark_candidate = candidate_value
+        elif candidate_type == "string":
+            if candidate_value > self._watermark_candidate:
+                self._watermark_candidate = candidate_value
+
+    async def _prepare_incremental_context(self) -> None:
+        """Resolve watermark context for incremental runs."""
+        self.initial_watermark_info = None
+        self.watermark_message = None
+
+        if self.run_type != "incremental":
+            return
+
+        if not self.journal or not self.watermark_config:
+            return
+
+        entity_identifier = self._resolve_entity_name() or self.base_flow_name
+
+        try:
+            watermark_info = await self.journal.get_watermark(
+                self.base_flow_name,
+                entity=entity_identifier,
+                primary_key=self.watermark_config.get("primary_key"),
+                watermark_column=self.watermark_config.get("watermark_column"),
+            )
+            if watermark_info:
+                self.initial_watermark_info = watermark_info
+                watermark_val = watermark_info.get("watermark")
+                watermark_type = watermark_info.get("watermark_type")
+                self.logger.debug(
+                    f"Using watermark {watermark_val} "
+                    f"(type={watermark_type}) for flow {self.name}"
+                )
+        except ValueError as exc:
+            warning_message = (
+                f"Watermark config mismatch for {self.name}: {str(exc)}. "
+                "Proceeding with full load and recording new watermark."
+            )
+            self.logger.warning(warning_message)
+            self.watermark_message = warning_message
+        except Exception as exc:
+            self.logger.warning(
+                f"Failed to retrieve watermark for {self.name}: {str(exc)}"
+            )
 
     async def _consumer(
         self, queue: asyncio.Queue, producer_done: asyncio.Event
@@ -228,11 +383,7 @@ class Flow:
                     # Write to store
                     await self.store.write(batch)
 
-                    # Accumulate data for watermark extraction
-                    if self.watermark_config and self.written_data is None:
-                        self.written_data = batch
-                    elif self.watermark_config and self.written_data is not None:
-                        self.written_data = pl.concat([self.written_data, batch])
+                    self._update_watermark_tracker(batch)
 
                     # Update metrics
                     batch_rows = len(batch)
@@ -282,14 +433,7 @@ class Flow:
 
         try:
             # Extract entity name (if not provided, extract from flow name)
-            entity = self.entity_name
-            if not entity and self.name != self.base_flow_name:
-                # Entity flow: extract entity name from flow name
-                # Flow name format: {base_flow_name}_{entity_name}
-                if self.name.startswith(f"{self.base_flow_name}_"):
-                    entity = self.name[len(f"{self.base_flow_name}_") :]
-                else:
-                    entity = None
+            entity = self._resolve_entity_name()
 
             # Determine final status
             if status == "success" and self.total_rows == 0:
@@ -308,47 +452,27 @@ class Flow:
             if (
                 final_status == "success"
                 and self.watermark_config
-                and self.written_data is not None
-                and len(self.written_data) > 0
+                and self._watermark_candidate is not None
             ):
                 primary_key = self.watermark_config.get("primary_key")
                 watermark_column = self.watermark_config.get("watermark_column")
 
                 if primary_key and watermark_column:
-                    try:
-                        # Validate primary key exists
-                        # (for reference, not used in watermark value)
-                        if primary_key not in self.written_data.columns:
-                            self.logger.warning(
-                                f"Primary key '{primary_key}' not found in data"
-                            )
+                    watermark_type = self._watermark_type
+                    candidate = self._watermark_candidate
 
-                        # Extract max watermark value
-                        if watermark_column in self.written_data.columns:
-                            max_watermark = self.written_data[watermark_column].max()
-
-                            # Infer watermark type from DataFrame column
-                            watermark_dtype = self.written_data[watermark_column].dtype
-                            if watermark_dtype == pl.Datetime:
-                                watermark_type = "datetime"
-                                watermark_value = max_watermark.isoformat()
-                            elif watermark_dtype in [pl.Int64, pl.Int32, pl.UInt64]:
-                                watermark_type = "int"
-                                watermark_value = str(max_watermark)
-                            elif watermark_dtype == pl.Utf8:
-                                watermark_type = "string"
-                                watermark_value = str(max_watermark)
-                            else:
-                                self.logger.warning(
-                                    f"Unsupported watermark type: {watermark_dtype}"
-                                )
-                        else:
-                            self.logger.warning(
-                                f"Watermark column '{watermark_column}' "
-                                f"not found in data"
-                            )
-                    except Exception as e:
-                        self.logger.warning(f"Failed to extract watermark: {str(e)}")
+                    if watermark_type == "datetime":
+                        watermark_value = candidate.isoformat()
+                    elif watermark_type == "int":
+                        watermark_value = str(candidate)
+                    elif watermark_type == "string":
+                        watermark_value = candidate
+                    else:
+                        self.logger.warning(
+                            "Unable to serialize watermark value "
+                            f"of type {watermark_type}"
+                        )
+                        watermark_value = None
 
             # Record in journal
             finish_time = datetime.now(timezone.utc)
@@ -374,6 +498,16 @@ class Flow:
         except Exception as e:
             # Journal failures should not break flows
             self.logger.warning(f"Failed to record entity run in journal: {str(e)}")
+
+    def _resolve_entity_name(self) -> Optional[str]:
+        """Resolve entity name for journal lookups."""
+        if self.entity_name:
+            return self.entity_name
+        if self.name != self.base_flow_name and self.name.startswith(
+            f"{self.base_flow_name}_"
+        ):
+            return self.name[len(f"{self.base_flow_name}_") :]
+        return None
 
 
 class FlowConfig(BaseModel):

@@ -89,29 +89,65 @@ class MssqlHome(Home, home_type="mssql"):
         Yields:
             Polars DataFrame batches
         """
+        async for batch in self._stream_query(self._build_query()):
+            yield batch
+
+    async def read_with_watermark(
+        self, watermark: Dict[str, Any]
+    ) -> AsyncIterator[pl.DataFrame]:
+        """
+        Read data using watermark information for incremental loads.
+
+        Args:
+            watermark: Watermark information retrieved from the journal.
+                Expected keys: watermark, watermark_type, watermark_column, primary_key
+        """
+        if not watermark or not watermark.get("watermark"):
+            self.logger.debug(
+                "Watermark information missing or empty - performing full load"
+            )
+            async for batch in self._get_batches():
+                yield batch
+            return
+
+        if self.config.query:
+            self.logger.warning(
+                "Watermark-based incremental loads require table configuration. "
+                "Custom query detected - performing full load."
+            )
+            async for batch in self._get_batches():
+                yield batch
+            return
+
+        filter_clause = self._build_watermark_filter(watermark)
+        if not filter_clause:
+            self.logger.warning(
+                "Unable to construct watermark filter - performing full load."
+            )
+            async for batch in self._get_batches():
+                yield batch
+            return
+
+        incremental_query = self._append_filter_to_query(
+            self._build_query(), filter_clause
+        )
+        self.logger.debug(f"Applying watermark filter: {filter_clause}")
+
+        async for batch in self._stream_query(incremental_query):
+            yield batch
+
+    async def _stream_query(self, query: str) -> AsyncIterator[pl.DataFrame]:
+        """
+        Execute a query and yield batches using streaming extraction.
+
+        Args:
+            query: SQL query string to execute.
+        """
         try:
-            # Acquire connection
-            if self.pool:
-                self.logger.debug(f"Acquiring connection from pool '{self.pool.name}'")
-                self._connection = await self.pool.acquire()
-                self._owned_connection = False
-            else:
-                # No pool - create dedicated connection for testing/simple cases
-                self.logger.debug("Creating dedicated connection (no pool)")
-                factory = MssqlConnection(
-                    server=self.config.server,
-                    database=self.config.database,
-                    options=self.config.get_connection_options(),
-                )
-                self._connection = await factory.get_connection()
-                self._owned_connection = True
+            await self._acquire_connection()
 
-            # Build query
-            query = self._build_query()
-            self.logger.debug(f"Executing query: {query[:100]}...")
+            self.logger.debug(f"Executing query: {query[:150]}...")
 
-            # Let Polars handle the batching efficiently
-            # Default (25k) optimized for producer-consumer overlap
             batch_size = self.options.get("batch_size", 25_000)
             batch_num = 0
             total_rows = 0
@@ -120,33 +156,43 @@ class MssqlHome(Home, home_type="mssql"):
                 f"Starting batched extraction with batch_size={batch_size:,}"
             )
 
-            # Use ThreadPoolEngine for true streaming extraction
-            # Batches are yielded as they're extracted, not after extraction completes
-            # This enables true producer-consumer streaming and reduces memory usage
             engine = get_engine("thread_pool")
 
-            # Stream batches as they're extracted (true streaming, not buffered)
-            # Base class Home.read() handles progress logging via _log_progress()
             async for batch_df, batch_rows in engine.execute_streaming(
                 self._extract_batches_sync, query, batch_size
             ):
                 batch_num += 1
                 total_rows += batch_rows
 
-                # Base class handles progress logging - just yield the data
                 if len(batch_df) > 0:
                     yield batch_df
 
-            # Final stats (DEBUG level - coordinator shows FINISHED)
             if batch_num == 0:
                 self.logger.warning(f"No data returned from query: {query}")
 
         except Exception as e:
             raise HomeError(f"Failed to read from MSSQL: {str(e)}")
-
         finally:
-            # Clean up connection
             await self._cleanup_connection()
+
+    async def _acquire_connection(self) -> None:
+        """Acquire connection from pool or create dedicated connection."""
+        if self._connection:
+            return
+
+        if self.pool:
+            self.logger.debug(f"Acquiring connection from pool '{self.pool.name}'")
+            self._connection = await self.pool.acquire()
+            self._owned_connection = False
+        else:
+            self.logger.debug("Creating dedicated connection (no pool)")
+            factory = MssqlConnection(
+                server=self.config.server,
+                database=self.config.database,
+                options=self.config.get_connection_options(),
+            )
+            self._connection = await factory.get_connection()
+            self._owned_connection = True
 
     def _extract_batches_sync(self, query: str, batch_size: int):
         """
@@ -202,6 +248,63 @@ class MssqlHome(Home, home_type="mssql"):
             table = table.replace("{entity}", self.entity_name)
 
         return f"SELECT * FROM {table}"
+
+    def _build_watermark_filter(self, watermark: Dict[str, Any]) -> Optional[str]:
+        """
+        Build SQL filter clause for incremental watermark loading.
+
+        Args:
+            watermark: Watermark information from journal.
+        """
+        watermark_value = watermark.get("watermark")
+        watermark_type = watermark.get("watermark_type")
+        watermark_column = watermark.get("watermark_column")
+        primary_key = watermark.get("primary_key")
+
+        if not watermark_value or not watermark_type or not watermark_column:
+            return None
+
+        if watermark_type == "datetime":
+            safe_value = watermark_value.replace("'", "''")
+            return f"{watermark_column} > '{safe_value}'"
+
+        if watermark_type == "int":
+            try:
+                numeric_value = int(watermark_value)
+            except ValueError:
+                self.logger.warning(
+                    f"Invalid integer watermark value: {watermark_value}"
+                )
+                return None
+
+            column = primary_key or watermark_column
+            return f"{column} > {numeric_value}"
+
+        if watermark_type == "string":
+            safe_value = watermark_value.replace("'", "''")
+            return f"{watermark_column} > '{safe_value}'"
+
+        self.logger.warning(f"Unsupported watermark type: {watermark_type}")
+        return None
+
+    def _append_filter_to_query(self, query: str, filter_clause: str) -> str:
+        """
+        Append a WHERE/AND clause to the base query safely.
+
+        Args:
+            query: Base SQL query.
+            filter_clause: SQL filter to append.
+        """
+        stripped_query = query.strip()
+        suffix = ""
+        if stripped_query.endswith(";"):
+            stripped_query = stripped_query[:-1]
+            suffix = ";"
+
+        if " where " in stripped_query.lower():
+            return f"{stripped_query} AND {filter_clause}{suffix}"
+
+        return f"{stripped_query} WHERE {filter_clause}{suffix}"
 
     async def _cleanup_connection(self) -> None:
         """Clean up connection based on ownership."""
