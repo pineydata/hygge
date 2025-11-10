@@ -46,19 +46,10 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
           credential: managed_identity
         ```
 
-        With schema and initial load:
-        ```yaml
-        store:
-          type: open_mirroring
-          account_url: https://onelake.dfs.fabric.microsoft.com
-          filesystem: <workspace-guid>  # Workspace GUID
-          mirror_name: <database-guid>  # Database GUID (required)
-          schema: dbo  # or schema_name: dbo
-          key_columns: ["id", "user_id"]
-          row_marker: 4  # Required: Upsert for updates
-          full_drop: true  # Clear existing data before writing
-          credential: managed_identity
-        ```
+        Full-table reloads are controlled by the flow `run_type`. When the flow
+        is configured with `run_type: full_drop`, the store will truncate the
+        landing zone before writing the fresh batch. Incremental runs keep
+        existing files and append new ones for Fabric to merge.
     """
 
     type: str = Field(default="open_mirroring", description="Store type")
@@ -93,16 +84,6 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         description="File detection strategy: 'timestamp' or 'sequential'",
     )
 
-    # Data replacement mode
-    full_drop: bool = Field(
-        default=False,
-        description=(
-            "If true, clears all existing data files in table folder before writing. "
-            "Use for full drop and reload scenarios. "
-            "Keeps _metadata.json file (or regenerates it)."
-        ),
-    )
-
     # Row marker configuration
     row_marker: int = Field(
         ...,
@@ -129,15 +110,32 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         description="Starting sequence number for file naming (if sequential mode)",
     )
 
-    # Optional: Wait time after folder deletion (for full_drop mode)
+    # Optional: Wait time after folder deletion (for full_drop runs)
     folder_deletion_wait_seconds: float = Field(
         default=2.0,
         ge=0.0,
         le=60.0,
         description=(
-            "Wait time in seconds after deleting folder in full_drop mode. "
+            "Wait time in seconds after deleting the table folder during a "
+            "full_drop run. "
             "Allows ADLS propagation and Open Mirroring to detect deletion "
             "before recreating folder. Default: 2.0 seconds."
+        ),
+    )
+
+    # Optional: Mirror hygge journal into Fabric as append-only table
+    mirror_journal: bool = Field(
+        default=False,
+        description=(
+            "When true, hygge will mirror the execution journal into a dedicated "
+            "Open Mirroring table using append-only semantics."
+        ),
+    )
+    journal_table_name: str = Field(
+        default="__hygge_journal",
+        description=(
+            "Table name to use when `mirror_journal` is true. "
+            "Defaults to '__hygge_journal'."
         ),
     )
 
@@ -272,13 +270,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         self.key_columns = config.key_columns
         self.file_detection = config.file_detection
         self.row_marker = config.row_marker
-        self.full_drop = config.full_drop
-
-        # Log full drop mode
-        if self.full_drop:
-            self.logger.debug(
-                "Full drop mode: will clear existing data files before writing"
-            )
+        self.full_drop_mode = False
         self.partner_name = config.partner_name
         self.source_type = config.source_type
         self.source_version = config.source_version
@@ -301,6 +293,31 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         # Prepare table folder (clear if full_drop)
         # Note: We'll do this lazily on first write to ensure ADLS client is ready
+
+    def configure_for_run(self, run_type: str) -> None:
+        """Toggle full-drop behaviour based on the incoming run type."""
+        super().configure_for_run(run_type)
+
+        self.full_drop_mode = run_type == "full_drop"
+
+        # Reset per-run tracking so preparation steps run for each execution
+        self._metadata_written = False
+        self._partner_events_written = False
+        self._metadata_tmp_path = None
+        self._partner_events_tmp_path = None
+        self._table_folder_prepared = False
+        self.sequence_counter = None
+
+        if hasattr(self, "saved_paths"):
+            self.saved_paths = []
+        if hasattr(self, "uploaded_files"):
+            self.uploaded_files = []
+
+        if self.full_drop_mode:
+            self.logger.debug(
+                "Run configured for full_drop: landing zone will be truncated "
+                "before new files are published."
+            )
 
     async def write(self, data: pl.DataFrame) -> None:
         """
@@ -908,7 +925,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         # For full_drop mode: Write metadata to _tmp, NOT production
         # Production folder will be deleted in finish() after all data is written
         # This ensures atomic operation: all data written before deletion
-        if self.full_drop:
+        if self.full_drop_mode:
             # Write metadata files to _tmp (atomic operation - data must succeed first)
             await self._write_metadata_json(to_tmp=True)
             await self._write_partner_events_json(to_tmp=True)
@@ -1041,7 +1058,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         if self.rows_since_last_log > 0:
             self.logger.debug(f"WROTE {self.rows_since_last_log:,} rows")
 
-        if self.full_drop:
+        if self.full_drop_mode:
             # Atomic operation: Delete production folder AFTER all data written
             self.logger.debug(
                 "full_drop mode: Performing atomic operation - "

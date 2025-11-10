@@ -201,6 +201,7 @@ class ADLSStore(Store, store_type="adls"):
         )
         self.compression = merged_options.get("compression", "snappy")
         self.sequence_counter = 0
+        self.full_drop_mode = False
 
         # ADLS client setup (lazy initialization)
         self._service_client = None
@@ -214,6 +215,23 @@ class ADLSStore(Store, store_type="adls"):
         # Only log if we have a final path (not template paths like "test/{entity}/")
         if entity_name and self.base_path and "{entity}" not in self.base_path:
             self.logger.debug(f"Initialized ADLS Gen2 store: {name} → {self.base_path}")
+
+    def configure_for_run(self, run_type: str) -> None:
+        """Allow flows to toggle truncate behaviour via run type."""
+        super().configure_for_run(run_type)
+
+        self.full_drop_mode = run_type == "full_drop"
+
+        # Reset per-run tracking so we don't carry state across executions
+        self.sequence_counter = 0
+        self.saved_paths = []
+        self.uploaded_files = []
+
+        if self.full_drop_mode:
+            self.logger.debug(
+                "Run configured for full_drop: will truncate destination directory "
+                "before publishing new files."
+            )
 
     def _get_credential(self):
         """Initialize credential based on configuration."""
@@ -507,6 +525,61 @@ class ADLSStore(Store, store_type="adls"):
         except Exception as e:
             self.logger.error(f"Failed to move file to final location: {str(e)}")
             raise StoreError(f"Failed to finalize transfer {staging_path}: {str(e)}")
+
+    async def _truncate_destination(self, adls_ops: ADLSOperations) -> None:
+        """Delete destination directory contents before a full_drop run."""
+        final_dir = self.get_final_directory()
+        if final_dir is None:
+            raise StoreError(
+                "Cannot truncate destination: final directory is undefined"
+            )
+
+        dest_path = final_dir.as_posix().rstrip("/")
+        if not dest_path:
+            self.logger.debug(
+                "Destination path empty after normalization; skipping truncation"
+            )
+            return
+
+        try:
+            deleted = await adls_ops.delete_directory(dest_path, recursive=True)
+            if deleted:
+                self.logger.debug(
+                    f"Cleared existing data at {dest_path} before full_drop run"
+                )
+        except Exception as exc:
+            raise StoreError(
+                f"Failed to truncate destination directory '{dest_path}': {exc}"
+            ) from exc
+
+    async def _move_staged_files_to_final(self) -> None:
+        """Move staged files to final location, respecting full_drop mode."""
+        if not getattr(self, "saved_paths", None):
+            return
+
+        final_dir = self.get_final_directory()
+        if final_dir is None:
+            raise StoreError(
+                "Cannot move files to final location: destination directory unknown"
+            )
+
+        adls_ops = self._get_adls_ops()
+
+        if self.full_drop_mode:
+            await self._truncate_destination(adls_ops)
+
+        for staging_path_str in self.saved_paths:
+            if not staging_path_str:
+                continue
+
+            staging_path = Path(staging_path_str)
+            final_path = final_dir / staging_path.name
+            await self._move_to_final(staging_path, final_path)
+
+        if self.full_drop_mode:
+            self.logger.success(
+                "full_drop run completed: replaced destination directory contents"
+            )
 
     async def close(self) -> None:
         """Finalize any remaining writes and log statistics."""

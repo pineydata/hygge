@@ -10,12 +10,14 @@ Following hygge's testing principles:
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Dict
 
 import polars as pl
 import pytest
 from pydantic import ValidationError
 
 from hygge.core.journal import Journal, JournalConfig
+from hygge.stores.openmirroring import OpenMirroringStoreConfig
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.run_id import generate_run_id
 
@@ -86,6 +88,35 @@ def sample_entity_run_data():
         "watermark": "2024-01-01T09:00:00Z",
         "message": None,
     }
+
+
+class DummyADLSOps:
+    """Simple in-memory ADLSOperations stub for journal tests."""
+
+    def __init__(self):
+        self.created = []
+        self.uploaded = []
+        self.moved = []
+        self.files: Dict[str, bytes] = {}
+
+    async def create_directory_recursive(self, path: str) -> None:
+        self.created.append(path)
+
+    async def file_exists(self, path: str) -> bool:
+        return path in self.files
+
+    async def read_file_bytes(self, path: str) -> bytes:
+        return self.files.get(path, b"")
+
+    async def upload_bytes(self, data: bytes, dest_path: str) -> str:
+        self.uploaded.append((dest_path, data))
+        self.files[dest_path] = data
+        return dest_path
+
+    async def move_file(self, source_path: str, dest_path: str) -> None:
+        data = self.files.pop(source_path, b"")
+        self.files[dest_path] = data
+        self.moved.append((source_path, dest_path))
 
 
 class TestJournalConfig:
@@ -192,6 +223,53 @@ class TestJournalInitialization:
         assert journal_dir.exists()
         assert journal_dir.is_dir()
         assert journal.journal_path == journal_dir / "journal.parquet"
+
+
+class TestJournalRemoteStorage:
+    """Tests for remote journal storage integration."""
+
+    @pytest.mark.asyncio
+    async def test_open_mirroring_remote_journal(
+        self, monkeypatch, sample_entity_run_data
+    ):
+        """Ensure open mirroring flows store the journal in ADLS/OneLake."""
+
+        store_config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="workspace",
+            mirror_name="mirror-guid",
+            key_columns=["id"],
+            row_marker=4,
+        )
+
+        dummy_ops = DummyADLSOps()
+
+        monkeypatch.setattr(
+            Journal,
+            "_build_adls_ops_from_store_config",
+            lambda self, cfg: dummy_ops,
+        )
+        monkeypatch.setattr(Journal, "_create_mirror_sink", lambda self, cfg: None)
+
+        journal = Journal(
+            "test_journal",
+            JournalConfig(location="store"),
+            coordinator_name="test_coordinator",
+            store_config=store_config,
+        )
+
+        assert journal.storage_backend == "adls"
+        assert (
+            journal.remote_journal_path
+            == "mirror-guid/Files/.hygge_journal/journal.parquet"
+        )
+
+        await journal.record_entity_run(**sample_entity_run_data)
+
+        assert dummy_ops.moved
+        _, dest_path = dummy_ops.moved[0]
+        assert dest_path == journal.remote_journal_path
+        assert dummy_ops.files[dest_path]
 
 
 class TestRunIdGeneration:

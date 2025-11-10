@@ -38,8 +38,9 @@ class TestOpenMirroringStoreConfig:
         assert config.key_columns == ["id"]
         assert config.row_marker == 0
         assert config.file_detection == "timestamp"  # Default
-        assert config.full_drop is False  # Default
         assert config.folder_deletion_wait_seconds == 2.0  # Default
+        assert config.mirror_journal is False
+        assert config.journal_table_name == "__hygge_journal"
 
     def test_config_path_auto_built_for_landing_zone(self):
         """Test that path is auto-built to LandingZone if not provided."""
@@ -83,21 +84,23 @@ class TestOpenMirroringStoreConfig:
             key_columns=["id", "user_id"],
             row_marker=4,
             file_detection="sequential",
-            full_drop=True,
             folder_deletion_wait_seconds=5.0,
             partner_name="MyOrg",
             source_type="SQL",
             source_version="2019",
             starting_sequence=100,
+            mirror_journal=True,
+            journal_table_name="custom_journal",
         )
 
         assert config.row_marker == 4  # Upsert
         assert config.file_detection == "sequential"
-        assert config.full_drop is True
         assert config.folder_deletion_wait_seconds == 5.0
         assert config.partner_name == "MyOrg"
         assert config.source_type == "SQL"
         assert config.starting_sequence == 100
+        assert config.mirror_journal is True
+        assert config.journal_table_name == "custom_journal"
 
     def test_config_requires_mirror_name(self):
         """Test that mirror_name is required."""
@@ -272,7 +275,7 @@ class TestOpenMirroringStoreInitialization:
         assert store.key_columns == ["id"]
         assert store.row_marker == 0
         assert store.file_detection == "timestamp"
-        assert store.full_drop is False
+        assert store.full_drop_mode is False
         assert "LandingZone" in store.base_path
         assert "users" in store.base_path
 
@@ -294,20 +297,28 @@ class TestOpenMirroringStoreInitialization:
         assert "dbo.schema" in store.base_path
         assert "users" in store.base_path
 
-    def test_store_with_full_drop(self):
-        """Test Open Mirroring store with full_drop enabled."""
+    def test_store_full_drop_run_configuration(self):
+        """Test Open Mirroring store toggles truncate behaviour per run."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
             mirror_name="MyMirror",
             key_columns=["id"],
             row_marker=0,
-            full_drop=True,
         )
 
         store = OpenMirroringStore("test_store", config, entity_name="users")
 
-        assert store.full_drop is True
+        # Default is incremental/append behaviour
+        assert store.full_drop_mode is False
+
+        # Configure full_drop run
+        store.configure_for_run("full_drop")
+        assert store.full_drop_mode is True
+
+        # Switching back to incremental should disable truncate mode
+        store.configure_for_run("incremental")
+        assert store.full_drop_mode is False
 
 
 class TestOpenMirroringStoreRowMarker:

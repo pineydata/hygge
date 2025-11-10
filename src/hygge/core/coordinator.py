@@ -511,6 +511,7 @@ To get started, run:
         flow_level_config: Optional[JournalConfig],
         store_config,
         home_config,
+        store,
     ) -> Optional[Journal]:
         """
         Resolve journal instance for a flow/entity based on configuration.
@@ -540,6 +541,9 @@ To get started, run:
                 coordinator_name=self.coordinator_name,
                 store_path=str(store_path) if store_path else None,
                 home_path=str(home_path) if home_path else None,
+                store=store,
+                store_config=store_config,
+                home_config=home_config,
             )
             self._journal_cache[cache_key] = journal
 
@@ -568,6 +572,10 @@ To get started, run:
                     self.config.flows[base_flow_name] = flow_config
 
                 default_run_type = flow_config.run_type or "full_drop"
+                if flow_config.full_drop is not None:
+                    default_run_type = (
+                        "full_drop" if flow_config.full_drop else "incremental"
+                    )
                 default_watermark = flow_config.watermark
                 flow_journal_config = (
                     flow_config.journal
@@ -618,23 +626,8 @@ To get started, run:
                     home = flow_config.home_instance
                     home_config = home.config
 
-                    # Get store config and apply flow-level full_drop
-                    # BEFORE creating store
                     store_config = flow_config.store_config
 
-                    # Apply flow-level full_drop to store config (if set)
-                    # Flow-level takes precedence over store-level
-                    if flow_config.full_drop is not None:
-                        if hasattr(store_config, "full_drop"):
-                            store_config_dict = (
-                                store_config.model_dump()
-                                if hasattr(store_config, "model_dump")
-                                else store_config.__dict__
-                            )
-                            store_config_dict["full_drop"] = flow_config.full_drop
-                            store_config = type(store_config)(**store_config_dict)
-
-                    # Create store with updated config (includes flow-level full_drop)
                     store = Store.create(
                         f"{base_flow_name}_store", store_config, base_flow_name, None
                     )
@@ -643,7 +636,7 @@ To get started, run:
                     self._inject_store_pool(store, store_config)
 
                     journal_instance = self._get_or_create_journal_instance(
-                        flow_journal_config, store_config, home_config
+                        flow_journal_config, store_config, home_config, store
                     )
 
                     # Create flow with options
@@ -807,28 +800,13 @@ To get started, run:
             else:
                 home = Home.create(f"{flow_name}_home", home_config, entity_name)
 
-        # Apply flow-level full_drop to store config (if set)
-        # Entity flows inherit base flow settings (base_flow_name used for overrides)
-        # Flow-level takes precedence over store-level for strategy decisions
-        if flow_config.full_drop is not None:
-            # Merge flow-level full_drop into store config for OpenMirroringStore
-            if hasattr(store_config, "full_drop"):
-                store_config_dict = (
-                    store_config.model_dump()
-                    if hasattr(store_config, "model_dump")
-                    else store_config.__dict__
-                )
-                store_config_dict["full_drop"] = flow_config.full_drop
-                store_config = type(store_config)(**store_config_dict)
-
-        # Store config is already updated with flow-level full_drop above
         store = Store.create(f"{flow_name}_store", store_config, flow_name, entity_name)
 
         # Inject connection pool into stores that need it
         self._inject_store_pool(store, store_config)
 
         journal_instance = self._get_or_create_journal_instance(
-            entity_journal_config, store_config, home_config
+            entity_journal_config, store_config, home_config, store
         )
 
         # Create flow with options

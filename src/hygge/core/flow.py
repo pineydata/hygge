@@ -75,6 +75,11 @@ class Flow:
         self.entity_name = entity_name
         self.run_type = run_type or "full_drop"
         self.watermark_config = watermark_config
+
+        # Allow stores to adjust their strategy (truncate vs append) per run
+        if hasattr(self.store, "configure_for_run"):
+            self.store.configure_for_run(self.run_type)
+
         self.initial_watermark_info: Optional[Dict[str, Any]] = None
         self.watermark_message: Optional[str] = None
 
@@ -550,9 +555,9 @@ class FlowConfig(BaseModel):
     full_drop: Optional[bool] = Field(
         default=None,
         description=(
-            "Flow-level strategy: true for full reload (drops/recreates tables), "
-            "false for incremental updates. "
-            "If not set, uses store-level configuration."
+            "Compatibility flag for legacy configs. When set, overrides "
+            "the default run_type: true → run_type 'full_drop', "
+            "false → run_type 'incremental'."
         ),
     )
     # Journal configuration (optional)

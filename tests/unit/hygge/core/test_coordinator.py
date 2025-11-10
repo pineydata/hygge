@@ -993,7 +993,6 @@ class TestCoordinatorFlowOverrides:
                         "mirror_name": "test-db",
                         "key_columns": ["id"],
                         "row_marker": 0,
-                        "full_drop": False,  # Store-level default
                     },
                     "full_drop": True,  # Flow-level override
                 }
@@ -1018,12 +1017,11 @@ class TestCoordinatorFlowOverrides:
             assert len(coordinator.flows) == 1
             flow = coordinator.flows[0]
 
-            # Verify flow-level full_drop was applied to store config
-            # (store should have full_drop=True from flow config, not False from store)
+            # Verify flow-level full_drop drives the run_type + store strategy
             store = flow.store
-            if hasattr(store, "full_drop"):
-                # For OpenMirroringStore, full_drop should be True (from flow)
-                assert store.full_drop is True
+            if hasattr(store, "full_drop_mode"):
+                assert store.full_drop_mode is True
+            assert flow.run_type == "full_drop"
 
         finally:
             Path(config_file).unlink(missing_ok=True)
@@ -1041,7 +1039,6 @@ class TestCoordinatorFlowOverrides:
                         "mirror_name": "test-db",
                         "key_columns": ["id"],
                         "row_marker": 0,
-                        "full_drop": False,
                     },
                 }
             }
@@ -1075,8 +1072,9 @@ class TestCoordinatorFlowOverrides:
 
             # Store should have full_drop=True (from flow-level override)
             store = flow.store
-            if hasattr(store, "full_drop"):
-                assert store.full_drop is True
+            if hasattr(store, "full_drop_mode"):
+                assert store.full_drop_mode is True
+            assert flow.run_type == "full_drop"
 
         finally:
             Path(config_file).unlink(missing_ok=True)
@@ -1122,7 +1120,6 @@ class TestCoordinatorFlowOverrides:
                         "mirror_name": "test-db",
                         "key_columns": ["id"],
                         "row_marker": 0,
-                        "full_drop": False,
                     },
                     "full_drop": True,  # Flow-level setting
                     "entities": ["Account", "Contact"],
@@ -1151,8 +1148,9 @@ class TestCoordinatorFlowOverrides:
             for flow in coordinator.flows:
                 assert flow.name.startswith("base_flow_")
                 store = flow.store
-                if hasattr(store, "full_drop"):
-                    assert store.full_drop is True
+                if hasattr(store, "full_drop_mode"):
+                    assert store.full_drop_mode is True
+                assert flow.run_type == "full_drop"
 
         finally:
             Path(config_file).unlink(missing_ok=True)

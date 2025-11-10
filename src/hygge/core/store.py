@@ -110,6 +110,16 @@ class Store(ABC):
             "progress_interval", self.row_multiplier
         )
 
+    def configure_for_run(self, run_type: str) -> None:
+        """
+        Configure the store for the upcoming run type.
+
+        Stores that need special handling (e.g., truncate vs append strategies)
+        can override this hook. The base implementation is a no-op so existing
+        stores remain unaffected.
+        """
+        return None
+
     async def write(self, data: pl.DataFrame) -> None:
         """
         Write data to this store.
