@@ -315,15 +315,8 @@ class Flow:
             )
             return
 
-        if candidate_type == "datetime":
-            if candidate_value > self._watermark_candidate:
-                self._watermark_candidate = candidate_value
-        elif candidate_type == "int":
-            if candidate_value > self._watermark_candidate:
-                self._watermark_candidate = candidate_value
-        elif candidate_type == "string":
-            if candidate_value > self._watermark_candidate:
-                self._watermark_candidate = candidate_value
+        if candidate_value > self._watermark_candidate:
+            self._watermark_candidate = candidate_value
 
     async def _prepare_incremental_context(self) -> None:
         """Resolve watermark context for incremental runs."""

@@ -295,8 +295,6 @@ class TestCoordinatorJournalIntegration:
         assert len(flow_ids) == 1
         assert len(generated_ids) == 1
 
-    """Test Coordinator configuration loading."""
-
     def test_load_single_file_config(self):
         """Test loading configuration from single file."""
         config_data = {

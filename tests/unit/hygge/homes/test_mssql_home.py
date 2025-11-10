@@ -337,6 +337,44 @@ class TestMssqlHomeWatermark:
         assert any("Custom query detected" in msg for msg in warnings)
         assert any("watermark-based incremental" in msg.lower() for msg in warnings)
 
+    def test_build_watermark_filter_invalid_column(self, monkeypatch):
+        config = MssqlHomeConfig(type="mssql", connection="test_db", table="dbo.users")
+        home = MssqlHome("test", config)
+
+        warnings: list[str] = []
+        monkeypatch.setattr(home.logger, "warning", lambda msg: warnings.append(msg))
+
+        watermark = {
+            "watermark": "2024-01-02T09:00:00Z",
+            "watermark_type": "datetime",
+            "watermark_column": "updated_at; DROP TABLE users",
+            "primary_key": "id",
+        }
+
+        filter_clause = home._build_watermark_filter(watermark)
+
+        assert filter_clause is None
+        assert any("Unsafe watermark_column" in msg for msg in warnings)
+
+    def test_build_watermark_filter_invalid_primary_key(self, monkeypatch):
+        config = MssqlHomeConfig(type="mssql", connection="test_db", table="dbo.users")
+        home = MssqlHome("test", config)
+
+        warnings: list[str] = []
+        monkeypatch.setattr(home.logger, "warning", lambda msg: warnings.append(msg))
+
+        watermark = {
+            "watermark": "1050",
+            "watermark_type": "int",
+            "watermark_column": "updated_at",
+            "primary_key": "id; DROP TABLE users",
+        }
+
+        filter_clause = home._build_watermark_filter(watermark)
+
+        assert filter_clause == "updated_at > 1050"
+        assert any("Unsafe primary_key" in msg for msg in warnings)
+
 
 class TestMssqlHomeInitialization:
     """Test MssqlHome initialization and setup."""

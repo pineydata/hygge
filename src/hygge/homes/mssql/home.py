@@ -5,6 +5,7 @@ Reads data from MS SQL Server databases using connection pooling
 and efficient batching with Polars.
 """
 import asyncio
+import re
 from typing import Any, AsyncIterator, Dict, Optional
 
 import polars as pl
@@ -46,6 +47,10 @@ class MssqlHome(Home, home_type="mssql"):
             print(f"Batch: {len(df)} rows")
         ```
     """
+
+    _IDENTIFIER_PATTERN = re.compile(
+        r"^(?:\[?[A-Za-z_][A-Za-z0-9_]*\]?)(?:\.(?:\[?[A-Za-z_][A-Za-z0-9_]*\]?))*$"
+    )
 
     def __init__(
         self,
@@ -264,9 +269,15 @@ class MssqlHome(Home, home_type="mssql"):
         if not watermark_value or not watermark_type or not watermark_column:
             return None
 
+        safe_watermark_column = self._validate_identifier(
+            watermark_column, "watermark_column"
+        )
+        if not safe_watermark_column:
+            return None
+
         if watermark_type == "datetime":
             safe_value = watermark_value.replace("'", "''")
-            return f"{watermark_column} > '{safe_value}'"
+            return f"{safe_watermark_column} > '{safe_value}'"
 
         if watermark_type == "int":
             try:
@@ -277,15 +288,43 @@ class MssqlHome(Home, home_type="mssql"):
                 )
                 return None
 
-            column = primary_key or watermark_column
+            safe_primary_key = (
+                self._validate_identifier(primary_key, "primary_key")
+                if primary_key
+                else None
+            )
+            column = safe_primary_key or safe_watermark_column
+            if not column:
+                return None
             return f"{column} > {numeric_value}"
 
         if watermark_type == "string":
             safe_value = watermark_value.replace("'", "''")
-            return f"{watermark_column} > '{safe_value}'"
+            return f"{safe_watermark_column} > '{safe_value}'"
 
         self.logger.warning(f"Unsupported watermark type: {watermark_type}")
         return None
+
+    def _validate_identifier(
+        self, identifier: Optional[str], field_name: str
+    ) -> Optional[str]:
+        """Validate SQL identifier (column name) to prevent injection."""
+        if identifier is None:
+            return None
+
+        candidate = identifier.strip()
+        if not candidate:
+            self.logger.warning(f"Empty {field_name} provided for watermark filter")
+            return None
+
+        if not self._IDENTIFIER_PATTERN.fullmatch(candidate):
+            self.logger.warning(
+                f"Unsafe {field_name} '{identifier}' detected; "
+                "falling back to full data load"
+            )
+            return None
+
+        return candidate
 
     def _append_filter_to_query(self, query: str, filter_clause: str) -> str:
         """

@@ -264,6 +264,10 @@ class TestJournalRecordEntityRun:
         assert row["row_count"] == 1000
         assert row["watermark"] == "2024-01-01T09:00:00Z"
 
+        # Ensure no temporary journal files remain
+        temp_files = list(journal.journal_path.parent.glob("journal.parquet.tmp_*"))
+        assert not temp_files
+
     @pytest.mark.asyncio
     async def test_record_entity_run_failure(self, journal):
         """Test recording failed entity run."""

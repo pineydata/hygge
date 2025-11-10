@@ -8,6 +8,7 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
+from uuid import uuid4
 
 import polars as pl
 from pydantic import BaseModel, Field, field_validator
@@ -287,12 +288,23 @@ class Journal:
                 # First write - just use new row
                 combined_df = new_row_df
 
-            # Write back to parquet
-            combined_df.write_parquet(self.journal_path)
+            # Write to a temporary file in the same directory, then atomically replace
+            temp_path = self.journal_path.with_name(
+                f"{self.journal_path.name}.tmp_{uuid4().hex}"
+            )
+            combined_df.write_parquet(temp_path)
+            temp_path.replace(self.journal_path)
 
         except Exception as e:
             self.logger.error(f"Failed to append to journal: {str(e)}")
             raise
+        finally:
+            try:
+                if "temp_path" in locals() and temp_path.exists():
+                    temp_path.unlink()
+            except Exception:
+                # Best-effort cleanup; leave temp file if removal fails
+                pass
 
     async def get_watermark(
         self,
