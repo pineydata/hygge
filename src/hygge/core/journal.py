@@ -268,7 +268,7 @@ class Journal:
             mirror_name = getattr(store_config, "mirror_name", None)
             if not mirror_name:
                 return None
-            return f"/{mirror_name}/Files/.hygge_journal/journal.parquet"
+            return f"{mirror_name}/Files/.hygge_journal/journal.parquet"
 
         path_template = getattr(store_config, "path", None)
         if not path_template:

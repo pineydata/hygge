@@ -232,6 +232,13 @@ class ADLSOperations:
         """
         return await self.upload_file(source=data, dest_path=dest_path)
 
+    @with_retry(
+        retries=3,
+        delay=2,
+        exceptions=(AzureError, TimeoutError),
+        timeout=300,
+        logger_name="hygge.adls_gen2_ops",
+    )
     async def read_file_bytes(self, path: str) -> bytes:
         """Read an entire file into memory."""
         try:
