@@ -9,7 +9,7 @@ Following hygge's testing principles:
 """
 import asyncio
 from pathlib import Path
-from typing import AsyncIterator, List
+from typing import AsyncIterator, List, Optional
 
 import polars as pl
 import pytest
@@ -38,6 +38,50 @@ class MockHome(Home):
 
     def get_data_path(self):
         return Path(f"/mock/home/{self.name}")
+
+
+class WatermarkCapableHome(MockHome):
+    """Mock Home that supports watermark-aware reads."""
+
+    def __init__(self, name: str, data: List[pl.DataFrame], **kwargs):
+        super().__init__(name, data, **kwargs)
+        self.read_with_watermark_called = False
+        self.watermark_payload = None
+
+    async def read_with_watermark(self, watermark: dict) -> AsyncIterator[pl.DataFrame]:
+        """Mock incremental read implementation."""
+        self.read_with_watermark_called = True
+        self.watermark_payload = watermark
+        async for df in super()._get_batches():
+            yield df
+
+
+class StubJournal:
+    """Simple in-memory journal stub for Flow tests."""
+
+    def __init__(
+        self,
+        watermark: Optional[dict] = None,
+        exception: Optional[Exception] = None,
+    ):
+        self._watermark = watermark
+        self._exception = exception
+        self.records = []
+
+    async def get_watermark(
+        self,
+        flow: str,
+        entity: str,
+        primary_key: Optional[str] = None,
+        watermark_column: Optional[str] = None,
+    ):
+        if self._exception:
+            raise self._exception
+        return self._watermark
+
+    async def record_entity_run(self, **kwargs):
+        self.records.append(kwargs)
+        return "entity_run_id"
 
 
 class MockStore(Store):
@@ -196,6 +240,77 @@ class TestSimplifiedFlow:
         error_message = str(exc_info.value)
         assert "Producer failed" in error_message
         assert "Home read error" in error_message
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
+    async def test_flow_incremental_uses_watermark_when_supported(self, sample_data):
+        """Flow should use watermark-aware reads when home supports it."""
+        home = WatermarkCapableHome("users_home", sample_data, batch_size=100)
+        store = MockStore("test_store")
+        journal = StubJournal(
+            watermark={
+                "watermark": "2024-01-01T00:00:00Z",
+                "watermark_type": "datetime",
+                "watermark_column": "updated_at",
+                "primary_key": "id",
+            }
+        )
+        flow = Flow(
+            name="users_flow_users",
+            home=home,
+            store=store,
+            options={"queue_size": 5},
+            journal=journal,
+            coordinator_run_id="coord_run",
+            flow_run_id="flow_run",
+            coordinator_name="coord",
+            base_flow_name="users_flow",
+            entity_name="users",
+            run_type="incremental",
+            watermark_config={"primary_key": "id", "watermark_column": "updated_at"},
+        )
+
+        await flow.start()
+
+        assert home.read_with_watermark_called
+        assert home.watermark_payload == journal._watermark
+        assert journal.records, "Journal should record entity run"
+        assert journal.records[-1]["message"] is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
+    async def test_flow_incremental_watermark_mismatch_falls_back(self, sample_data):
+        """Flow should fall back to full load when watermark config mismatches."""
+        mismatch_error = ValueError(
+            "stored watermark_column='created_at' but requested 'updated_at'"
+        )
+        journal = StubJournal(exception=mismatch_error)
+        home = WatermarkCapableHome("users_home", sample_data, batch_size=100)
+        store = MockStore("test_store")
+
+        flow = Flow(
+            name="users_flow_users",
+            home=home,
+            store=store,
+            options={"queue_size": 5},
+            journal=journal,
+            coordinator_run_id="coord_run",
+            flow_run_id="flow_run",
+            coordinator_name="coord",
+            base_flow_name="users_flow",
+            entity_name="users",
+            run_type="incremental",
+            watermark_config={"primary_key": "id", "watermark_column": "updated_at"},
+        )
+
+        await flow.start()
+
+        assert home.read_called
+        assert not home.read_with_watermark_called
+        assert journal.records, "Journal should record entity run"
+        recorded_message = journal.records[-1]["message"]
+        assert recorded_message == flow.watermark_message
+        assert flow.watermark_message is not None
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)

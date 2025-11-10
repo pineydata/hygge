@@ -246,6 +246,136 @@ class TestMssqlHomeQueryBuilding:
         assert query == "SELECT * FROM salesforce.dbo.SF_Account_History"
 
 
+class TestMssqlHomeWatermark:
+    """Test watermark-aware query handling."""
+
+    @pytest.mark.asyncio
+    async def test_read_with_watermark_datetime(self, monkeypatch):
+        config = MssqlHomeConfig(type="mssql", connection="test_db", table="dbo.users")
+        home = MssqlHome("test", config)
+
+        captured_queries = []
+
+        async def fake_stream(self, query):
+            captured_queries.append(query)
+            if False:
+                yield None
+
+        monkeypatch.setattr(MssqlHome, "_stream_query", fake_stream)
+
+        watermark = {
+            "watermark": "2024-01-02T09:00:00Z",
+            "watermark_type": "datetime",
+            "watermark_column": "updated_at",
+            "primary_key": "id",
+        }
+
+        async for _ in home.read_with_watermark(watermark):
+            pass
+
+        assert captured_queries
+        assert "WHERE updated_at > '2024-01-02T09:00:00Z'" in captured_queries[0]
+
+    @pytest.mark.asyncio
+    async def test_read_with_watermark_integer_uses_primary_key(self, monkeypatch):
+        config = MssqlHomeConfig(type="mssql", connection="test_db", table="dbo.users")
+        home = MssqlHome("test", config)
+
+        captured_queries = []
+
+        async def fake_stream(self, query):
+            captured_queries.append(query)
+            if False:
+                yield None
+
+        monkeypatch.setattr(MssqlHome, "_stream_query", fake_stream)
+
+        watermark = {
+            "watermark": "1050",
+            "watermark_type": "int",
+            "watermark_column": "updated_at",
+            "primary_key": "id",
+        }
+
+        async for _ in home.read_with_watermark(watermark):
+            pass
+
+        assert captured_queries
+        assert "WHERE id > 1050" in captured_queries[0]
+
+    @pytest.mark.asyncio
+    async def test_read_with_watermark_custom_query_fallback(self, monkeypatch):
+        config = MssqlHomeConfig(
+            type="mssql",
+            connection="test_db",
+            query="SELECT * FROM dbo.users WHERE active = 1",
+        )
+        home = MssqlHome("test", config)
+
+        fallback_called = []
+        warnings: list[str] = []
+
+        async def fake_get_batches(self):
+            fallback_called.append(True)
+            if False:
+                yield None
+
+        monkeypatch.setattr(MssqlHome, "_get_batches", fake_get_batches)
+        monkeypatch.setattr(home.logger, "warning", lambda msg: warnings.append(msg))
+
+        watermark = {
+            "watermark": "2024-01-02T09:00:00Z",
+            "watermark_type": "datetime",
+            "watermark_column": "updated_at",
+            "primary_key": "id",
+        }
+
+        async for _ in home.read_with_watermark(watermark):
+            pass
+
+        assert fallback_called, "Fallback full load should be invoked"
+        assert any("Custom query detected" in msg for msg in warnings)
+        assert any("watermark-based incremental" in msg.lower() for msg in warnings)
+
+    def test_build_watermark_filter_invalid_column(self, monkeypatch):
+        config = MssqlHomeConfig(type="mssql", connection="test_db", table="dbo.users")
+        home = MssqlHome("test", config)
+
+        warnings: list[str] = []
+        monkeypatch.setattr(home.logger, "warning", lambda msg: warnings.append(msg))
+
+        watermark = {
+            "watermark": "2024-01-02T09:00:00Z",
+            "watermark_type": "datetime",
+            "watermark_column": "updated_at; DROP TABLE users",
+            "primary_key": "id",
+        }
+
+        filter_clause = home._build_watermark_filter(watermark)
+
+        assert filter_clause is None
+        assert any("Unsafe watermark_column" in msg for msg in warnings)
+
+    def test_build_watermark_filter_invalid_primary_key(self, monkeypatch):
+        config = MssqlHomeConfig(type="mssql", connection="test_db", table="dbo.users")
+        home = MssqlHome("test", config)
+
+        warnings: list[str] = []
+        monkeypatch.setattr(home.logger, "warning", lambda msg: warnings.append(msg))
+
+        watermark = {
+            "watermark": "1050",
+            "watermark_type": "int",
+            "watermark_column": "updated_at",
+            "primary_key": "id; DROP TABLE users",
+        }
+
+        filter_clause = home._build_watermark_filter(watermark)
+
+        assert filter_clause == "updated_at > 1050"
+        assert any("Unsafe primary_key" in msg for msg in warnings)
+
+
 class TestMssqlHomeInitialization:
     """Test MssqlHome initialization and setup."""
 

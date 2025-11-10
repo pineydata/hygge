@@ -1,0 +1,260 @@
+2025-11-06T01:52:31.4465927Z ##[section]Starting: Install Hygge and Run Flows
+2025-11-06T01:52:31.4475527Z ==============================================================================
+2025-11-06T01:52:31.4475730Z Task         : PowerShell
+2025-11-06T01:52:31.4476603Z Description  : Run a PowerShell script on Linux, macOS, or Windows
+2025-11-06T01:52:31.4476737Z Version      : 2.262.0
+2025-11-06T01:52:31.4476815Z Author       : Microsoft Corporation
+2025-11-06T01:52:31.4476916Z Help         : https://docs.microsoft.com/azure/devops/pipelines/tasks/utility/powershell
+2025-11-06T01:52:31.4477062Z ==============================================================================
+2025-11-06T01:52:32.6727408Z Generating script.
+2025-11-06T01:52:32.7376010Z ========================== Starting Command Output ===========================
+2025-11-06T01:52:32.7398471Z ##[command]"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Unrestricted -Command ". 'C:\agents\_work\_temp\8dcb1741-520d-4b3b-8c6d-f80a483b5656.ps1'"
+2025-11-06T01:52:33.1243443Z Setting up environment...
+2025-11-06T01:52:33.8212907Z Activating conda environment...
+2025-11-06T01:52:34.0766403Z Did not find path entry C:\ProgramData\miniconda3\bin
+2025-11-06T01:52:34.2122935Z Installing hygge in editable mode...
+2025-11-06T01:52:35.0730172Z Obtaining file:///C:/agents/_work/19/s/hygge
+2025-11-06T01:52:35.0916442Z   Installing build dependencies: started
+2025-11-06T01:52:37.9111564Z   Installing build dependencies: finished with status 'done'
+2025-11-06T01:52:37.9111913Z   Checking if build backend supports build_editable: started
+2025-11-06T01:52:37.9112316Z   Checking if build backend supports build_editable: finished with status 'done'
+2025-11-06T01:52:37.9112592Z   Getting requirements to build editable: started
+2025-11-06T01:52:38.1973181Z   Getting requirements to build editable: finished with status 'done'
+2025-11-06T01:52:38.1977516Z   Installing backend dependencies: started
+2025-11-06T01:52:39.1762225Z   Installing backend dependencies: finished with status 'done'
+2025-11-06T01:52:39.1794089Z   Preparing editable metadata (pyproject.toml): started
+2025-11-06T01:52:39.8026224Z   Preparing editable metadata (pyproject.toml): finished with status 'done'
+2025-11-06T01:52:39.8343751Z Requirement already satisfied: click>=8.0.0 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from hygge==0.3.0) (8.3.0)
+2025-11-06T01:52:39.8348860Z Requirement already satisfied: colorama>=0.4.6 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from hygge==0.3.0) (0.4.6)
+2025-11-06T01:52:39.8354281Z Requirement already satisfied: polars>=1.21.0 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from hygge==0.3.0) (1.33.1)
+2025-11-06T01:52:39.8375832Z Requirement already satisfied: pyarrow>=18.0.0 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from hygge==0.3.0) (22.0.0)
+2025-11-06T01:52:39.8381202Z Requirement already satisfied: pydantic>=2.6.1 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from hygge==0.3.0) (2.12.3)
+2025-11-06T01:52:39.8386467Z Requirement already satisfied: pyyaml>=6.0.2 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from hygge==0.3.0) (6.0.3)
+2025-11-06T01:52:39.8391637Z Requirement already satisfied: tenacity>=9.0.0 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from hygge==0.3.0) (9.1.2)
+2025-11-06T01:52:39.8506003Z Requirement already satisfied: annotated-types>=0.6.0 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from pydantic>=2.6.1->hygge==0.3.0) (0.7.0)
+2025-11-06T01:52:39.8511828Z Requirement already satisfied: pydantic-core==2.41.4 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from pydantic>=2.6.1->hygge==0.3.0) (2.41.4)
+2025-11-06T01:52:39.8519717Z Requirement already satisfied: typing-extensions>=4.14.1 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from pydantic>=2.6.1->hygge==0.3.0) (4.15.0)
+2025-11-06T01:52:39.8525006Z Requirement already satisfied: typing-inspection>=0.4.2 in c:\programdata\miniconda3\envs\elk\lib\site-packages (from pydantic>=2.6.1->hygge==0.3.0) (0.4.2)
+2025-11-06T01:52:39.8616788Z Building wheels for collected packages: hygge
+2025-11-06T01:52:39.8656209Z   Building editable for hygge (pyproject.toml): started
+2025-11-06T01:52:39.9862951Z   Building editable for hygge (pyproject.toml): finished with status 'done'
+2025-11-06T01:52:39.9998307Z   Created wheel for hygge: filename=hygge-0.3.0-py3-none-any.whl size=1482 sha256=1c05f2f30e68ff25a95f07e32d21c64778454cc4d3eb0541c8e1b7820ee46f99
+2025-11-06T01:52:40.0013256Z   Stored in directory: C:\Users\teff\AppData\Local\Temp\3\pip-ephem-wheel-cache-3iluqs8f\wheels\9f\65\d5\9ed0470626739d2c3aa65e39574c1dd897a3300c5d8ec10a26
+2025-11-06T01:52:40.0052741Z Successfully built hygge
+2025-11-06T01:52:40.0733136Z Installing collected packages: hygge
+2025-11-06T01:52:40.0741150Z   Attempting uninstall: hygge
+2025-11-06T01:52:40.0769462Z     Found existing installation: hygge 0.3.0
+2025-11-06T01:52:40.0823362Z     Uninstalling hygge-0.3.0:
+2025-11-06T01:52:40.2252414Z       Successfully uninstalled hygge-0.3.0
+2025-11-06T01:52:40.2634291Z Successfully installed hygge-0.3.0
+2025-11-06T01:52:40.4105424Z Running hygge flows...
+2025-11-06T01:52:42.2992949Z 19:52:42  Loaded project config: elk
+2025-11-06T01:52:42.2996147Z Starting all flows...
+2025-11-06T01:52:42.3005845Z 19:52:42  Starting coordinator with config: C:\agents\_work\19\s\elk\hygge.yml
+2025-11-06T01:52:42.3284219Z 19:52:42  Loaded project flows with 1 flows from C:\agents\_work\19\s\elk\flows
+2025-11-06T01:52:42.3286470Z 19:52:42  Initializing 1 connection pools
+2025-11-06T01:52:42.3339735Z 19:52:42  Initializing connection pool 'edw-prod' with 8 connections
+2025-11-06T01:52:42.9178724Z 19:52:42  OK Pool 'edw-prod' initialized with 8 connections
+2025-11-06T01:52:42.9180388Z 19:52:42  OK Initialized pool 'edw-prod' with 8 connections
+2025-11-06T01:52:42.9770751Z 19:52:42  [1 of 61] STARTING flow salesforce_AcademicOrganization
+2025-11-06T01:52:42.9772200Z 19:52:42  [2 of 61] STARTING flow salesforce_AccountName
+2025-11-06T01:52:42.9774097Z 19:52:42  [3 of 61] STARTING flow salesforce_Address
+2025-11-06T01:52:42.9778308Z 19:52:42  [4 of 61] STARTING flow salesforce_AddressRelation
+2025-11-06T01:52:42.9780075Z 19:52:42  [5 of 61] STARTING flow salesforce_Affiliation
+2025-11-06T01:52:42.9781593Z 19:52:42  [6 of 61] STARTING flow salesforce_Assignment
+2025-11-06T01:52:42.9783105Z 19:52:42  [7 of 61] STARTING flow salesforce_Briefing
+2025-11-06T01:52:42.9784771Z 19:52:42  [8 of 61] STARTING flow salesforce_Campaign
+2025-11-06T01:52:42.9786248Z 19:52:42  [9 of 61] STARTING flow salesforce_CampaignMember
+2025-11-06T01:52:42.9787875Z 19:52:42  [10 of 61] STARTING flow salesforce_CampaignMemberStatus
+2025-11-06T01:52:42.9789318Z 19:52:42  [11 of 61] STARTING flow salesforce_ContactName
+2025-11-06T01:52:42.9790939Z 19:52:42  [12 of 61] STARTING flow salesforce_ContactReport
+2025-11-06T01:52:42.9792545Z 19:52:42  [13 of 61] STARTING flow salesforce_ContactReportRelation
+2025-11-06T01:52:42.9794076Z 19:52:42  [14 of 61] STARTING flow salesforce_DegreeCode
+2025-11-06T01:52:42.9795669Z 19:52:42  [15 of 61] STARTING flow salesforce_DegreeInformation
+2025-11-06T01:52:42.9797137Z 19:52:42  [16 of 61] STARTING flow salesforce_Designation
+2025-11-06T01:52:42.9798709Z 19:52:42  [17 of 61] STARTING flow salesforce_DesignationBeneficiary
+2025-11-06T01:52:42.9800145Z 19:52:42  [18 of 61] STARTING flow salesforce_DesignationDetail
+2025-11-06T01:52:42.9801660Z 19:52:42  [19 of 61] STARTING flow salesforce_DesignationStewardship
+2025-11-06T01:52:42.9803059Z 19:52:42  [20 of 61] STARTING flow salesforce_Email
+2025-11-06T01:52:42.9804685Z 19:52:42  [21 of 61] STARTING flow salesforce_EmailResult
+2025-11-06T01:52:42.9806091Z 19:52:42  [22 of 61] STARTING flow salesforce_EmailSend
+2025-11-06T01:52:42.9807718Z 19:52:42  [23 of 61] STARTING flow salesforce_EndowmentFinancial
+2025-11-06T01:52:42.9809201Z 19:52:42  [24 of 61] STARTING flow salesforce_Event
+2025-11-06T01:52:42.9810774Z 19:52:42  [25 of 61] STARTING flow salesforce_EventRegistration
+2025-11-06T01:52:42.9812270Z 19:52:42  [26 of 61] STARTING flow salesforce_ExternalId
+2025-11-06T01:52:42.9814086Z 19:52:42  [27 of 61] STARTING flow salesforce_FundraiserContactReportRelation
+2025-11-06T01:52:42.9815500Z 19:52:42  [28 of 61] STARTING flow salesforce_GivingSociety
+2025-11-06T01:52:42.9817134Z 19:52:42  [29 of 61] STARTING flow salesforce_HistoricalAdjustment
+2025-11-06T01:52:42.9818574Z 19:52:42  [30 of 61] STARTING flow salesforce_HomeDepartment
+2025-11-06T01:52:42.9820040Z 19:52:42  [31 of 61] STARTING flow salesforce_Installment
+2025-11-06T01:52:42.9821518Z 19:52:42  [32 of 61] STARTING flow salesforce_InstallmentPayment
+2025-11-06T01:52:42.9822952Z 19:52:42  [33 of 61] STARTING flow salesforce_Involvement
+2025-11-06T01:52:42.9824608Z 19:52:42  [34 of 61] STARTING flow salesforce_InvolvementValue
+2025-11-06T01:52:42.9826011Z 19:52:42  [35 of 61] STARTING flow salesforce_JobCode
+2025-11-06T01:52:42.9827615Z 19:52:42  [36 of 61] STARTING flow salesforce_MatchingGiftOrigination
+2025-11-06T01:52:42.9829006Z 19:52:42  [37 of 61] STARTING flow salesforce_MinorCode
+2025-11-06T01:52:42.9830470Z 19:52:42  [38 of 61] STARTING flow salesforce_Note
+2025-11-06T01:52:42.9831958Z 19:52:42  [39 of 61] STARTING flow salesforce_Opportunity
+2025-11-06T01:52:42.9833442Z 19:52:42  [40 of 61] STARTING flow salesforce_OpportunityContactRole
+2025-11-06T01:52:42.9834911Z 19:52:42  [41 of 61] STARTING flow salesforce_OpportunityTeamMember
+2025-11-06T01:52:42.9836429Z 19:52:42  [42 of 61] STARTING flow salesforce_Payment
+2025-11-06T01:52:42.9837883Z 19:52:42  [43 of 61] STARTING flow salesforce_Phone
+2025-11-06T01:52:42.9839333Z 19:52:42  [44 of 61] STARTING flow salesforce_ProposalDesignation
+2025-11-06T01:52:42.9840778Z 19:52:42  [45 of 61] STARTING flow salesforce_RecognitionCredit
+2025-11-06T01:52:42.9842217Z 19:52:42  [46 of 61] STARTING flow salesforce_RecordType
+2025-11-06T01:52:42.9843692Z 19:52:42  [47 of 61] STARTING flow salesforce_RelatedOrganization
+2025-11-06T01:52:42.9845294Z 19:52:42  [48 of 61] STARTING flow salesforce_Relationship
+2025-11-06T01:52:42.9846789Z 19:52:42  [49 of 61] STARTING flow salesforce_Salutation
+2025-11-06T01:52:42.9848497Z 19:52:42  [50 of 61] STARTING flow salesforce_ServiceIndicator
+2025-11-06T01:52:42.9849842Z 19:52:42  [51 of 61] STARTING flow salesforce_ServiceIndicatorValue
+2025-11-06T01:52:42.9851868Z 19:52:42  [52 of 61] STARTING flow salesforce_Session
+2025-11-06T01:52:42.9853359Z 19:52:42  [53 of 61] STARTING flow salesforce_SocialMedia
+2025-11-06T01:52:42.9854846Z 19:52:42  [54 of 61] STARTING flow salesforce_SocietyMembership
+2025-11-06T01:52:42.9856317Z 19:52:42  [55 of 61] STARTING flow salesforce_Specialty
+2025-11-06T01:52:42.9857746Z 19:52:42  [56 of 61] STARTING flow salesforce_Strategy
+2025-11-06T01:52:42.9859238Z 19:52:42  [57 of 61] STARTING flow salesforce_StrategyTeamMember
+2025-11-06T01:52:42.9860680Z 19:52:42  [58 of 61] STARTING flow salesforce_SystemUser
+2025-11-06T01:52:42.9862133Z 19:52:42  [59 of 61] STARTING flow salesforce_Task
+2025-11-06T01:52:42.9863590Z 19:52:42  [60 of 61] STARTING flow salesforce_Tribute
+2025-11-06T01:52:42.9865042Z 19:52:42  [61 of 61] STARTING flow salesforce_WealthRating
+2025-11-06T01:52:56.3762056Z 19:52:56  [1 of 61] FINISHED flow salesforce_AcademicOrganization completed in 13.3s (959 rows)
+2025-11-06T01:53:00.4563046Z 19:53:00  [6 of 61] FINISHED flow salesforce_Assignment completed in 17.5s (43,102 rows)
+2025-11-06T01:53:05.6726983Z 19:53:05  [9 of 61] FINISHED flow salesforce_CampaignMember completed in 22.7s (32,453 rows)
+2025-11-06T01:53:09.1306619Z 19:53:09  [7 of 61] FINISHED flow salesforce_Briefing completed in 26.1s (56,756 rows)
+2025-11-06T01:53:31.8869222Z 19:53:31  [10 of 61] FINISHED flow salesforce_CampaignMemberStatus completed in 48.9s (183,327 rows)
+2025-11-06T01:53:36.6201828Z 19:53:36  PROCESSED 1,000,000 rows in 53.6s (18,642 rows/s)
+2025-11-06T01:53:53.7216373Z 19:53:53  [8 of 61] FINISHED flow salesforce_Campaign completed in 70.7s (91,662 rows)
+2025-11-06T01:54:05.8389311Z 19:54:02  [14 of 61] FINISHED flow salesforce_DegreeCode completed in 79.8s (117 rows)
+2025-11-06T01:54:22.2561156Z 19:54:22  PROCESSED 2,000,000 rows in 99.1s (20,189 rows/s)
+2025-11-06T01:55:02.4637652Z 19:55:02  PROCESSED 3,000,000 rows in 139.5s (21,513 rows/s)
+2025-11-06T01:55:41.3299559Z 19:55:41  PROCESSED 4,000,000 rows in 178.4s (22,427 rows/s)
+2025-11-06T01:56:19.7648534Z 19:56:19  [2 of 61] FINISHED flow salesforce_AccountName completed in 216.7s (980,884 rows)
+2025-11-06T01:56:29.8862062Z 19:56:29  [5 of 61] FINISHED flow salesforce_Affiliation completed in 226.9s (409,923 rows)
+2025-11-06T01:56:30.1795354Z 19:56:29  PROCESSED 5,000,000 rows in 227.0s (22,028 rows/s)
+2025-11-06T01:56:37.5866559Z 19:56:37  [16 of 61] FINISHED flow salesforce_Designation completed in 234.6s (16,595 rows)
+2025-11-06T01:57:16.9076126Z 19:57:16  PROCESSED 6,000,000 rows in 273.8s (21,918 rows/s)
+2025-11-06T01:57:44.5013515Z 19:57:44  [17 of 61] FINISHED flow salesforce_DesignationBeneficiary completed in 301.5s (187,676 rows)
+2025-11-06T01:57:59.6311064Z 19:57:59  [19 of 61] FINISHED flow salesforce_DesignationStewardship completed in 316.6s (35,477 rows)
+2025-11-06T01:58:04.3592803Z 19:58:04  PROCESSED 7,000,000 rows in 321.4s (21,781 rows/s)
+2025-11-06T01:58:44.3860314Z 19:58:44  PROCESSED 8,000,000 rows in 361.4s (22,138 rows/s)
+2025-11-06T01:59:09.9208867Z 19:59:09  [15 of 61] FINISHED flow salesforce_DegreeInformation completed in 386.9s (677,390 rows)
+2025-11-06T01:59:30.9719266Z 19:59:30  PROCESSED 9,000,000 rows in 408.0s (22,060 rows/s)
+2025-11-06T02:00:10.9306260Z 20:00:10  PROCESSED 10,000,000 rows in 448.0s (22,324 rows/s)
+2025-11-06T02:00:50.9399305Z 20:00:50  PROCESSED 11,000,000 rows in 488.0s (22,542 rows/s)
+2025-11-06T02:01:36.6547721Z 20:01:36  PROCESSED 12,000,000 rows in 533.7s (22,486 rows/s)
+2025-11-06T02:01:58.5618894Z 20:01:58  [13 of 61] FINISHED flow salesforce_ContactReportRelation completed in 555.6s (2,306,918 rows)
+2025-11-06T02:02:05.1721702Z 20:02:05  [22 of 61] FINISHED flow salesforce_EmailSend completed in 562.2s (113 rows)
+2025-11-06T02:02:17.0068186Z 20:02:16  [20 of 61] FINISHED flow salesforce_Email completed in 574.0s (745,097 rows)
+2025-11-06T02:02:21.3915340Z 20:02:21  [23 of 61] FINISHED flow salesforce_EndowmentFinancial completed in 578.4s (4,401 rows)
+2025-11-06T02:02:24.5758215Z 20:02:24  [24 of 61] FINISHED flow salesforce_Event completed in 581.5s (851 rows)
+2025-11-06T02:02:42.3015459Z 20:02:42  [25 of 61] FINISHED flow salesforce_EventRegistration completed in 599.3s (65,113 rows)
+2025-11-06T02:02:54.4005513Z 20:02:54  PROCESSED 13,000,000 rows in 611.2s (21,271 rows/s)
+2025-11-06T02:03:38.6289454Z 20:03:38  PROCESSED 14,000,000 rows in 655.7s (21,353 rows/s)
+2025-11-06T02:04:20.4253888Z 20:04:20  PROCESSED 15,000,000 rows in 697.4s (21,510 rows/s)
+2025-11-06T02:04:48.7414390Z 20:04:48  [11 of 61] FINISHED flow salesforce_ContactName completed in 725.8s (2,350,413 rows)
+2025-11-06T02:04:57.3289822Z 20:04:57  [28 of 61] FINISHED flow salesforce_GivingSociety completed in 734.3s (29 rows)
+2025-11-06T02:05:22.1604943Z 20:05:21  PROCESSED 16,000,000 rows in 759.0s (21,080 rows/s)
+2025-11-06T02:05:26.3526867Z 20:05:26  [29 of 61] FINISHED flow salesforce_HistoricalAdjustment completed in 763.4s (76,285 rows)
+2025-11-06T02:05:35.1704430Z 20:05:35  [30 of 61] FINISHED flow salesforce_HomeDepartment completed in 772.2s (9,803 rows)
+2025-11-06T02:06:02.8835964Z 20:06:02  PROCESSED 17,000,000 rows in 799.9s (21,253 rows/s)
+2025-11-06T02:06:41.4455180Z 20:06:41  [21 of 61] FINISHED flow salesforce_EmailResult completed in 838.5s (1,049,670 rows)
+2025-11-06T02:06:49.9292244Z 20:06:49  PROCESSED 18,000,000 rows in 847.0s (21,253 rows/s)
+2025-11-06T02:07:44.3790494Z 20:07:44  [12 of 61] FINISHED flow salesforce_ContactReport completed in 901.4s (2,026,432 rows)
+2025-11-06T02:07:59.4178184Z 20:07:59  PROCESSED 19,000,000 rows in 916.4s (20,732 rows/s)
+2025-11-06T02:08:35.5782298Z 20:08:35  PROCESSED 20,000,000 rows in 952.6s (20,996 rows/s)
+2025-11-06T02:09:11.9114975Z 20:09:11  [3 of 61] FINISHED flow salesforce_Address completed in 988.9s (1,726,170 rows)
+2025-11-06T02:09:19.8772956Z 20:09:19  [34 of 61] FINISHED flow salesforce_InvolvementValue completed in 996.9s (2,244 rows)
+2025-11-06T02:09:26.0385126Z 20:09:26  [35 of 61] FINISHED flow salesforce_JobCode completed in 1003.0s (1,496 rows)
+2025-11-06T02:09:38.2151519Z 20:09:38  PROCESSED 21,000,000 rows in 1015.2s (20,685 rows/s)
+2025-11-06T02:09:43.4491412Z 20:09:43  [36 of 61] FINISHED flow salesforce_MatchingGiftOrigination completed in 1020.4s (110,286 rows)
+2025-11-06T02:09:51.1747565Z 20:09:51  [37 of 61] FINISHED flow salesforce_MinorCode completed in 1028.2s (143 rows)
+2025-11-06T02:10:14.9410876Z 20:10:14  [32 of 61] FINISHED flow salesforce_InstallmentPayment completed in 1051.9s (568,217 rows)
+2025-11-06T02:10:15.9555709Z 20:10:15  [salesforce_Installment] Error reading from salesforce_Installment_home: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:10:15.9556663Z 20:10:15  [salesforce_Installment] Producer error: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:10:16.9612912Z 20:10:16  [salesforce_AddressRelation] Error reading from salesforce_AddressRelation_home: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:10:16.9619440Z 20:10:16  [salesforce_AddressRelation] Producer error: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:10:17.9677849Z 20:10:17  [salesforce_Involvement] Error reading from salesforce_Involvement_home: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:10:17.9679791Z 20:10:17  [salesforce_Involvement] Producer error: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:10:17.9692630Z 20:10:17  [salesforce_Installment] Flow failed: salesforce_Installment, error: Producer failed: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:10:17.9693990Z 20:10:17  [31 of 61] FAILED flow salesforce_Installment ....
+2025-11-06T02:10:17.9698930Z 20:10:17  [salesforce_AddressRelation] Flow failed: salesforce_AddressRelation, error: Producer failed: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:10:17.9700084Z 20:10:17  [4 of 61] FAILED flow salesforce_AddressRelation ....
+2025-11-06T02:10:17.9704207Z 20:10:17  [salesforce_Involvement] Flow failed: salesforce_Involvement, error: Producer failed: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:10:17.9706519Z 20:10:17  [33 of 61] FAILED flow salesforce_Involvement ....
+2025-11-06T02:10:17.9726147Z 20:10:17  Connection from pool was dead, creating new one
+2025-11-06T02:10:17.9732513Z 20:10:17  Connection from pool was dead, creating new one
+2025-11-06T02:10:17.9734886Z 20:10:17  Connection from pool was dead, creating new one
+2025-11-06T02:10:26.0260746Z 20:10:26  [40 of 61] FINISHED flow salesforce_OpportunityContactRole completed in 1063.0s (3,132 rows)
+2025-11-06T02:10:29.6695339Z 20:10:29  [41 of 61] FINISHED flow salesforce_OpportunityTeamMember completed in 1066.7s (12,603 rows)
+2025-11-06T02:10:30.6578786Z 20:10:30  PROCESSED 22,000,000 rows in 1067.7s (20,606 rows/s)
+2025-11-06T02:10:35.2668985Z 20:10:35  [44 of 61] FINISHED flow salesforce_ProposalDesignation completed in 1072.3s (17,052 rows)
+2025-11-06T02:11:01.8788034Z 20:11:01  [27 of 61] FINISHED flow salesforce_FundraiserContactReportRelation completed in 1098.9s (2,040,349 rows)
+2025-11-06T02:11:09.9250919Z 20:11:09  [46 of 61] FINISHED flow salesforce_RecordType completed in 1106.9s (136 rows)
+2025-11-06T02:11:17.8462206Z 20:11:17  [47 of 61] FINISHED flow salesforce_RelatedOrganization completed in 1114.8s (24,794 rows)
+2025-11-06T02:11:32.7776218Z 20:11:32  PROCESSED 23,000,000 rows in 1129.8s (20,358 rows/s)
+2025-11-06T02:11:58.1499091Z 20:11:58  [26 of 61] FINISHED flow salesforce_ExternalId completed in 1155.2s (1,994,790 rows)
+2025-11-06T02:12:36.5910814Z 20:12:36  PROCESSED 24,000,000 rows in 1193.6s (20,107 rows/s)
+2025-11-06T02:13:23.8886502Z 20:13:23  PROCESSED 25,000,000 rows in 1240.9s (20,147 rows/s)
+2025-11-06T02:14:09.4393556Z 20:14:09  PROCESSED 26,000,000 rows in 1286.4s (20,211 rows/s)
+2025-11-06T02:14:54.8616270Z 20:14:54  PROCESSED 27,000,000 rows in 1331.7s (20,275 rows/s)
+2025-11-06T02:15:39.6160228Z 20:15:39  PROCESSED 28,000,000 rows in 1376.6s (20,340 rows/s)
+2025-11-06T02:16:02.0901391Z 20:16:02  [38 of 61] FINISHED flow salesforce_Note completed in 1399.1s (1,390,659 rows)
+2025-11-06T02:16:50.0124585Z 20:16:49  [48 of 61] FINISHED flow salesforce_Relationship completed in 1447.0s (1,158,880 rows)
+2025-11-06T02:16:53.1382795Z 20:16:53  PROCESSED 29,000,000 rows in 1450.2s (19,998 rows/s)
+2025-11-06T02:16:55.4273024Z 20:16:55  [51 of 61] FINISHED flow salesforce_ServiceIndicatorValue completed in 1452.4s (116 rows)
+2025-11-06T02:17:55.7607223Z 20:17:55  PROCESSED 30,000,000 rows in 1512.8s (19,831 rows/s)
+2025-11-06T02:18:02.2032245Z 20:18:02  [50 of 61] FINISHED flow salesforce_ServiceIndicator completed in 1519.2s (369,934 rows)
+2025-11-06T02:18:07.0380748Z 20:18:07  [52 of 61] FINISHED flow salesforce_Session completed in 1524.0s (80,656 rows)
+2025-11-06T02:18:25.2456688Z 20:18:25  [53 of 61] FINISHED flow salesforce_SocialMedia completed in 1542.2s (80,973 rows)
+2025-11-06T02:18:34.3153635Z 20:18:34  [55 of 61] FINISHED flow salesforce_Specialty completed in 1551.3s (853 rows)
+2025-11-06T02:18:41.4706928Z 20:18:41  [56 of 61] FINISHED flow salesforce_Strategy completed in 1558.5s (12,248 rows)
+2025-11-06T02:18:56.6162077Z 20:18:56  [43 of 61] FINISHED flow salesforce_Phone completed in 1573.6s (1,345,959 rows)
+2025-11-06T02:19:02.9117895Z 20:19:02  [57 of 61] FINISHED flow salesforce_StrategyTeamMember completed in 1579.9s (312 rows)
+2025-11-06T02:19:08.2862315Z 20:19:08  [58 of 61] FINISHED flow salesforce_SystemUser completed in 1585.3s (779 rows)
+2025-11-06T02:19:14.6923046Z 20:19:14  PROCESSED 31,000,000 rows in 1591.7s (19,476 rows/s)
+2025-11-06T02:19:21.7454265Z 20:19:21  [59 of 61] FINISHED flow salesforce_Task completed in 1598.8s (37,614 rows)
+2025-11-06T02:20:07.8355664Z 20:20:07  [60 of 61] FINISHED flow salesforce_Tribute completed in 1644.8s (229,240 rows)
+2025-11-06T02:20:17.1056488Z 20:20:17  PROCESSED 32,000,000 rows in 1654.1s (19,346 rows/s)
+2025-11-06T02:21:21.8812000Z 20:21:21  PROCESSED 33,000,000 rows in 1718.9s (19,198 rows/s)
+2025-11-06T02:22:27.3944208Z 20:22:27  PROCESSED 34,000,000 rows in 1784.4s (19,054 rows/s)
+2025-11-06T02:23:33.7696350Z 20:23:33  PROCESSED 35,000,000 rows in 1850.7s (18,911 rows/s)
+2025-11-06T02:24:42.6801933Z 20:24:42  PROCESSED 36,000,000 rows in 1919.2s (18,758 rows/s)
+2025-11-06T02:25:08.1912190Z 20:25:08  [49 of 61] FINISHED flow salesforce_Salutation completed in 1945.2s (2,919,524 rows)
+2025-11-06T02:26:25.4056564Z 20:26:25  PROCESSED 37,000,000 rows in 2022.4s (18,295 rows/s)
+2025-11-06T02:27:48.9538948Z 20:27:48  PROCESSED 38,000,000 rows in 2106.0s (18,044 rows/s)
+2025-11-06T02:28:49.9812186Z 20:28:49  [54 of 61] FINISHED flow salesforce_SocietyMembership completed in 2167.0s (1,563,491 rows)
+2025-11-06T02:29:23.1206468Z 20:29:23  PROCESSED 39,000,000 rows in 2200.1s (17,726 rows/s)
+2025-11-06T02:30:52.6480373Z 20:30:52  PROCESSED 40,000,000 rows in 2289.7s (17,470 rows/s)
+2025-11-06T02:32:23.5129103Z 20:32:23  PROCESSED 41,000,000 rows in 2380.5s (17,223 rows/s)
+2025-11-06T02:33:53.3671485Z 20:33:53  PROCESSED 42,000,000 rows in 2470.4s (17,001 rows/s)
+2025-11-06T02:35:32.7449034Z 20:35:32  [61 of 61] FINISHED flow salesforce_WealthRating completed in 2569.7s (1,646,486 rows)
+2025-11-06T02:35:41.0003071Z 20:35:40  PROCESSED 43,000,000 rows in 2578.0s (16,679 rows/s)
+2025-11-06T02:36:51.4771382Z 20:36:51  [18 of 61] FINISHED flow salesforce_DesignationDetail completed in 2648.5s (3,774,972 rows)
+2025-11-06T02:37:49.6075746Z 20:37:49  PROCESSED 44,000,000 rows in 2706.6s (16,257 rows/s)
+2025-11-06T02:39:23.7131132Z 20:39:23  PROCESSED 45,000,000 rows in 2800.7s (16,067 rows/s)
+2025-11-06T02:40:58.8146094Z 20:40:58  PROCESSED 46,000,000 rows in 2895.8s (15,885 rows/s)
+2025-11-06T02:42:32.6778589Z 20:42:32  PROCESSED 47,000,000 rows in 2989.7s (15,721 rows/s)
+2025-11-06T02:44:05.5485700Z 20:44:05  PROCESSED 48,000,000 rows in 3082.6s (15,571 rows/s)
+2025-11-06T02:46:08.5262144Z 20:46:08  [45 of 61] FINISHED flow salesforce_RecognitionCredit completed in 3205.5s (6,858,065 rows)
+2025-11-06T02:47:53.0268135Z 20:47:53  PROCESSED 49,000,000 rows in 3310.0s (14,803 rows/s)
+2025-11-06T02:49:39.6876282Z 20:49:39  [42 of 61] FINISHED flow salesforce_Payment completed in 3416.7s (4,318,731 rows)
+2025-11-06T02:50:51.2705250Z 20:50:51  PROCESSED 50,000,000 rows in 3488.3s (14,334 rows/s)
+2025-11-06T02:52:52.8874995Z 20:52:52  [39 of 61] FINISHED flow salesforce_Opportunity completed in 3609.6s (3,795,040 rows)
+2025-11-06T02:52:52.8875545Z 20:52:52  Cleaning up 1 connection pools
+2025-11-06T02:52:52.8876218Z 20:52:52  Closing connection pool 'edw-prod'
+2025-11-06T02:52:52.8876702Z 20:52:52  OK Pool 'edw-prod' closed (8 connections)
+2025-11-06T02:52:52.8883120Z 20:52:52  OK All connection pools cleaned up
+2025-11-06T02:52:52.8884488Z Error: Producer failed: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:52:52.8885925Z 20:52:52  Error running flows: Producer failed: Failed to read from MSSQL: ('08S01', '[08S01] [Microsoft][ODBC Driver 18 for SQL Server]TCP Provider: An existing connection was forcibly closed by the remote host.\r\n (10054) (SQLGetData); [08S01] [Microsoft][ODBC Driver 18 for SQL Server]Communication link failure (10054)')
+2025-11-06T02:52:53.1186207Z Cleaning up environment...
+2025-11-06T02:52:54.1984666Z Did not find path entry C:\ProgramData\miniconda3\bin
+2025-11-06T02:52:54.5283331Z C:\agents\_work\_temp\8dcb1741-520d-4b3b-8c6d-f80a483b5656.ps1 : An error occurred: Hygge failed with exit code 1
+2025-11-06T02:52:54.5284836Z At line:1 char:1
+2025-11-06T02:52:54.5285392Z + . 'C:\agents\_work\_temp\8dcb1741-520d-4b3b-8c6d-f80a483b5656.ps1'
+2025-11-06T02:52:54.5286221Z + ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+2025-11-06T02:52:54.5288049Z     + CategoryInfo          : NotSpecified: (:) [Write-Error], WriteErrorException
+2025-11-06T02:52:54.5288691Z     + FullyQualifiedErrorId : Microsoft.PowerShell.Commands.WriteErrorException,8dcb1741-520d-4b3b-8c6d-f80a483b5656.p
+2025-11-06T02:52:54.5289048Z    s1
+2025-11-06T02:52:54.5289285Z
+2025-11-06T02:52:54.6023875Z ##[error]PowerShell exited with code '1'.
+2025-11-06T02:52:54.6459297Z ##[section]Finishing: Install Hygge and Run Flows

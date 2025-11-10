@@ -6,6 +6,7 @@ from .mssql import MssqlStore, MssqlStoreConfig
 from .onelake import OneLakeStore, OneLakeStoreConfig
 from .openmirroring import OpenMirroringStore, OpenMirroringStoreConfig
 from .parquet import ParquetStore, ParquetStoreConfig
+from .sqlite import SqliteStore, SqliteStoreConfig
 
 __all__ = [
     "ADLSStore",
@@ -18,4 +19,6 @@ __all__ = [
     "OpenMirroringStoreConfig",
     "ParquetStore",
     "ParquetStoreConfig",
+    "SqliteStore",
+    "SqliteStoreConfig",
 ]

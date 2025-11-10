@@ -10,8 +10,10 @@ The coordinator's single responsibility is to:
 Home and Store instantiation is delegated to Flow.
 """
 import asyncio
+import json
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field, field_validator
@@ -20,9 +22,11 @@ from hygge.connections import MSSQL_CONNECTION_DEFAULTS, ConnectionPool, MssqlCo
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 from hygge.utility.path_helper import PathHelper
+from hygge.utility.run_id import generate_run_id
 
 from .flow import Flow, FlowConfig
 from .home import Home
+from .journal import Journal, JournalConfig
 from .store import Store
 
 # Store-related configuration keys that can be applied as defaults
@@ -75,6 +79,13 @@ class Coordinator:
         self._load_project_config()
 
         # No longer need Factory - using registry pattern directly
+        self.coordinator_name = self._resolve_coordinator_name()
+        self.coordinator_run_id: Optional[str] = None
+        self.coordinator_start_time: Optional[datetime] = None
+        self.journal_config: Optional[JournalConfig] = None
+        self.journal: Optional[Journal] = None
+        self._journal_cache: Dict[str, Journal] = {}
+        self.flow_run_ids: Dict[str, str] = {}
 
     def _find_project_config(self) -> str:
         """Look for hygge.yml in current directory and parents."""
@@ -118,6 +129,16 @@ To get started, run:
         # Expand environment variables in project config
         self.project_config = self._expand_env_vars(self.project_config)
 
+    def _resolve_coordinator_name(self) -> str:
+        """Determine coordinator name from project config or config path."""
+        if self.project_config and self.project_config.get("name"):
+            return str(self.project_config["name"])
+        if self.config_path:
+            stem = self.config_path.stem
+            if stem:
+                return stem
+        return "coordinator"
+
     def _expand_env_vars(self, data: Any) -> Any:
         """
         Recursively expand environment variables in configuration data.
@@ -159,6 +180,12 @@ To get started, run:
     async def run(self) -> None:
         """Run all configured flows."""
         self.logger.info(f"Starting coordinator with config: {self.config_path}")
+        self.coordinator_start_time = datetime.now(timezone.utc)
+        coordinator_start_iso = self.coordinator_start_time.isoformat()
+        self.coordinator_run_id = generate_run_id(
+            [self.coordinator_name, coordinator_start_iso]
+        )
+        self.flow_run_ids = {}
 
         try:
             # Load and validate configuration
@@ -198,6 +225,13 @@ To get started, run:
         except Exception as e:
             raise ConfigError(f"Failed to load configuration: {str(e)}")
 
+        if self.config:
+            self.journal_config = (
+                self.config.journal
+                if isinstance(self.config.journal, JournalConfig)
+                else None
+            )
+
     def _load_project_flows(self) -> None:
         """Load flows from flows/ directory in project-centric mode."""
         # Get flows directory from project config
@@ -231,7 +265,15 @@ To get started, run:
 
         # Create coordinator config with connections if present
         connections = self.project_config.get("connections", {})
-        self.config = CoordinatorConfig(flows=flows, connections=connections)
+        journal_config = self.project_config.get("journal")
+        self.config = CoordinatorConfig(
+            flows=flows, connections=connections, journal=journal_config
+        )
+        self.journal_config = (
+            self.config.journal
+            if isinstance(self.config.journal, JournalConfig)
+            else None
+        )
 
         # Load global options from project config
         self.options = self.project_config.get("options", {})
@@ -288,6 +330,11 @@ To get started, run:
 
         # Parse with Pydantic
         self.config = CoordinatorConfig.from_dict(config_data)
+        self.journal_config = (
+            self.config.journal
+            if isinstance(self.config.journal, JournalConfig)
+            else None
+        )
 
         # Extract options
         self.options = config_data.get("options", {})
@@ -319,7 +366,8 @@ To get started, run:
             raise ConfigError(f"No flows found in directory: {self.config_path}")
 
         # Create coordinator config
-        self.config = CoordinatorConfig(flows=flows)
+        self.config = CoordinatorConfig(flows=flows, journal=None)
+        self.journal_config = None
 
         # Load global options if they exist
         options_file = self.config_path / "options.yml"
@@ -458,6 +506,52 @@ To get started, run:
             conn_name = store_config.connection
             self.logger.warning(f"Connection '{conn_name}' referenced but not found")
 
+    def _get_or_create_journal_instance(
+        self,
+        flow_level_config: Optional[JournalConfig],
+        store_config,
+        home_config,
+    ) -> Optional[Journal]:
+        """
+        Resolve journal instance for a flow/entity based on configuration.
+
+        Args:
+            flow_level_config: Journal config defined at the flow/entity level.
+            store_config: Store configuration (for path inference).
+            home_config: Home configuration (for path inference).
+
+        Returns:
+            Journal instance or None if journaling is disabled.
+        """
+        effective_config = flow_level_config or self.journal_config
+        if not effective_config:
+            return None
+
+        cache_key = json.dumps(effective_config.model_dump(mode="json"), sort_keys=True)
+        journal = self._journal_cache.get(cache_key)
+
+        if not journal:
+            store_path = getattr(store_config, "path", None)
+            home_path = getattr(home_config, "path", None)
+
+            journal = Journal(
+                name=self.coordinator_name,
+                config=effective_config,
+                coordinator_name=self.coordinator_name,
+                store_path=str(store_path) if store_path else None,
+                home_path=str(home_path) if home_path else None,
+            )
+            self._journal_cache[cache_key] = journal
+
+            if (
+                flow_level_config is None
+                and self.journal is None
+                and effective_config is self.journal_config
+            ):
+                self.journal = journal
+
+        return journal
+
     def _create_flows(self) -> None:
         """Create Flow instances from configuration."""
         self.flows = []
@@ -472,6 +566,14 @@ To get started, run:
                     )
                     # Update config in place so it's accessible later
                     self.config.flows[base_flow_name] = flow_config
+
+                default_run_type = flow_config.run_type or "full_drop"
+                default_watermark = flow_config.watermark
+                flow_journal_config = (
+                    flow_config.journal
+                    if isinstance(flow_config.journal, JournalConfig)
+                    else None
+                )
 
                 # Check if entities are defined
                 if flow_config.entities and len(flow_config.entities) > 0:
@@ -507,10 +609,14 @@ To get started, run:
                             entity_name,
                             entity,
                             base_flow_name,
+                            flow_journal_config,
+                            default_run_type,
+                            default_watermark,
                         )
                 else:
                     # Create single flow without entities
                     home = flow_config.home_instance
+                    home_config = home.config
 
                     # Get store config and apply flow-level full_drop
                     # BEFORE creating store
@@ -536,6 +642,10 @@ To get started, run:
                     # Inject connection pool into stores that need it
                     self._inject_store_pool(store, store_config)
 
+                    journal_instance = self._get_or_create_journal_instance(
+                        flow_journal_config, store_config, home_config
+                    )
+
                     # Create flow with options
                     flow_options = flow_config.options.copy()
                     flow_options.update(
@@ -545,7 +655,20 @@ To get started, run:
                         }
                     )
 
-                    flow = Flow(base_flow_name, home, store, flow_options)
+                    flow = Flow(
+                        base_flow_name,
+                        home,
+                        store,
+                        flow_options,
+                        journal=journal_instance,
+                        coordinator_run_id=self.coordinator_run_id,
+                        flow_run_id=None,
+                        coordinator_name=self.coordinator_name,
+                        base_flow_name=base_flow_name,
+                        entity_name=None,
+                        run_type=default_run_type,
+                        watermark_config=default_watermark,
+                    )
                     self.flows.append(flow)
 
                     self.logger.debug(f"Created flow: {base_flow_name}")
@@ -558,8 +681,11 @@ To get started, run:
         flow_name: str,
         flow_config: FlowConfig,
         entity_name: str,
-        entity_config: dict,
+        entity_config: Union[Dict[str, Any], str],
         base_flow_name: str,
+        flow_journal_config: Optional[JournalConfig],
+        default_run_type: str,
+        default_watermark: Optional[Dict[str, str]],
     ) -> None:
         """Create a flow for a specific entity with entity subdirectories."""
         # Get the original config from home/store instances
@@ -570,6 +696,26 @@ To get started, run:
             raise ConfigError(
                 "Cannot create entity flow: home/store configs not accessible"
             )
+
+        entity_run_type = default_run_type
+        entity_watermark = default_watermark
+        entity_journal_config = flow_journal_config
+
+        if isinstance(entity_config, dict):
+            if "run_type" in entity_config and entity_config["run_type"]:
+                entity_run_type = entity_config["run_type"]
+            if "watermark" in entity_config and entity_config["watermark"]:
+                entity_watermark = entity_config["watermark"]
+            if "journal" in entity_config and entity_config["journal"]:
+                raw_journal = entity_config["journal"]
+                if isinstance(raw_journal, JournalConfig):
+                    entity_journal_config = raw_journal
+                elif isinstance(raw_journal, dict):
+                    entity_journal_config = JournalConfig(**raw_journal)
+                else:
+                    raise ConfigError(
+                        f"Invalid journal configuration for entity {entity_name}"
+                    )
 
         # Merge entity configuration with flow configuration
         if isinstance(entity_config, dict):
@@ -681,6 +827,10 @@ To get started, run:
         # Inject connection pool into stores that need it
         self._inject_store_pool(store, store_config)
 
+        journal_instance = self._get_or_create_journal_instance(
+            entity_journal_config, store_config, home_config
+        )
+
         # Create flow with options
         flow_options = flow_config.options.copy()
         flow_options.update(
@@ -690,7 +840,20 @@ To get started, run:
             }
         )
 
-        flow = Flow(flow_name, home, store, flow_options)
+        flow = Flow(
+            flow_name,
+            home,
+            store,
+            flow_options,
+            journal=journal_instance,
+            coordinator_run_id=self.coordinator_run_id,
+            flow_run_id=None,
+            coordinator_name=self.coordinator_name,
+            base_flow_name=base_flow_name,
+            entity_name=entity_name,
+            run_type=entity_run_type,
+            watermark_config=entity_watermark,
+        )
         self.flows.append(flow)
 
         self.logger.debug(f"Created entity flow: {flow_name} for entity: {entity_name}")
@@ -783,7 +946,7 @@ To get started, run:
         total_flows: int,
         semaphore: asyncio.Semaphore,
     ) -> None:
-        """Acquires semaphore before running flow and releases after completion to limit concurrent execution and prevent connection contention."""
+        """Limit concurrent execution using a semaphore."""
         async with semaphore:
             await self._run_flow(flow, flow_num, total_flows)
 
@@ -796,6 +959,18 @@ To get started, run:
             "duration": 0.0,
             "error": None,
         }
+
+        # Ensure flow has current journal context and run IDs
+        flow.coordinator_run_id = self.coordinator_run_id
+        flow.coordinator_name = self.coordinator_name
+
+        base_flow = flow.base_flow_name or flow.name
+        if base_flow not in self.flow_run_ids:
+            flow_start_time = datetime.now(timezone.utc)
+            self.flow_run_ids[base_flow] = generate_run_id(
+                [self.coordinator_name, base_flow, flow_start_time.isoformat()]
+            )
+        flow.flow_run_id = self.flow_run_ids[base_flow]
 
         try:
             await flow.start()
@@ -984,6 +1159,10 @@ class CoordinatorConfig(BaseModel):
     connections: Dict[str, Dict[str, Any]] = Field(
         default_factory=dict, description="Named connection pool configurations"
     )
+    journal: Optional[Union[Dict[str, Any], JournalConfig]] = Field(
+        default=None,
+        description="Journal configuration for tracking execution metadata",
+    )
 
     @field_validator("flows")
     @classmethod
@@ -992,6 +1171,20 @@ class CoordinatorConfig(BaseModel):
         if not v:
             raise ValueError("At least one flow must be configured")
         return v
+
+    @field_validator("journal", mode="before")
+    @classmethod
+    def validate_journal(cls, v):
+        """Validate and normalize journal configuration."""
+        if v is None:
+            return None
+        if isinstance(v, JournalConfig):
+            return v
+        if isinstance(v, dict):
+            return JournalConfig(**v)
+        raise ValueError(
+            "Journal configuration must be a dict or JournalConfig instance"
+        )
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "CoordinatorConfig":

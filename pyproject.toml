@@ -21,18 +21,24 @@ mssql = [
     "sqlalchemy>=2.0.0",
     "pyodbc>=5.1.0",
 ]
+sqlite = [
+    "adbc-driver-sqlite>=0.16.0",
+    "adbc-driver-manager>=0.16.0",
+]
 azure = [
     "azure-identity>=1.19.0",
     "azure-storage-file-datalake>=12.18.0",
     "azure-core>=1.32.0",
 ]
-# All optional runtime dependencies (mssql + azure)
+# All optional runtime dependencies (mssql + azure + sqlite)
 all = [
     "sqlalchemy>=2.0.0",
     "pyodbc>=5.1.0",
     "azure-identity>=1.19.0",
     "azure-storage-file-datalake>=12.18.0",
     "azure-core>=1.32.0",
+    "adbc-driver-sqlite>=0.16.0",
+    "adbc-driver-manager>=0.16.0",
 ]
 dev = [
     "pytest>=8.3.3",
