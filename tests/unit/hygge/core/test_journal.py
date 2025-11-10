@@ -261,7 +261,7 @@ class TestJournalRemoteStorage:
         assert journal.storage_backend == "adls"
         assert (
             journal.remote_journal_path
-            == "/mirror-guid/Files/.hygge_journal/journal.parquet"
+            == "mirror-guid/Files/.hygge_journal/journal.parquet"
         )
 
         await journal.record_entity_run(**sample_entity_run_data)
