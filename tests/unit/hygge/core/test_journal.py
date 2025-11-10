@@ -359,6 +359,40 @@ class TestJournalRecordEntityRun:
         assert "orders" in entities
 
     @pytest.mark.asyncio
+    async def test_record_entity_run_concurrent_appends(self, journal):
+        """Test concurrent writes preserve all entries."""
+
+        async def record_entity(entity: str) -> str:
+            start_time = datetime.now(timezone.utc)
+            finish_time = datetime.now(timezone.utc)
+            return await journal.record_entity_run(
+                coordinator_run_id=generate_run_id(
+                    ["test_coordinator", start_time.isoformat()]
+                ),
+                flow_run_id=generate_run_id(
+                    ["test_coordinator", "users_flow", entity, start_time.isoformat()]
+                ),
+                coordinator="test_coordinator",
+                flow="users_flow",
+                entity=entity,
+                start_time=start_time,
+                finish_time=finish_time,
+                status="success",
+                run_type="incremental",
+                row_count=10,
+                duration=1.0,
+            )
+
+        await asyncio.gather(
+            record_entity("users"),
+            record_entity("orders"),
+        )
+
+        journal_df = pl.read_parquet(journal.journal_path)
+        assert len(journal_df) == 2
+        assert set(journal_df["entity"].to_list()) == {"users", "orders"}
+
+    @pytest.mark.asyncio
     async def test_record_entity_run_no_watermark(self, journal):
         """Test recording entity run without watermark."""
         start_time = datetime.now(timezone.utc)

@@ -136,6 +136,7 @@ class Journal:
 
         # Resolve journal path
         self.journal_path = self._resolve_journal_path(store_path, home_path)
+        self._write_lock = asyncio.Lock()
 
     def _resolve_journal_path(
         self, store_path: Optional[str], home_path: Optional[str]
@@ -259,7 +260,8 @@ class Journal:
         new_row_df = pl.DataFrame([row_data], schema=self.JOURNAL_SCHEMA)
 
         # Append to journal file (thread-safe write)
-        await asyncio.to_thread(self._append_to_journal, new_row_df)
+        async with self._write_lock:
+            await asyncio.to_thread(self._append_to_journal, new_row_df)
 
         self.logger.debug(
             f"Recorded entity run: {coordinator}/{flow}/{entity} "
