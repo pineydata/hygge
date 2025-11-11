@@ -230,8 +230,6 @@ class ADLSStore(Store, store_type="adls"):
         """Allow flows to toggle truncate behaviour via run type."""
         super().configure_for_run(run_type)
 
-        super().configure_for_run(run_type)
-
         is_incremental = run_type != "full_drop"
         if self.incremental_override is not None:
             is_incremental = self.incremental_override
