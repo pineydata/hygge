@@ -139,15 +139,6 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         ),
     )
 
-    incremental: Optional[bool] = Field(
-        default=None,
-        description=(
-            "Optional override for incremental behaviour. "
-            "None (default) defers to the flow's run_type, "
-            "True forces incremental append, False forces full-drop reloads."
-        ),
-    )
-
     @field_validator("file_detection")
     @classmethod
     def validate_file_detection(cls, v):
