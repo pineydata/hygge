@@ -283,6 +283,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         # Track metadata file paths (for full_drop atomic operation)
         self._metadata_tmp_path = None
         self._partner_events_tmp_path = None
+        self._schema_tmp_path = None
+        self._schema_tmp_path = None
 
         # Track if table folder has been prepared (full_drop + metadata)
         self._table_folder_prepared = False
@@ -302,6 +304,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         self._partner_events_written = False
         self._metadata_tmp_path = None
         self._partner_events_tmp_path = None
+        self._schema_tmp_path = None
         self._table_folder_prepared = False
         self.sequence_counter = None
 
@@ -744,6 +747,84 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             f"with keyColumns: {self.key_columns}"
         )
         self._metadata_written = True
+        await self._write_schema_json(to_tmp=to_tmp)
+
+    async def _write_schema_json(self, to_tmp: bool = False) -> None:
+        """
+        Write `_schema.json` file describing column order/types so Fabric mirrors
+        the journal parquet without relying on inference.
+        """
+        from hygge.core.journal import Journal
+
+        schema_columns = []
+        for column_name, dtype in Journal.JOURNAL_SCHEMA.items():
+            schema_columns.append(
+                {
+                    "name": column_name,
+                    "type": self._map_polars_dtype_to_fabric(dtype),
+                }
+            )
+
+        schema_payload = {"columns": schema_columns}
+
+        if to_tmp:
+            if self.base_path and "LandingZone" in self.base_path:
+                tmp_base_path = self.base_path.replace(
+                    "/Files/LandingZone/", "/Files/_tmp/"
+                )
+                schema_path = f"{tmp_base_path}/_schema.json"
+            else:
+                raise StoreError(
+                    "Cannot construct _tmp path for schema: "
+                    f"base_path '{self.base_path}' does not contain 'LandingZone'."
+                )
+        else:
+            schema_path = f"{self.base_path}/_schema.json"
+
+        adls_ops = self._get_adls_ops()
+        json_data = json.dumps(schema_payload, indent=2).encode("utf-8")
+
+        directory_path = str(Path(schema_path).parent)
+        try:
+            directory_client = adls_ops.file_system_client.get_directory_client(
+                directory_path
+            )
+            if not directory_client.exists():
+                directory_client.create_directory(timeout=adls_ops.timeout)
+                self.logger.debug(f"Created directory for schema: {directory_path}")
+        except Exception as exc:
+            self.logger.debug(
+                f"Directory check/create failed (may already exist): {str(exc)}"
+            )
+
+        file_client = adls_ops.file_system_client.get_file_client(schema_path)
+        file_client.upload_data(json_data, overwrite=True, timeout=adls_ops.timeout)
+        if to_tmp:
+            self._schema_tmp_path = schema_path
+        self.logger.debug(f"Wrote _schema.json to {schema_path}")
+
+    @staticmethod
+    def _map_polars_dtype_to_fabric(dtype) -> str:
+        """Map Polars dtype to Fabric-compatible type names."""
+        if dtype in {pl.Utf8}:
+            return "string"
+        integer_types = {
+            pl.Int8,
+            pl.Int16,
+            pl.Int32,
+            pl.Int64,
+            pl.UInt8,
+            pl.UInt16,
+            pl.UInt32,
+            pl.UInt64,
+        }
+        if dtype in integer_types:
+            return "long"
+        if dtype in {pl.Float32, pl.Float64}:
+            return "double"
+        if dtype in {pl.Datetime, pl.Date, pl.Time}:
+            return "datetime"
+        return "string"
 
     async def _write_partner_events_json(self, to_tmp: bool = False) -> None:
         """
@@ -1016,13 +1097,13 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             buffer = io.BytesIO()
             df.write_parquet(buffer, compression=self.compression)
             data = buffer.getvalue()
-            await adls_ops.upload_bytes(data, cloud_staging_path)
+            stored_staging_path = await adls_ops.upload_bytes(data, cloud_staging_path)
 
             # Log and track (reusing parent's tracking logic)
             self._log_write_progress(len(df))
             if not hasattr(self, "saved_paths"):
                 self.saved_paths = []
-            self.saved_paths.append(cloud_staging_path)
+            self.saved_paths.append(stored_staging_path or cloud_staging_path)
             if not hasattr(self, "uploaded_files"):
                 self.uploaded_files = []
             self.uploaded_files.append(filename)
@@ -1055,120 +1136,151 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         if self.rows_since_last_log > 0:
             self.logger.debug(f"WROTE {self.rows_since_last_log:,} rows")
 
-        if self.full_drop_mode:
-            # Atomic operation: Delete production folder AFTER all data written
-            self.logger.debug(
-                "full_drop mode: Performing atomic operation - "
-                "deleting production folder and moving files from _tmp"
-            )
+        try:
+            if self.full_drop_mode:
+                # Atomic operation: Delete production folder AFTER all data written
+                self.logger.debug(
+                    "full_drop mode: Performing atomic operation - "
+                    "deleting production folder and moving files from _tmp"
+                )
 
-            # Step 1: Delete production folder (ACID: only after all writes succeed)
-            await self._delete_table_folder()
+                # Step 1: Delete production folder (ACID: only after all writes succeed)
+                await self._delete_table_folder()
 
-            # Step 2: Move all data files from _tmp to production
-            # Collect any errors but continue moving files to minimize data loss
-            adls_ops = self._get_adls_ops()
-            move_errors = []
+                # Step 2: Move all data files from _tmp to production
+                # Collect any errors but continue moving files to minimize data loss
+                adls_ops = self._get_adls_ops()
+                move_errors = []
 
-            if hasattr(self, "saved_paths") and self.saved_paths:
-                for staging_path_str in self.saved_paths:
-                    if not staging_path_str:
-                        continue
+                if hasattr(self, "saved_paths") and self.saved_paths:
+                    for staging_path_str in self.saved_paths:
+                        if not staging_path_str:
+                            continue
 
-                    # Build final path: replace _tmp with LandingZone
-                    if "_tmp" in staging_path_str:
-                        final_path_str = self._convert_tmp_to_production_path(
-                            staging_path_str
-                        )
-                    else:
-                        # Fallback: build final path from staging path
-                        # This should not happen in full_drop mode (all paths should
-                        # contain _tmp), but we handle it defensively
-                        self.logger.warning(
-                            f"full_drop mode: staging path '{staging_path_str}' "
-                            "does not contain '_tmp'. This is unexpected and may "
-                            "indicate a configuration issue. Using fallback path "
-                            "construction."
-                        )
-                        staging_path = Path(staging_path_str)
-                        final_dir = self.get_final_directory()
-                        if final_dir:
-                            final_path = final_dir / staging_path.name
-                            final_path_str = final_path.as_posix()
+                        # Build final path: replace _tmp with LandingZone
+                        if "_tmp" in staging_path_str:
+                            final_path_str = self._convert_tmp_to_production_path(
+                                staging_path_str
+                            )
                         else:
-                            # Build from base_path
-                            filename = PathHelper.get_filename(staging_path_str)
-                            final_path_str = f"{self.base_path}/{filename}"
+                            # Fallback: build final path from staging path
+                            # This should not happen in full_drop mode (all paths should
+                            # contain _tmp), but we handle it defensively
+                            self.logger.warning(
+                                f"full_drop mode: staging path '{staging_path_str}' "
+                                "does not contain '_tmp'. This is unexpected and may "
+                                "indicate a configuration issue. Using fallback path "
+                                "construction."
+                            )
+                            staging_path = Path(staging_path_str)
+                            final_dir = self.get_final_directory()
+                            if final_dir:
+                                final_path = final_dir / staging_path.name
+                                final_path_str = final_path.as_posix()
+                            else:
+                                # Build from base_path
+                                filename = PathHelper.get_filename(staging_path_str)
+                                final_path_str = f"{self.base_path}/{filename}"
 
-                    # Move file from _tmp to production
+                        # Move file from _tmp to production
+                        try:
+                            await adls_ops.move_file(staging_path_str, final_path_str)
+                            self.logger.debug(
+                                f"Moved {PathHelper.get_filename(staging_path_str)} "
+                                f"from _tmp to production"
+                            )
+                        except Exception as e:
+                            filename = PathHelper.get_filename(staging_path_str)
+                            error_msg = f"Failed to move {filename}: {str(e)}"
+                            move_errors.append(error_msg)
+                            self.logger.error(error_msg)
+                            # Continue moving other files to minimize data loss
+
+                # Step 3: Move metadata files from _tmp to production (if they exist)
+                if self._metadata_tmp_path:
+                    # Build final metadata path: replace _tmp with LandingZone
+                    final_metadata_path = self._convert_tmp_to_production_path(
+                        self._metadata_tmp_path
+                    )
                     try:
-                        await adls_ops.move_file(staging_path_str, final_path_str)
+                        await adls_ops.move_file(
+                            self._metadata_tmp_path, final_metadata_path
+                        )
                         self.logger.debug(
-                            f"Moved {PathHelper.get_filename(staging_path_str)} "
-                            f"from _tmp to production"
+                            "Moved _metadata.json from _tmp to production"
                         )
                     except Exception as e:
-                        filename = PathHelper.get_filename(staging_path_str)
-                        error_msg = f"Failed to move {filename}: {str(e)}"
+                        error_msg = f"Failed to move _metadata.json: {str(e)}"
                         move_errors.append(error_msg)
                         self.logger.error(error_msg)
-                        # Continue moving other files to minimize data loss
 
-            # Step 3: Move metadata files from _tmp to production (if they exist)
-            if self._metadata_tmp_path:
-                # Build final metadata path: replace _tmp with LandingZone
-                final_metadata_path = self._convert_tmp_to_production_path(
-                    self._metadata_tmp_path
-                )
-                try:
-                    await adls_ops.move_file(
-                        self._metadata_tmp_path, final_metadata_path
+                # Step 4: Move partner events file (if it exists and was written
+                # to _tmp)
+                if self._partner_events_tmp_path:
+                    # Build final partner events path: replace _tmp with LandingZone
+                    final_partner_events_path = self._convert_tmp_to_production_path(
+                        self._partner_events_tmp_path
                     )
-                    self.logger.debug("Moved _metadata.json from _tmp to production")
-                except Exception as e:
-                    error_msg = f"Failed to move _metadata.json: {str(e)}"
-                    move_errors.append(error_msg)
-                    self.logger.error(error_msg)
+                    try:
+                        await adls_ops.move_file(
+                            self._partner_events_tmp_path,
+                            final_partner_events_path,
+                        )
+                        self.logger.debug(
+                            "Moved _partnerEvents.json from _tmp to production"
+                        )
+                    except Exception as e:
+                        error_msg = f"Failed to move _partnerEvents.json: {str(e)}"
+                        move_errors.append(error_msg)
+                        self.logger.error(error_msg)
 
-            # Step 4: Move partner events file (if it exists and was written to _tmp)
-            if self._partner_events_tmp_path:
-                # Build final partner events path: replace _tmp with LandingZone
-                final_partner_events_path = self._convert_tmp_to_production_path(
-                    self._partner_events_tmp_path
-                )
-                try:
-                    await adls_ops.move_file(
-                        self._partner_events_tmp_path, final_partner_events_path
+                # Step 5: Move schema file if it was written to _tmp
+                if self._schema_tmp_path:
+                    final_schema_path = self._convert_tmp_to_production_path(
+                        self._schema_tmp_path
                     )
-                    self.logger.debug(
-                        "Moved _partnerEvents.json from _tmp to production"
+                    try:
+                        await adls_ops.move_file(
+                            self._schema_tmp_path,
+                            final_schema_path,
+                        )
+                        self.logger.debug("Moved _schema.json from _tmp to production")
+                    except Exception as e:
+                        error_msg = f"Failed to move _schema.json: {str(e)}"
+                        move_errors.append(error_msg)
+                        self.logger.error(error_msg)
+
+                # If any moves failed, raise a comprehensive error
+                if move_errors:
+                    error_summary = (
+                        f"full_drop atomic operation partially failed. "
+                        f"{len(move_errors)} file(s) failed to move from _tmp "
+                        f"to production. Production folder was deleted, but some "
+                        f"files remain in _tmp. Manual intervention required: "
+                        f"Files in _tmp may need to be moved manually or cleaned up. "
+                        f"Errors: {'; '.join(move_errors)}"
                     )
-                except Exception as e:
-                    error_msg = f"Failed to move _partnerEvents.json: {str(e)}"
-                    move_errors.append(error_msg)
-                    self.logger.error(error_msg)
+                    raise StoreError(error_summary)
 
-            # If any moves failed, raise a comprehensive error
-            if move_errors:
-                error_summary = (
-                    f"full_drop atomic operation partially failed. "
-                    f"{len(move_errors)} file(s) failed to move from _tmp "
-                    f"to production. Production folder was deleted, but some "
-                    f"files remain in _tmp. "
-                    f"Manual intervention required: Files in _tmp may need to be "
-                    f"moved manually or cleaned up. Errors: {'; '.join(move_errors)}"
+                self.logger.success(
+                    "Atomic full_drop operation completed: "
+                    "All data successfully moved from _tmp to production"
                 )
-                raise StoreError(error_summary)
 
-            self.logger.success(
-                "Atomic full_drop operation completed: "
-                "All data successfully moved from _tmp to production"
-            )
-
-            # Log completion stats using shared helper
-            self._log_completion_stats()
-        else:
-            # Normal mode: use parent's finish() which moves files and logs stats
-            # Buffer already flushed and rows logged above, so parent will skip
-            # those steps (checks if buffer exists and rows_since_last_log > 0)
-            await super().finish()
+                # Log completion stats using shared helper
+                self._log_completion_stats()
+            else:
+                # Normal mode: use parent's finish() which moves files and logs stats
+                # Buffer already flushed and rows logged above, so parent will skip
+                # those steps (checks if buffer exists and rows_since_last_log > 0)
+                await super().finish()
+        finally:
+            # Reset per-write staging state so repeated finish() calls (e.g., mirrored
+            # journal appends) don't attempt to move already-published files.
+            if hasattr(self, "saved_paths"):
+                self.saved_paths = []
+            if hasattr(self, "uploaded_files"):
+                self.uploaded_files = []
+            self._metadata_tmp_path = None
+            self._partner_events_tmp_path = None
+            self._schema_tmp_path = None

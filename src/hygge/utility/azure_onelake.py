@@ -168,23 +168,38 @@ class ADLSOperations:
         """
         try:
             # Create all parent directories recursively
-            dest_dir = str(Path(dest_path).parent)
-            await self.create_directory_recursive(dest_dir)
+            raw_dest_dir = str(Path(dest_path).parent)
+            dest_dir = raw_dest_dir.lstrip("/")
+            dest_path_normalized = dest_path.lstrip("/")
+
+            if dest_dir:
+                await self.create_directory_recursive(dest_dir)
+            else:
+                # When uploading to the root, skip directory creation but ensure the
+                # filesystem exists (upload will fail later if it doesn't).
+                self.logger.debug(
+                    "Destination is filesystem root; skipping directory creation"
+                )
 
             # Add a small delay to allow for directory propagation
             import time
 
             time.sleep(0.5)  # 500ms delay
 
-            # Verify directory exists
-            if not await self.directory_exists(dest_dir):
-                raise StoreError(
-                    "Directory creation failed - "
-                    f"{dest_dir} does not exist after creation"
-                )
+            # Verify directory exists (skip for OneLake to avoid transient policy
+            # checks)
+            if dest_dir and not self.is_onelake:
+                resolved_dir = dest_dir
+                if not await self.directory_exists(resolved_dir):
+                    raise StoreError(
+                        "Directory creation failed - "
+                        f"{raw_dest_dir} does not exist after creation"
+                    )
 
             # Create file first
-            file_client = self.file_system_client.get_file_client(dest_path)
+            file_client = self.file_system_client.get_file_client(
+                dest_path_normalized or dest_path
+            )
             file_client.create_file()
 
             # Get data to upload
@@ -201,7 +216,7 @@ class ADLSOperations:
             file_client.flush_data(len(data))
 
             self.logger.debug(f"Successfully uploaded file to: {dest_path}")
-            return dest_path
+            return dest_path_normalized or dest_path
 
         except Exception as e:
             if "timeout" in str(e).lower():
@@ -288,14 +303,25 @@ class ADLSOperations:
             self.logger.debug(f"Creating directory recursively: {path}")
 
             # Create parent directories first
-            path_parts = path.split("/")
+            path_parts = [part for part in path.split("/") if part]
             current_path = ""
 
-            for part in path_parts:
+            for idx, part in enumerate(path_parts):
                 if current_path:
                     current_path += f"/{part}"
                 else:
                     current_path = part
+
+                if (
+                    self.is_onelake
+                    and idx == 0
+                    and part.lower() not in {"files", "tables"}
+                ):
+                    # Mounted relational databases expose a top-level GUID folder that
+                    # already exists and cannot be re-created. Skip explicit creation
+                    # for that segment and continue with child folders where writes
+                    # are permitted (Files/…, Tables/…).
+                    continue
 
                 if current_path:  # Skip empty parts
                     try:
