@@ -230,7 +230,6 @@ See `samples/mssql_*.yaml` for complete examples.
 Initialize a new hygge project with a comfortable structure:
 
 ```bash
-```bash
 hygge init my-project
 hygge init my-project --flows-dir pipelines  # Custom flows directory name
 hygge init my-project --force                 # Overwrite existing project
