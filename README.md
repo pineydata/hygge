@@ -16,6 +16,7 @@ hygge (pronounced "hoo-ga") is a Danish word representing comfort, coziness, and
 ### Built on Polars + PyArrow
 
 hygge is built on **Polars with PyArrow backend** for optimal data movement performance. This combination provides:
+
 - Efficient columnar memory format for large datasets
 - Automatic batching and streaming capabilities
 - Broad database compatibility via SQLAlchemy
@@ -27,6 +28,7 @@ We chose Polars because it provides the best balance of performance, developer e
 ## Core Concepts
 
 ### Home
+
 Where data starts its journey. A home is a comfortable, familiar place that data lives before moving. All homes yield Polars DataFrames:
 
 ```python
@@ -42,6 +44,7 @@ async for df in home.read():
 ```
 
 ### Store
+
 Where data rests after its journey. A store provides a cozy place for data to settle. All stores accept Polars DataFrames:
 
 ```python
@@ -55,6 +58,7 @@ await store.write(df)  # Write Polars DataFrame directly
 ```
 
 ### Flow
+
 The natural movement of data from home to store:
 
 ```python
@@ -67,6 +71,7 @@ await flow.start()  # Data moves comfortably
 ```
 
 ### Coordinator
+
 Orchestrates multiple flows with care:
 
 ```python
@@ -111,7 +116,8 @@ cd my-project
 ```
 
 This creates a comfortable project structure:
-```
+
+```text
 my-project/
 ├── hygge.yml           # Project configuration
 └── flows/              # Flow definitions
@@ -203,12 +209,14 @@ flows:
 ```
 
 **Features:**
+
 - Azure AD authentication (Managed Identity, Azure CLI, Service Principal)
 - Connection pooling for efficient concurrent access
 - Entity pattern for extracting 10-200+ tables
 - Custom SQL queries supported
 
 **Prerequisites:**
+
 - ODBC Driver 18 for SQL Server (`brew install msodbcsql18` on macOS)
 - Azure AD authentication configured
 - Database permissions granted to your identity
@@ -264,6 +272,30 @@ class MyStore(Store):
 ```
 
 hygge automatically discovers and registers your custom implementations, making them available in your configurations just like the built-in types.
+
+## Incremental vs Full-Drop at a Glance
+
+hygge flows now coordinate run strategy with the store. By default the store follows the flow’s `run_type` (`incremental` vs `full_drop`). You can override that behaviour per store:
+
+```yaml
+store:
+  type: open_mirroring
+  account_url: https://onelake.dfs.fabric.microsoft.com
+  filesystem: my-workspace
+  mirror_name: my-mirror
+  incremental: false  # force truncate-and-reload even if the flow is incremental
+```
+
+| Flow `run_type` | Store `incremental` | Behaviour |
+| --- | --- | --- |
+| `incremental` | omitted / `null` | Append via journal + watermark |
+| `incremental` | `true` | Append (explicit opt-in) |
+| `incremental` | `false` | Force truncate-and-reload each run |
+| `full_drop` | omitted / `null` | Truncate destination before reload |
+| `full_drop` | `true` | Force append even on full-drop runs (use with care) |
+| `full_drop` | `false` | Truncate (explicit opt-in) |
+
+This alignment keeps the flow, store, and journal in sync and prevents accidental mixes of append/truncate semantics.
 
 ## Development Philosophy
 

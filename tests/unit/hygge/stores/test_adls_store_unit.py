@@ -31,6 +31,7 @@ class TestADLSStoreConfig:
         assert config.credential == "managed_identity"  # Default
         assert config.compression == "snappy"  # Default
         assert config.batch_size == 100_000  # Default
+        assert config.incremental is None
 
     def test_config_with_all_fields(self):
         """Test config creation with all optional fields."""
@@ -45,12 +46,14 @@ class TestADLSStoreConfig:
             compression="gzip",
             file_pattern="{timestamp}_{sequence:020d}.parquet",
             batch_size=50_000,
+            incremental=False,
         )
 
         assert config.credential == "service_principal"
         assert config.tenant_id == "test-tenant"
         assert config.compression == "gzip"
         assert config.batch_size == 50_000
+        assert config.incremental is False
 
     def test_config_validates_compression(self):
         """Test that compression must be valid."""
@@ -104,6 +107,7 @@ class TestADLSStoreInitialization:
         assert store.compression == "snappy"  # Default
         assert store.sequence_counter == 0
         assert store.uploaded_files == []
+        assert store.incremental_override is None
 
     def test_configure_for_run_resets_state(self):
         """Run-level configuration resets counters and flags."""
@@ -128,6 +132,21 @@ class TestADLSStoreInitialization:
 
         store.configure_for_run("full_drop")
         assert store.full_drop_mode is True
+
+    def test_configure_for_run_respects_incremental_flag(self):
+        """Stores with incremental disabled should always truncate."""
+        config = ADLSStoreConfig(
+            account_url="https://mystorage.dfs.core.windows.net",
+            filesystem="mycontainer",
+            path="data/{entity}/",
+            incremental=False,
+        )
+
+        store = ADLSStore("test_store", config, entity_name="users")
+        store.configure_for_run("incremental")
+
+        assert store.full_drop_mode is True
+        assert store.incremental_override is False
 
     def test_adls_store_with_entity_name(self):
         """Test ADLS store with entity name substitution."""
