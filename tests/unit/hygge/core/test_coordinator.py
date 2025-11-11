@@ -21,7 +21,6 @@ from hygge.core.journal import Journal, JournalConfig
 
 # Import Parquet implementations to register them
 from hygge.homes.parquet.home import ParquetHome, ParquetHomeConfig  # noqa: F401
-from hygge.stores.openmirroring import OpenMirroringStoreConfig  # noqa: F401
 from hygge.stores.parquet.store import ParquetStore, ParquetStoreConfig  # noqa: F401
 from hygge.utility.exceptions import ConfigError
 
