@@ -509,17 +509,17 @@ class TestOpenMirroringStoreMetadata:
 
         # Should have written metadata
         assert store._metadata_written is True
-        # Should have called upload_data
-        mock_file_client.upload_data.assert_called_once()
-
-        # Check metadata content
-        call_args = mock_file_client.upload_data.call_args
-        json_data = call_args[0][0].decode("utf-8")
-        metadata = json.loads(json_data)
-        assert metadata["keyColumns"] == ["id"]
+        # Metadata write should occur; schema write follows, so expect >=1 call
+        assert mock_file_client.upload_data.call_count >= 1
+        metadata_payload = json.loads(
+            mock_file_client.upload_data.call_args_list[0][0][0].decode("utf-8")
+        )
+        assert metadata_payload["keyColumns"] == ["id"]
         # file_detection default "timestamp", so include fileDetectionStrategy
-        assert metadata["fileDetectionStrategy"] == "LastUpdateTimeFileDetection"
-        assert "isUpsertDefaultRowMarker" not in metadata  # Not Upsert
+        assert (
+            metadata_payload["fileDetectionStrategy"] == "LastUpdateTimeFileDetection"
+        )
+        assert "isUpsertDefaultRowMarker" not in metadata_payload  # Not Upsert
 
     @pytest.mark.asyncio
     async def test_write_metadata_json_with_timestamp_detection(self):
@@ -549,9 +549,9 @@ class TestOpenMirroringStoreMetadata:
             await store._write_metadata_json()
 
         # Check metadata includes fileDetectionStrategy
-        call_args = mock_file_client.upload_data.call_args
-        json_data = call_args[0][0].decode("utf-8")
-        metadata = json.loads(json_data)
+        metadata = json.loads(
+            mock_file_client.upload_data.call_args_list[0][0][0].decode("utf-8")
+        )
         assert metadata["fileDetectionStrategy"] == "LastUpdateTimeFileDetection"
 
     @pytest.mark.asyncio
@@ -581,9 +581,9 @@ class TestOpenMirroringStoreMetadata:
             await store._write_metadata_json()
 
         # Check metadata includes isUpsertDefaultRowMarker
-        call_args = mock_file_client.upload_data.call_args
-        json_data = call_args[0][0].decode("utf-8")
-        metadata = json.loads(json_data)
+        metadata = json.loads(
+            mock_file_client.upload_data.call_args_list[0][0][0].decode("utf-8")
+        )
         assert metadata["isUpsertDefaultRowMarker"] is True
 
     @pytest.mark.asyncio
