@@ -86,6 +86,15 @@ class ADLSStoreConfig(BaseModel, StoreConfig, config_type="adls"):
         ),
     )
 
+    incremental: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Optional override for incremental behaviour. "
+            "None (default) defers to the flow's run_type, "
+            "True forces incremental append, False forces full-drop reloads."
+        ),
+    )
+
     # Additional options
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional ADLS store options"
@@ -202,6 +211,7 @@ class ADLSStore(Store, store_type="adls"):
         self.compression = merged_options.get("compression", "snappy")
         self.sequence_counter = 0
         self.full_drop_mode = False
+        self.incremental_override = config.incremental
 
         # ADLS client setup (lazy initialization)
         self._service_client = None
@@ -220,7 +230,24 @@ class ADLSStore(Store, store_type="adls"):
         """Allow flows to toggle truncate behaviour via run type."""
         super().configure_for_run(run_type)
 
-        self.full_drop_mode = run_type == "full_drop"
+        super().configure_for_run(run_type)
+
+        is_incremental = run_type != "full_drop"
+        if self.incremental_override is not None:
+            is_incremental = self.incremental_override
+
+        self.full_drop_mode = not is_incremental
+
+        # Reset per-run tracking so we don't carry state across executions
+        self.sequence_counter = 0
+        self.saved_paths = []
+        self.uploaded_files = []
+
+        if self.full_drop_mode:
+            self.logger.debug(
+                "Run configured for full_drop: will truncate destination "
+                "before publishing new files."
+            )
 
         # Reset per-run tracking so we don't carry state across executions
         self.sequence_counter = 0

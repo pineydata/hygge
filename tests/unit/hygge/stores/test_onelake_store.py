@@ -30,6 +30,7 @@ class TestOneLakeStoreConfig:
         assert config.filesystem == "MyLake"
         assert config.path == "landing/test/"
         assert config.credential == "managed_identity"  # Default
+        assert config.incremental is None
 
     def test_config_with_all_fields(self):
         """Test config creation with all optional fields."""
@@ -44,11 +45,13 @@ class TestOneLakeStoreConfig:
             compression="gzip",
             file_pattern="{timestamp}_{sequence:020d}.parquet",
             batch_size=50000,
+            incremental=False,
         )
 
         assert config.credential == "service_principal"
         assert config.tenant_id == "test-tenant"
         assert config.compression == "gzip"
+        assert config.incremental is False
 
     def test_config_path_optional_with_auto_build(self):
         """Test that path is optional and auto-built if not provided."""
@@ -111,6 +114,7 @@ class TestOneLakeStoreInitialization:
         assert store.config == config
         assert store.base_path == "landing/{entity}/"
         assert store.file_pattern == "{sequence:020d}.parquet"  # Default
+        assert store.incremental_override is None
 
     def test_onelake_configure_for_run_uses_full_drop_flag(self):
         """Inherited ADLS behaviour toggles truncate mode per run."""
@@ -133,6 +137,18 @@ class TestOneLakeStoreInitialization:
         assert store.sequence_counter == 0
 
         store.configure_for_run("full_drop")
+        assert store.full_drop_mode is True
+
+    def test_onelake_incremental_disabled_forces_full_drop(self):
+        config = OneLakeStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            path="Files/{entity}/",
+            incremental=False,
+        )
+
+        store = OneLakeStore("test_store", config, entity_name="users")
+        store.configure_for_run("incremental")
         assert store.full_drop_mode is True
 
     def test_onelake_store_with_entity_name(self):

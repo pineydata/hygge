@@ -139,6 +139,15 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         ),
     )
 
+    incremental: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Optional override for incremental behaviour. "
+            "None (default) defers to the flow's run_type, "
+            "True forces incremental append, False forces full-drop reloads."
+        ),
+    )
+
     @field_validator("file_detection")
     @classmethod
     def validate_file_detection(cls, v):
@@ -271,6 +280,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         self.file_detection = config.file_detection
         self.row_marker = config.row_marker
         self.full_drop_mode = False
+        self.incremental_override = config.incremental
         self.partner_name = config.partner_name
         self.source_type = config.source_type
         self.source_version = config.source_version
@@ -297,8 +307,6 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
     def configure_for_run(self, run_type: str) -> None:
         """Toggle full-drop behaviour based on the incoming run type."""
         super().configure_for_run(run_type)
-
-        self.full_drop_mode = run_type == "full_drop"
 
         # Reset per-run tracking so preparation steps run for each execution
         self._metadata_written = False

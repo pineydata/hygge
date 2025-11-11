@@ -21,6 +21,7 @@ from hygge.core.journal import Journal, JournalConfig
 
 # Import Parquet implementations to register them
 from hygge.homes.parquet.home import ParquetHome, ParquetHomeConfig  # noqa: F401
+from hygge.stores.openmirroring import OpenMirroringStoreConfig  # noqa: F401
 from hygge.stores.parquet.store import ParquetStore, ParquetStoreConfig  # noqa: F401
 from hygge.utility.exceptions import ConfigError
 
@@ -1004,11 +1005,6 @@ class TestCoordinatorFlowOverrides:
             config_file = f.name
 
         try:
-            # Import here to ensure OpenMirroringStoreConfig is registered
-            from hygge.stores.openmirroring import (
-                OpenMirroringStoreConfig,  # noqa: F401
-            )
-
             coordinator = Coordinator(config_file)
             coordinator._load_config()
             coordinator._create_flows()
@@ -1049,11 +1045,6 @@ class TestCoordinatorFlowOverrides:
             config_file = f.name
 
         try:
-            # Import here to ensure OpenMirroringStoreConfig is registered
-            from hygge.stores.openmirroring import (
-                OpenMirroringStoreConfig,  # noqa: F401
-            )
-
             # Simulate CLI override: flow.test_flow.full_drop=true
             flow_overrides = {"test_flow": {"full_drop": True}}
 
@@ -1132,11 +1123,6 @@ class TestCoordinatorFlowOverrides:
             config_file = f.name
 
         try:
-            # Import here to ensure OpenMirroringStoreConfig is registered
-            from hygge.stores.openmirroring import (
-                OpenMirroringStoreConfig,  # noqa: F401
-            )
-
             coordinator = Coordinator(config_file)
             coordinator._load_config()
             coordinator._create_flows()
@@ -1152,6 +1138,80 @@ class TestCoordinatorFlowOverrides:
                     assert store.full_drop_mode is True
                 assert flow.run_type == "full_drop"
 
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+    def test_store_incremental_override_forced_incremental(self):
+        """Store forcing incremental should override flow full_drop."""
+        config_data = {
+            "flows": {
+                "test_flow": {
+                    "home": {"type": "parquet", "path": "data/source"},
+                    "store": {
+                        "type": "open_mirroring",
+                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
+                        "filesystem": "test",
+                        "mirror_name": "test-db",
+                        "key_columns": ["id"],
+                        "row_marker": 0,
+                        "incremental": True,
+                    },
+                    "full_drop": True,
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            coordinator = Coordinator(config_file)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            flow = coordinator.flows[0]
+            store = flow.store
+            assert flow.run_type == "full_drop"
+            if hasattr(store, "full_drop_mode"):
+                assert store.full_drop_mode is False
+        finally:
+            Path(config_file).unlink(missing_ok=True)
+
+    def test_store_incremental_override_forced_full_drop(self):
+        """Store forcing full_drop should override flow incremental."""
+        config_data = {
+            "flows": {
+                "test_flow": {
+                    "home": {"type": "parquet", "path": "data/source"},
+                    "store": {
+                        "type": "open_mirroring",
+                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
+                        "filesystem": "test",
+                        "mirror_name": "test-db",
+                        "key_columns": ["id"],
+                        "row_marker": 0,
+                        "incremental": False,
+                    },
+                    "run_type": "incremental",
+                }
+            }
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            yaml.dump(config_data, f)
+            config_file = f.name
+
+        try:
+            coordinator = Coordinator(config_file)
+            coordinator._load_config()
+            coordinator._create_flows()
+
+            flow = coordinator.flows[0]
+            store = flow.store
+            assert flow.run_type == "incremental"
+            if hasattr(store, "full_drop_mode"):
+                assert store.full_drop_mode is True
         finally:
             Path(config_file).unlink(missing_ok=True)
 

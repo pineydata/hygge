@@ -41,6 +41,7 @@ class TestOpenMirroringStoreConfig:
         assert config.folder_deletion_wait_seconds == 2.0  # Default
         assert config.mirror_journal is False
         assert config.journal_table_name == "__hygge_journal"
+        assert config.incremental is None
 
     def test_config_path_auto_built_for_landing_zone(self):
         """Test that path is auto-built to LandingZone if not provided."""
@@ -91,6 +92,7 @@ class TestOpenMirroringStoreConfig:
             starting_sequence=100,
             mirror_journal=True,
             journal_table_name="custom_journal",
+            incremental=False,
         )
 
         assert config.row_marker == 4  # Upsert
@@ -101,6 +103,7 @@ class TestOpenMirroringStoreConfig:
         assert config.starting_sequence == 100
         assert config.mirror_journal is True
         assert config.journal_table_name == "custom_journal"
+        assert config.incremental is False
 
     def test_config_requires_mirror_name(self):
         """Test that mirror_name is required."""
@@ -311,6 +314,7 @@ class TestOpenMirroringStoreInitialization:
 
         # Default is incremental/append behaviour
         assert store.full_drop_mode is False
+        assert store.incremental_override is None
 
         # Configure full_drop run
         store.configure_for_run("full_drop")
@@ -319,6 +323,22 @@ class TestOpenMirroringStoreInitialization:
         # Switching back to incremental should disable truncate mode
         store.configure_for_run("incremental")
         assert store.full_drop_mode is False
+
+    def test_store_incremental_disabled_forces_full_drop(self):
+        """When incremental is disabled, treat every run as full_drop."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            incremental=False,
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("incremental")
+        assert store.full_drop_mode is True
+        assert store.incremental_override is False
 
 
 class TestOpenMirroringStoreRowMarker:
