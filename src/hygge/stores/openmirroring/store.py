@@ -284,7 +284,6 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         self._metadata_tmp_path = None
         self._partner_events_tmp_path = None
         self._schema_tmp_path = None
-        self._schema_tmp_path = None
 
         # Track if table folder has been prepared (full_drop + metadata)
         self._table_folder_prepared = False

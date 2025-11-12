@@ -636,6 +636,243 @@ class TestOpenMirroringStoreMetadata:
         mock_adls.read_json.assert_not_called()
 
 
+class TestOpenMirroringStoreSchemaManifest:
+    """Test schema manifest (_schema.json) file writing."""
+
+    @pytest.mark.asyncio
+    async def test_write_schema_json_basic(self):
+        """Test writing basic schema JSON with journal columns."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+
+        # Mock ADLS operations
+        mock_adls = AsyncMock()
+        mock_adls.file_system_client = MagicMock()
+        mock_directory_client = MagicMock()
+        mock_directory_client.exists.return_value = True
+        mock_file_client = MagicMock()
+        mock_adls.file_system_client.get_directory_client = MagicMock(
+            return_value=mock_directory_client
+        )
+        mock_adls.file_system_client.get_file_client = MagicMock(
+            return_value=mock_file_client
+        )
+        mock_adls.timeout = 300
+
+        with patch.object(store, "_get_adls_ops", return_value=mock_adls):
+            await store._write_schema_json(to_tmp=False)
+
+        # Verify schema file was written
+        assert mock_file_client.upload_data.called
+        schema_payload = json.loads(
+            mock_file_client.upload_data.call_args[0][0].decode("utf-8")
+        )
+
+        # Verify schema structure
+        assert "columns" in schema_payload
+        assert isinstance(schema_payload["columns"], list)
+
+        # Verify all journal schema columns are present
+        from hygge.core.journal import Journal
+
+        expected_columns = set(Journal.JOURNAL_SCHEMA.keys())
+        actual_columns = {col["name"] for col in schema_payload["columns"]}
+        assert expected_columns == actual_columns
+
+        # Verify column types are mapped correctly
+        column_map = {col["name"]: col["type"] for col in schema_payload["columns"]}
+        assert column_map["entity_run_id"] == "string"
+        assert column_map["row_count"] == "long"
+        assert column_map["duration"] == "double"
+
+    @pytest.mark.asyncio
+    async def test_write_schema_json_to_tmp(self):
+        """Test writing schema JSON to _tmp in full_drop mode."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+
+        # Mock ADLS operations
+        mock_adls = AsyncMock()
+        mock_adls.file_system_client = MagicMock()
+        mock_directory_client = MagicMock()
+        mock_directory_client.exists.return_value = True
+        mock_file_client = MagicMock()
+        mock_adls.file_system_client.get_directory_client = MagicMock(
+            return_value=mock_directory_client
+        )
+        mock_adls.file_system_client.get_file_client = MagicMock(
+            return_value=mock_file_client
+        )
+        mock_adls.timeout = 300
+
+        with patch.object(store, "_get_adls_ops", return_value=mock_adls):
+            await store._write_schema_json(to_tmp=True)
+
+        # Verify schema was written to _tmp path
+        assert store._schema_tmp_path is not None
+        assert "_tmp" in store._schema_tmp_path
+        assert "_schema.json" in store._schema_tmp_path
+        assert mock_file_client.upload_data.called
+
+    @pytest.mark.asyncio
+    async def test_write_schema_json_raises_error_without_landingzone(self):
+        """Test that writing to _tmp raises error if base_path lacks LandingZone."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        # Manually set a base_path without LandingZone
+        store.base_path = "/MyMirror/Files/SomeOtherPath/users"
+
+        from hygge.utility.exceptions import StoreError
+
+        with pytest.raises(StoreError) as exc_info:
+            await store._write_schema_json(to_tmp=True)
+
+        assert "LandingZone" in str(exc_info.value)
+
+    def test_map_polars_dtype_to_fabric(self):
+        """Test Polars dtype to Fabric type mapping."""
+        from hygge.stores.openmirroring.store import OpenMirroringStore
+
+        # Test string types
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Utf8) == "string"
+
+        # Test integer types
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Int8) == "long"
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Int64) == "long"
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.UInt32) == "long"
+
+        # Test float types
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Float32) == "double"
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Float64) == "double"
+
+        # Test datetime types
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Datetime) == "datetime"
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Date) == "datetime"
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Time) == "datetime"
+
+        # Test unknown type defaults to string
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Boolean) == "string"
+
+
+class TestOpenMirroringStoreFullDropAtomicOperations:
+    """Test full_drop atomic operations including schema file movement."""
+
+    @pytest.mark.asyncio
+    async def test_finish_moves_schema_file_from_tmp_in_full_drop(self):
+        """Test that finish() moves schema file from _tmp to production."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("full_drop")
+
+        # Mock ADLS operations
+        mock_adls = AsyncMock()
+        mock_adls.file_system_client = MagicMock()
+        mock_adls.move_file = AsyncMock()
+        mock_adls.delete_directory = AsyncMock()
+        mock_adls.file_system_client.get_directory_client = MagicMock()
+        mock_adls.file_system_client.get_file_client = MagicMock()
+
+        # Simulate schema file written to _tmp
+        schema_tmp_path = (
+            "/MyMirror/Files/_tmp/__hygge.schema/__hygge_journal/_schema.json"
+        )
+        store._schema_tmp_path = schema_tmp_path
+        store.saved_paths = [
+            "/MyMirror/Files/_tmp/__hygge.schema/__hygge_journal/data.parquet"
+        ]
+        store.data_buffer = None  # No buffered data
+
+        with patch.object(store, "_get_adls_ops", return_value=mock_adls):
+            with patch.object(store, "_delete_table_folder", new_callable=AsyncMock):
+                # Mock parent finish to avoid actual file operations
+                with patch.object(
+                    store.__class__.__bases__[0], "finish", new_callable=AsyncMock
+                ):
+                    await store.finish()
+
+        # Verify schema file was moved from _tmp to production
+        # move_file is called with (source_path, dest_path)
+        move_calls = mock_adls.move_file.call_args_list
+        schema_move_found = False
+        for call in move_calls:
+            args = call[0]  # Positional arguments
+            if len(args) >= 2:
+                source, dest = args[0], args[1]
+                if "_schema.json" in str(source) and "_tmp" in str(source):
+                    assert "LandingZone" in str(
+                        dest
+                    ), "Destination should be in LandingZone"
+                    schema_move_found = True
+                    break
+
+        assert schema_move_found, "Schema file should be moved from _tmp to production"
+
+    @pytest.mark.asyncio
+    async def test_finish_resets_schema_tmp_path(self):
+        """Test that finish() resets _schema_tmp_path after moving files."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("full_drop")
+
+        # Mock ADLS operations
+        mock_adls = AsyncMock()
+        mock_adls.file_system_client = MagicMock()
+        mock_adls.move_file = AsyncMock()
+        mock_adls.delete_directory = AsyncMock()
+        mock_adls.file_system_client.get_directory_client = MagicMock()
+        mock_adls.file_system_client.get_file_client = MagicMock()
+
+        # Set up tmp paths
+        store._schema_tmp_path = "/tmp/schema.json"
+        store.saved_paths = []
+
+        with patch.object(store, "_get_adls_ops", return_value=mock_adls):
+            with patch.object(store, "_delete_table_folder", new_callable=AsyncMock):
+                # Mock parent finish to avoid actual file operations
+                with patch.object(
+                    store.__class__.__bases__[0], "finish", new_callable=AsyncMock
+                ):
+                    await store.finish()
+
+        # Verify tmp path was reset
+        assert store._schema_tmp_path is None
+
+
 class TestOpenMirroringStorePathBuilding:
     """Test Open Mirroring store path building."""
 

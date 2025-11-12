@@ -197,9 +197,11 @@ class ADLSOperations:
                     )
 
             # Create file first
-            file_client = self.file_system_client.get_file_client(
-                dest_path_normalized or dest_path
-            )
+            # Use normalized path (without leading slash) if normalization produced
+            # a non-empty result. For root paths ("/"), normalized is empty, so use
+            # the original path to avoid creating files with empty names.
+            effective_path = dest_path_normalized if dest_path_normalized else dest_path
+            file_client = self.file_system_client.get_file_client(effective_path)
             file_client.create_file()
 
             # Get data to upload
@@ -216,7 +218,7 @@ class ADLSOperations:
             file_client.flush_data(len(data))
 
             self.logger.debug(f"Successfully uploaded file to: {dest_path}")
-            return dest_path_normalized or dest_path
+            return effective_path
 
         except Exception as e:
             if "timeout" in str(e).lower():

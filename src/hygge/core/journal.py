@@ -825,11 +825,18 @@ class MirroredJournalWriter:
         Instead of streaming individual rows (which led to schema inference issues
         inside Fabric), we reload the authoritative parquet and publish it as a full
         drop so the mirrored table exactly matches `.hygge_journal/journal.parquet`.
+
+        Args:
+            _df: Unused parameter kept for API compatibility. The actual data is
+                read from the canonical journal parquet file, not from this parameter.
         """
 
         async with self._lock:
             journal_df = await self._journal._read_journal_df()
             if journal_df is None or len(journal_df) == 0:
+                self._journal.logger.debug(
+                    "Journal is empty or missing; skipping mirror update"
+                )
                 return
 
             # Replace the mirrored table with the latest journal snapshot.
