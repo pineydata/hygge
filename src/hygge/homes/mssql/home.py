@@ -173,7 +173,9 @@ class MssqlHome(Home, home_type="mssql"):
                     yield batch_df
 
             if batch_num == 0:
-                self.logger.warning(f"No data returned from query: {query}")
+                # This is expected for incremental flows with no new data
+                # Log at debug level to reduce noise
+                self.logger.debug(f"No data returned from query: {query}")
 
         except Exception as e:
             raise HomeError(f"Failed to read from MSSQL: {str(e)}")

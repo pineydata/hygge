@@ -25,64 +25,182 @@ hygge is built on **Polars with PyArrow backend** for optimal data movement perf
 
 We chose Polars because it provides the best balance of performance, developer experience, and compatibility for extract-and-load workflows.
 
-## Core Concepts
+## Quick Start
 
-### Home
+Get started with hygge in three simple steps. We'll walk you through each one.
 
-Where data starts its journey. A home is a comfortable, familiar place that data lives before moving. All homes yield Polars DataFrames:
+### Step 1: Initialize Your Project
 
-```python
-home = SQLHome(
-    "users",
-    connection=conn,
-    options={'batch_size': 10_000}
-)
+Create a new hygge project with example configuration:
 
-async for df in home.read():
-    # Each batch is a Polars DataFrame
-    # Data flows naturally in columnar format
+```bash
+hygge init my-project
+cd my-project
 ```
 
-### Store
+This creates a cozy, comfortable project structure:
 
-Where data rests after its journey. A store provides a cozy place for data to settle. All stores accept Polars DataFrames:
-
-```python
-store = ParquetStore(
-    "users",
-    path="data/users",
-    options={'compression': 'snappy'}
-)
-
-await store.write(df)  # Write Polars DataFrame directly
+```text
+my-project/
+├── hygge.yml           # Project-level configuration
+└── flows/              # Flow definitions
+    └── example_flow/
+        ├── flow.yml    # Flow configuration (home, store, defaults)
+        └── entities/   # Entity definitions
+            └── users.yml
 ```
 
-### Flow
+**What you get:**
 
-The natural movement of data from home to store:
+- `hygge.yml` - Project configuration file with example settings
+- `flows/example_flow/flow.yml` - A complete example flow configuration
+- `flows/example_flow/entities/users.yml` - An example entity definition
 
-```python
-flow = Flow(
-    home=SQLHome("users"),
-    store=ParquetStore("users")
-)
+### Step 2: Configure Your Flow
 
-await flow.start()  # Data moves comfortably
+Edit `flows/example_flow/flow.yml` to point to your data sources and destinations:
+
+```yaml
+name: "example_flow"
+home:
+  type: "parquet"
+  path: "data/source"        # Where your source data lives
+store:
+  type: "parquet"
+  path: "data/destination"    # Where data should be written
+
+defaults:
+  key_column: "id"          # Primary key for watermark tracking
+  batch_size: 10000         # Rows per batch
 ```
 
-### Coordinator
+**Understanding the flow:**
 
-Orchestrates multiple flows with care:
+- `home` - Your data source (where data starts its journey)
+- `store` - Your data destination (where data settles)
+- `defaults` - Settings that apply to all entities in this flow
 
-```python
-# Automatic project discovery
-coordinator = Coordinator()
-await coordinator.run()  # Runs all flows in parallel
+### Step 3: Define Your Entities
 
-# Or specify config explicitly (for testing/scripting)
-coordinator = Coordinator(config_path="custom_config.yml")
-await coordinator.run()
+Entities are the specific tables or datasets you want to move. Edit `flows/example_flow/entities/users.yml`:
+
+```yaml
+name: "users"
+columns:
+  - id
+  - name
+  - email
+  - created_at
 ```
+
+**For multiple entities**, create additional files in `flows/example_flow/entities/`:
+
+- `users.yml`
+- `orders.yml`
+- `products.yml`
+
+Each entity will run in parallel when you execute the flow.
+
+### Step 4: Validate Your Configuration
+
+Before running, check that everything is configured correctly:
+
+```bash
+hygge debug
+```
+
+**What this shows:**
+
+- Discovered flows and entities
+- Configuration validation results
+- Any warnings or errors
+
+Fix any issues before proceeding to the next step.
+
+### Step 5: Run Your Flows
+
+Execute all flows in your project:
+
+```bash
+# Run all flows
+hygge go
+
+# Get detailed progress information
+hygge go --verbose
+
+# Run a specific flow (coming soon)
+hygge go --flow example_flow
+```
+
+**What happens:**
+
+- All flows run in parallel
+- Each entity processes independently
+- Progress is shown for each flow
+- Results are logged with success/failure status
+
+**Expected output:**
+
+```text
+Starting all flows...
+[1 of 2] FINISHED flow example_flow completed in 2.3s (1,234 rows)
+[2 of 2] FINISHED flow another_flow completed in 4.5s (5,678 rows)
+
+Finished running 2 flows in 6.80 seconds.
+Completed successfully
+Done. PASS=2 WARN=0 ERROR=0 SKIP=0 TOTAL=2
+Total rows processed: 6,912
+Overall rate: 1,016 rows/s
+
+All flows completed successfully!
+```
+
+### Next Steps
+
+Once your first flow is working:
+
+1. **Add more entities** - Create additional entity files in `flows/example_flow/entities/`
+2. **Connect to databases** - Configure SQL Server or other database connections in `hygge.yml`
+3. **Use cloud storage** - Configure Azure Data Lake or Microsoft Fabric destinations
+4. **Enable incremental processing** - Set up watermarks for efficient incremental loads
+
+See the [Common Workflows](#common-workflows) section below for more detailed examples.
+
+## CLI Commands
+
+### `hygge init PROJECT_NAME`
+
+Create a cozy new hygge project:
+
+```bash
+hygge init my-project                    # Create new project
+hygge init my-project --flows-dir pipelines  # Custom flows directory
+hygge init my-project --force            # Overwrite existing project
+```
+
+Sets up a comfortable project structure with example configuration files to get you started.
+
+### `hygge go`
+
+Let your data flow comfortably through all your flows:
+
+```bash
+hygge go                 # Run all flows
+hygge go --verbose       # Enable detailed logging
+hygge go --flow NAME     # Execute specific flow (coming soon)
+```
+
+Runs all flows in parallel, keeping you informed with cozy progress updates and results.
+
+### `hygge debug`
+
+Take a cozy look at your project configuration:
+
+```bash
+hygge debug              # Shows project details and discovered flows
+```
+
+Use this to make sure everything feels right before running your flows.
 
 ## Design Principles
 
@@ -106,78 +224,32 @@ await coordinator.run()
    - Explicit configuration over implicit behavior
    - Clear logging and progress tracking
 
-## Quick Start
+## Core Concepts
 
-### Initialize a New Project
+hygge organizes data movement around three simple concepts:
 
-```bash
-hygge init my-project
-cd my-project
-```
+### Home → Flow → Store
 
-This creates a comfortable project structure:
+- **Home**: Where data feels at home (source - database, parquet files, etc.)
+- **Store**: Where data settles comfortably (destination - parquet, Azure, Fabric, etc.)
+- **Flow**: The cozy journey from home to store (configured in YAML, executed via CLI)
 
-```text
-my-project/
-├── hygge.yml           # Project configuration
-└── flows/              # Flow definitions
-    └── example_flow/
-        ├── flow.yml    # Flow configuration
-        └── entities/   # Entity definitions
-            └── users.yml
-```
-
-### Configure Your Flow
-
-Edit `flows/example_flow/flow.yml` to point to your data:
-
-```yaml
-name: "example_flow"
-home:
-  type: "parquet"
-  path: "data/source"
-store:
-  type: "parquet"
-  path: "data/destination"
-
-defaults:
-  key_column: "id"
-  batch_size: 10000
-```
-
-Add or edit entities in `flows/example_flow/entities/` to define what data to move:
-
-```yaml
-name: "users"
-columns:
-  - id
-  - name
-  - email
-  - created_at
-```
-
-### Execute Your Flows
+All configuration happens in YAML files. You define flows, and hygge handles the execution:
 
 ```bash
-# Execute all flows
+# Define your flows in YAML, then run them
 hygge go
-
-# Debug your configuration
-hygge debug
-
-# Get help
-hygge --help
 ```
 
-That's it! hygge discovers your project structure and makes your data feel at home.
+See the `samples/` directory for complete configuration examples.
 
-See the `samples/` directory for configuration examples and the `examples/` directory for programmatic usage.
+## Supported Data Sources & Destinations
 
-## Data Sources
+### Data Sources (Homes)
 
-hygge supports multiple data sources with a simple, consistent API.
+Where your data feels at home:
 
-### Parquet Files
+**Parquet Files:**
 
 ```yaml
 home:
@@ -185,9 +257,7 @@ home:
   path: data/source
 ```
 
-### MS SQL Server
-
-Extract data from MS SQL Server with Azure AD authentication and connection pooling:
+**MS SQL Server:**
 
 ```yaml
 connections:
@@ -195,17 +265,14 @@ connections:
     type: mssql
     server: myserver.database.windows.net
     database: mydatabase
-    pool_size: 8  # Concurrent connections
+    pool_size: 8
 
 flows:
-  users_to_parquet:
+  users_flow:
     home:
       type: mssql
       connection: my_database
       table: dbo.users
-    store:
-      type: parquet
-      path: data/users
 ```
 
 **Features:**
@@ -213,65 +280,124 @@ flows:
 - Azure AD authentication (Managed Identity, Azure CLI, Service Principal)
 - Connection pooling for efficient concurrent access
 - Entity pattern for extracting 10-200+ tables
-- Custom SQL queries supported
+- Watermark-aware incremental reads
 
 **Prerequisites:**
 
 - ODBC Driver 18 for SQL Server (`brew install msodbcsql18` on macOS)
 - Azure AD authentication configured
-- Database permissions granted to your identity
 
-See `samples/mssql_*.yaml` for complete examples.
+### Data Destinations (Stores)
 
-## CLI Reference
+Where your data settles comfortably:
 
-### `hygge init PROJECT_NAME`
+**Parquet Files:**
 
-Initialize a new hygge project with a comfortable structure:
-
-```bash
-hygge init my-project
-hygge init my-project --flows-dir pipelines  # Custom flows directory name
-hygge init my-project --force                 # Overwrite existing project
+```yaml
+store:
+  type: parquet
+  path: data/destination
 ```
 
-### `hygge go`
+**Microsoft Fabric Open Mirroring:**
 
-Execute all flows in the current project:
-
-```bash
-hygge go              # Execute all flows
-hygge go --verbose    # Enable detailed logging
-hygge go --flow NAME  # Execute specific flow (coming soon)
+```yaml
+store:
+  type: open_mirroring
+  account_url: https://onelake.dfs.fabric.microsoft.com
+  filesystem: my-workspace
+  mirror_name: my-mirror
+  key_columns: ["id"]
 ```
 
-### `hygge debug`
+**Azure Data Lake Storage (ADLS Gen2):**
 
-Validate and inspect your project configuration:
+```yaml
+store:
+  type: adls
+  account_url: https://mystorage.dfs.core.windows.net
+  filesystem: my-container
+  credential: managed_identity
+```
+
+See `samples/` directory for complete configuration examples.
+
+## Common Workflows
+
+### Moving Data from SQL Server to Parquet
+
+A cozy workflow to get your data moving:
+
+1. **Create connection configuration** in `hygge.yml`:
+
+```yaml
+connections:
+  my_database:
+    type: mssql
+    server: myserver.database.windows.net
+    database: mydatabase
+    pool_size: 8
+```
+
+2. **Define your flow** in `flows/users_to_parquet/flow.yml`:
+
+```yaml
+name: users_to_parquet
+home:
+  type: mssql
+  connection: my_database
+  table: dbo.users
+store:
+  type: parquet
+  path: data/users
+```
+
+3. **Run it**:
 
 ```bash
-hygge debug  # Shows project details and discovered flows
+hygge go
 ```
+
+### Moving Data to Microsoft Fabric
+
+Get your data comfortably settled in Fabric:
+
+1. **Configure Open Mirroring store** in your flow:
+
+```yaml
+store:
+  type: open_mirroring
+  account_url: https://onelake.dfs.fabric.microsoft.com
+  filesystem: my-workspace
+  mirror_name: my-mirror
+  key_columns: ["id"]
+```
+
+1. **Run your flow**:
+
+```bash
+hygge go
+```
+
+hygge automatically handles all the cozy details - metadata files, schema manifests, and atomic operations - so your data feels right at home in Fabric.
+
+## Programmatic Usage
+
+While hygge is designed CLI-first for maximum comfort, you can also cozy up to it programmatically:
+
+```python
+from hygge.core import Coordinator
+
+# Run flows from a config file
+coordinator = Coordinator(config_path="my_config.yml")
+await coordinator.run()
+```
+
+For more examples, see the `examples/` directory.
 
 ## Extensibility
 
-Adding new homes and stores feels natural and comfortable:
-
-```python
-class MyHome(Home):
-    """A cozy new home for data."""
-    async def read_batches(self):
-        # Implement your reading logic
-        pass
-
-class MyStore(Store):
-    """A cozy new store for data."""
-    async def write(self, df):
-        # Implement your writing logic
-        pass
-```
-
-hygge automatically discovers and registers your custom implementations, making them available in your configurations just like the built-in types.
+Create your own cozy homes and stores by implementing the `Home` and `Store` interfaces. hygge automatically discovers and welcomes them, making them feel right at home in your YAML configurations.
 
 ## Incremental vs Full-Drop at a Glance
 
@@ -299,11 +425,11 @@ This alignment keeps the flow, store, and journal in sync and prevents accidenta
 
 ## Development Philosophy
 
-- Keep it simple and focused
-- Make common tasks easy
-- Make complex tasks possible
-- Prioritize user experience
-- Write clear, maintainable code
+- Keep it simple and cozy
+- Make common tasks feel effortless
+- Make complex tasks comfortable
+- Prioritize a warm, welcoming user experience
+- Write clear, maintainable code that feels good to read
 - Test thoroughly but sensibly
 
-hygge isn't just about moving data - it's about making data movement feel natural, comfortable, and reliable.
+hygge isn't just about moving data - it's about making data movement feel natural, comfortable, and reliable. Like a warm blanket for your data pipelines.
