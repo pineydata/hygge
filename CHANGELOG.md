@@ -5,9 +5,132 @@ All notable changes to hygge will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2025-11-11
 
-## [0.3.1] - 2025-01-XX
+### Added
+
+#### Journal System for Flow Execution Tracking
+
+- **Parquet-based journal** for tracking flow execution metadata
+  - Single-file design (`journal.parquet`) with denormalized entity runs
+  - Tracks coordinator runs, flow runs, and entity runs with full hierarchy
+  - Records status, row counts, durations, watermarks, and error messages
+  - Thread-safe atomic writes with synchronized append operations
+  - Efficient watermark queries for incremental processing
+
+- **Remote journal storage** for cloud deployments
+  - Automatic placement in `Files/.hygge_journal/journal.parquet` for ADLS/OneLake stores
+  - Supports both local filesystem and remote Azure Data Lake Storage
+  - Seamless integration with existing store configurations
+  - Path inference from store/home configurations
+
+- **Mirrored journal tables** for Open Mirroring flows
+  - Optional mirrored journal tables in `__hygge.schema` for telemetry visibility
+  - Snapshot-based synchronization from canonical `.hygge_journal/journal.parquet`
+  - Full-drop rewrite pattern prevents schema drift in Fabric
+  - Automatic schema manifest (`_schema.json`) generation for column alignment
+  - Keeps telemetry separate from business entities
+
+- **Watermark-aware incremental processing**
+  - Watermark tracking in journal for efficient incremental reads
+  - `get_watermark()` API for querying last successful watermark per flow/entity
+  - Support for datetime, integer, and string watermark types
+  - Automatic watermark persistence after successful entity runs
+
+#### Run-Type Driven Store Configuration
+
+- **Unified truncate behavior** across all stores
+  - Flow `run_type` now directly controls store truncate/append behavior
+  - Removed store-level `full_drop` flags - single source of truth
+  - `configure_for_run()` hook for per-run store strategy adjustment
+  - Works seamlessly with Open Mirroring, ADLS, and OneLake stores
+
+- **Per-run configuration hooks**
+  - Stores can adjust their strategy based on flow `run_type`
+  - Supports `full_drop`, `incremental`, and custom run types
+  - Clean separation between flow orchestration and store implementation
+
+#### Incremental Processing Support
+
+- **Watermark-aware incremental reads** for MSSQL Home
+  - Automatic watermark column detection and filtering
+  - Safe handling of nullable watermark columns
+  - Integration with journal for watermark persistence
+  - Support for datetime, integer, and string watermark types
+
+- **Flow-level incremental orchestration**
+  - Automatic watermark retrieval from journal before entity runs
+  - Watermark value propagation to homes for filtering
+  - Watermark persistence after successful runs
+  - Graceful handling of missing watermarks (treats as full_drop)
+
+### Improved
+
+#### Azure Data Lake Storage Operations
+
+- **Path normalization** for OneLake compatibility
+  - Automatic leading slash removal for consistent path handling
+  - Skips GUID root folder creation on mounted relational databases
+  - Respects Fabric's `<Tables, Files>` policy separation
+  - Returns normalized paths for downstream file operations
+
+- **Directory creation** improvements
+  - Handles root directory uploads gracefully
+  - Skips directory verification for OneLake to avoid transient policy checks
+  - Better error messages for path-related issues
+
+#### Open Mirroring Store
+
+- **Schema manifest support** (`_schema.json`)
+  - Automatic generation alongside `_metadata.json`
+  - Maps Polars dtypes to Fabric-compatible type names
+  - Ensures column order and type preservation during mirroring
+  - Tracks schema files in atomic full_drop operations
+
+- **Atomic operation improvements**
+  - Schema files included in atomic move operations
+  - Proper cleanup of temporary paths after operations
+  - State reset for repeated finish() calls (e.g., mirrored journal appends)
+
+#### Code Quality
+
+- **Enhanced error handling**
+  - Better error messages with recovery guidance
+  - Graceful degradation when journal operations fail
+  - Defensive checks for edge cases
+
+- **Improved observability**
+  - Debug logging for journal operations
+  - Clear logging when journal is empty or missing
+  - Better visibility into watermark operations
+
+### Fixed
+
+- **Fabric mounted database compatibility**
+  - Fixed directory creation failures on mounted relational databases
+  - Respects Fabric's policy that prevents writes to `<Tables>` namespace
+  - Proper handling of GUID root folders that cannot be recreated
+
+- **Schema drift in mirrored journal tables**
+  - Switched from per-row streaming to snapshot-based full-drop rewrites
+  - Eliminates schema inference issues in Fabric
+  - Ensures mirrored tables exactly match canonical journal parquet
+
+- **Path handling in atomic operations**
+  - Fixed path normalization for file moves in full_drop mode
+  - Ensures temporary files are correctly located and moved
+  - Proper handling of leading slashes in OneLake paths
+
+### Testing
+
+- **Comprehensive test coverage**
+  - Unit tests for journal operations (local and remote)
+  - Tests for watermark-aware incremental processing
+  - Schema manifest writing and atomic operation tests
+  - Path normalization and OneLake compatibility tests
+  - Mirrored journal synchronization tests
+
+## [0.3.1] - 2025-11-05
 
 ### Fixed
 
@@ -205,7 +328,9 @@ Future plans for upcoming releases:
 - Cloud storage support: S3, Azure Blob, GCS (ADLS/OneLake completed in v0.2.0)
 - Advanced error recovery: Retry strategies, dead letter queues
 
-[Unreleased]: https://github.com/pineydata/hygge/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/pineydata/hygge/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/pineydata/hygge/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/pineydata/hygge/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/pineydata/hygge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/pineydata/hygge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/pineydata/hygge/releases/tag/v0.1.0
