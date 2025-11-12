@@ -878,11 +878,20 @@ To get started, run:
         # Create semaphore to limit concurrent flow execution
         semaphore = asyncio.Semaphore(max_concurrent)
 
-        # Log STARTING lines for all flows (hygge-style, blue)
+        # Log summary of flows starting (condensed to reduce noise)
         total_flows = len(self.flows)
-        for i, flow in enumerate(self.flows, 1):
+        if total_flows <= 10:
+            # For small numbers, show individual flows
+            for i, flow in enumerate(self.flows, 1):
+                self.logger.info(
+                    f"[{i} of {total_flows}] STARTING flow {flow.name}",
+                    color_prefix="START",
+                )
+        else:
+            # For large numbers, just show summary
             self.logger.info(
-                f"[{i} of {total_flows}] STARTING flow {flow.name}",
+                f"Starting {total_flows} flows with max concurrency "
+                f"of {max_concurrent}",
                 color_prefix="START",
             )
 

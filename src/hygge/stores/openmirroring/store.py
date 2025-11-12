@@ -1261,7 +1261,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                     )
                     raise StoreError(error_summary)
 
-                self.logger.success(
+                self.logger.debug(
                     "Atomic full_drop operation completed: "
                     "All data successfully moved from _tmp to production"
                 )
