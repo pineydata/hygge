@@ -309,7 +309,7 @@ class Journal:
             "client_id": getattr(store_config, "client_id", None),
             "client_secret": getattr(store_config, "client_secret", None),
             "storage_account_key": getattr(store_config, "storage_account_key", None),
-            "schema_name": getattr(store_config, "schema_name", None),
+            "schema_name": "__hygge",
             "partner_name": getattr(store_config, "partner_name", None),
             "source_type": getattr(store_config, "source_type", None),
             "source_version": getattr(store_config, "source_version", None),
@@ -327,13 +327,17 @@ class Journal:
             )
             return None
 
+        # Force journal table into the dedicated __hygge schema so mirrored telemetry
+        # stays separate from business entities.
+        journal_store_config.schema_name = "__hygge"
+
         journal_store = OpenMirroringStore(
             name=f"{self.name}_journal_mirror_store",
             config=journal_store_config,
             flow_name=self.coordinator_name,
             entity_name=journal_table,
         )
-        return MirroredJournalWriter(journal_store)
+        return MirroredJournalWriter(journal_store, self)
 
     def _build_adls_ops_from_store_config(
         self, store_config: Optional[Any]
@@ -809,11 +813,34 @@ class Journal:
 class MirroredJournalWriter:
     """Append-only writer that mirrors journal entries into an Open Mirroring table."""
 
-    def __init__(self, store) -> None:
+    def __init__(self, store, journal: "Journal") -> None:
         self.store = store
+        self._journal = journal
         self._lock = asyncio.Lock()
 
-    async def append(self, df: pl.DataFrame) -> None:
+    async def append(self, _df: pl.DataFrame) -> None:
+        """
+        Synchronize the mirrored table with the canonical journal parquet.
+
+        Instead of streaming individual rows (which led to schema inference issues
+        inside Fabric), we reload the authoritative parquet and publish it as a full
+        drop so the mirrored table exactly matches `.hygge_journal/journal.parquet`.
+
+        Args:
+            _df: Unused parameter kept for API compatibility. The actual data is
+                read from the canonical journal parquet file, not from this parameter.
+        """
+
         async with self._lock:
-            await self.store.write(df)
+            journal_df = await self._journal._read_journal_df()
+            if journal_df is None or len(journal_df) == 0:
+                self._journal.logger.debug(
+                    "Journal is empty or missing; skipping mirror update"
+                )
+                return
+
+            # Replace the mirrored table with the latest journal snapshot.
+            if hasattr(self.store, "configure_for_run"):
+                self.store.configure_for_run("full_drop")
+            await self.store.write(journal_df)
             await self.store.finish()
