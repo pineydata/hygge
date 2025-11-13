@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from hygge.utility.exceptions import FlowError
 from hygge.utility.logger import get_logger
+from hygge.utility.retry import with_retry
 
 from .home import Home, HomeConfig
 from .journal import Journal, JournalConfig
@@ -112,7 +113,27 @@ class Flow:
         self.progress_callback = callback
 
     async def start(self) -> None:
-        """Start the flow from Home to Store."""
+        """
+        Start the flow from Home to Store with automatic retry for transient errors.
+
+        Retries the entire flow (producer + consumer) on transient connection errors,
+        cleaning up staging/tmp directories before each retry to ensure a clean state.
+        """
+        # Apply retry decorator with instance methods using lambda to capture self
+        retry_decorated = with_retry(
+            retries=3,
+            delay=2,
+            exceptions=(FlowError,),
+            timeout=3600,  # 1 hour for entire flow
+            logger_name="hygge.flow",
+            retry_if_func=lambda exc: self._should_retry_flow_error(exc),
+            before_sleep_func=lambda rs: self._cleanup_before_retry(rs),
+        )(self._execute_flow)
+
+        await retry_decorated()
+
+    async def _execute_flow(self) -> None:
+        """Execute a single attempt of the flow (producer + consumer)."""
         # START line already logged by Coordinator (dbt-style)
         self.start_time = asyncio.get_event_loop().time()
         self.entity_start_time = datetime.now(timezone.utc)
@@ -199,6 +220,52 @@ class Flow:
                     pass
 
             raise FlowError(f"Flow failed: {str(e)}")
+
+    def _should_retry_flow_error(self, exception: Exception) -> bool:
+        """
+        Determine if a FlowError should be retried based on error message.
+
+        Args:
+            exception: The exception that was raised
+
+        Returns:
+            True if the error is transient and should be retried
+        """
+        if not isinstance(exception, FlowError):
+            return False
+
+        error_str = str(exception).lower()
+        return "connection" in error_str and (
+            "forcibly closed" in error_str
+            or "communication link failure" in error_str
+            or "08S01" in str(exception)
+            or "producer failed" in error_str
+        )
+
+    async def _cleanup_before_retry(self, retry_state) -> None:
+        """
+        Clean up staging/tmp and reset flow state before retrying.
+
+        Args:
+            retry_state: Tenacity retry state object
+        """
+        attempt_number = retry_state.attempt_number
+        self.logger.warning(
+            f"Preparing for retry {attempt_number} of flow {self.name}: "
+            "cleaning up staging and resetting state"
+        )
+
+        # Clean up staging/tmp before retrying to ensure clean state
+        try:
+            await self.store.cleanup_staging()
+        except Exception as cleanup_error:
+            self.logger.warning(
+                f"Failed to cleanup staging before retry: {str(cleanup_error)}"
+            )
+
+        # Reset flow state for retry
+        self.total_rows = 0
+        self.rows_written = 0
 
     async def _producer(
         self, queue: asyncio.Queue, producer_done: asyncio.Event

@@ -194,11 +194,8 @@ class ParquetStore(Store, store_type="parquet"):
             self.logger.error(f"Failed to move file to final location: {str(e)}")
             raise StoreError(f"Failed to finalize transfer {staging_path}: {str(e)}")
 
-    async def close(self) -> None:
-        """Finalize any remaining writes and cleanup."""
-        await self.finish()
-
-        # Cleanup staging directory
+    async def cleanup_staging(self) -> None:
+        """Clean up staging/tmp directory before retrying a flow."""
         try:
             staging_dir = self.get_staging_directory()
             if staging_dir.exists():
@@ -208,6 +205,13 @@ class ParquetStore(Store, store_type="parquet"):
                 self.logger.debug(f"Cleaned up staging directory: {staging_dir}")
         except Exception as e:
             self.logger.warning(f"Failed to cleanup staging directory: {str(e)}")
+
+    async def close(self) -> None:
+        """Finalize any remaining writes and cleanup."""
+        await self.finish()
+
+        # Cleanup staging directory
+        await self.cleanup_staging()
 
 
 class ParquetStoreConfig(StoreConfig, BaseStoreConfig, config_type="parquet"):

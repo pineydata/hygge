@@ -496,6 +496,37 @@ class ADLSStore(Store, store_type="adls"):
             self.logger.error(f"Failed to upload to ADLS Gen2 staging: {str(e)}")
             raise StoreError(f"Failed to upload to ADLS Gen2 staging: {str(e)}")
 
+    async def cleanup_staging(self) -> None:
+        """Clean up staging/_tmp directory before retrying a flow."""
+        try:
+            from hygge.utility.path_helper import PathHelper
+
+            adls_ops = self._get_adls_ops()
+            # Build staging directory path using same logic as _save()
+            # For base_path like "Files/Account", we want "Files/_tmp/Account"
+            # Use a dummy filename, then get parent to get the entity directory
+            cloud_staging_dir = PathHelper.build_staging_path(
+                self.base_path,
+                self.entity_name,
+                "dummy.parquet",  # Dummy filename to build full path
+            )
+            # Get parent to get the entity directory (Files/_tmp/Account)
+            cloud_staging_dir = str(Path(cloud_staging_dir).parent)
+
+            # Delete staging directory if it exists
+            try:
+                await adls_ops.delete_directory(cloud_staging_dir, recursive=True)
+                self.logger.debug(f"Cleaned up staging directory: {cloud_staging_dir}")
+            except Exception as e:
+                # Directory might not exist or already be cleaned up
+                error_str = str(e).lower()
+                if "notfound" not in error_str and "does not exist" not in error_str:
+                    self.logger.warning(
+                        f"Failed to cleanup staging directory: {str(e)}"
+                    )
+        except Exception as e:
+            self.logger.warning(f"Failed to cleanup staging directory: {str(e)}")
+
     async def _cleanup_temp(self, staging_path: Optional[str] = None) -> None:
         """
         ADLS Gen2 cleanup is handled automatically.

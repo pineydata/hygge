@@ -345,6 +345,18 @@ class Store(ABC):
         """
         return None
 
+    async def cleanup_staging(self) -> None:
+        """
+        Clean up staging/tmp directory before retrying a flow.
+
+        This ensures we start with a clean state on retry.
+        File-based stores should override this to clean their staging directories.
+        Database stores can use the default no-op implementation.
+        """
+        # Default implementation is no-op for database stores
+        # File-based stores should override to clean their staging directories
+        pass
+
     async def _stage(self) -> None:
         """
         Stage the current data buffer.
