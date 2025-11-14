@@ -467,6 +467,13 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             # Sequential: 20-digit format per spec
             return f"{self.sequence_counter:020d}.parquet"
 
+    async def reset_retry_sensitive_state(self) -> None:
+        """Reset retry-sensitive state (sequence counter) before retry."""
+        # Reset to None so it will be re-initialized from existing files
+        # This ensures we don't create gaps in sequence numbers on retry
+        self.sequence_counter = None
+        self.logger.debug("Reset sequence counter for retry")
+
     def _validate_row_marker(self, df: pl.DataFrame) -> None:
         """
         Validate __rowMarker__ column values if present.

@@ -499,8 +499,6 @@ class ADLSStore(Store, store_type="adls"):
     async def cleanup_staging(self) -> None:
         """Clean up staging/_tmp directory before retrying a flow."""
         try:
-            from hygge.utility.path_helper import PathHelper
-
             adls_ops = self._get_adls_ops()
             # Build staging directory path using same logic as _save()
             # For base_path like "Files/Account", we want "Files/_tmp/Account"
@@ -526,6 +524,18 @@ class ADLSStore(Store, store_type="adls"):
                     )
         except Exception as e:
             self.logger.warning(f"Failed to cleanup staging directory: {str(e)}")
+
+    async def reset_retry_sensitive_state(self) -> None:
+        """Reset retry-sensitive state before retry."""
+        # Call parent to reset general store state
+        await super().reset_retry_sensitive_state()
+        # Reset store-specific state
+        self.sequence_counter = 0
+        self.uploaded_files.clear()
+        # Reset saved_paths if it exists (may be set lazily)
+        if hasattr(self, "saved_paths"):
+            self.saved_paths.clear()
+        self.logger.debug("Reset sequence counter and uploaded files for retry")
 
     async def _cleanup_temp(self, staging_path: Optional[str] = None) -> None:
         """

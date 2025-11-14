@@ -119,15 +119,15 @@ class Flow:
         Retries the entire flow (producer + consumer) on transient connection errors,
         cleaning up staging/tmp directories before each retry to ensure a clean state.
         """
-        # Apply retry decorator with instance methods using lambda to capture self
+        # Apply retry decorator with instance methods
         retry_decorated = with_retry(
             retries=3,
             delay=2,
             exceptions=(FlowError,),
             timeout=3600,  # 1 hour for entire flow
             logger_name="hygge.flow",
-            retry_if_func=lambda exc: self._should_retry_flow_error(exc),
-            before_sleep_func=lambda rs: self._cleanup_before_retry(rs),
+            retry_if_func=self._should_retry_flow_error,
+            before_sleep_func=self._cleanup_before_retry,
         )(self._execute_flow)
 
         await retry_decorated()
@@ -234,12 +234,12 @@ class Flow:
         if not isinstance(exception, FlowError):
             return False
 
+        # Only retry for specific transient connection errors
         error_str = str(exception).lower()
         return "connection" in error_str and (
             "forcibly closed" in error_str
             or "communication link failure" in error_str
-            or "08S01" in str(exception)
-            or "producer failed" in error_str
+            or "08s01" in error_str
         )
 
     async def _cleanup_before_retry(self, retry_state) -> None:
@@ -263,9 +263,19 @@ class Flow:
                 f"Failed to cleanup staging before retry: {str(cleanup_error)}"
             )
 
+        # Reset retry-sensitive state in store (e.g., sequence counters)
+        try:
+            await self.store.reset_retry_sensitive_state()
+        except Exception as reset_error:
+            self.logger.warning(
+                f"Failed to reset retry-sensitive state before retry: "
+                f"{str(reset_error)}"
+            )
+
         # Reset flow state for retry
         self.total_rows = 0
         self.rows_written = 0
+        self.batches_processed = 0
 
     async def _producer(
         self, queue: asyncio.Queue, producer_done: asyncio.Event

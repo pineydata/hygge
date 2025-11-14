@@ -206,6 +206,15 @@ class ParquetStore(Store, store_type="parquet"):
         except Exception as e:
             self.logger.warning(f"Failed to cleanup staging directory: {str(e)}")
 
+    async def reset_retry_sensitive_state(self) -> None:
+        """Reset retry-sensitive state (sequence counter, saved paths) before retry."""
+        # Call parent to reset general store state
+        await super().reset_retry_sensitive_state()
+        # Reset store-specific state
+        self.sequence_counter = 0
+        self.saved_paths.clear()
+        self.logger.debug("Reset sequence counter and saved paths for retry")
+
     async def close(self) -> None:
         """Finalize any remaining writes and cleanup."""
         await self.finish()

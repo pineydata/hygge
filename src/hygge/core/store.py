@@ -357,6 +357,30 @@ class Store(ABC):
         # File-based stores should override to clean their staging directories
         pass
 
+    async def reset_retry_sensitive_state(self) -> None:
+        """
+        Reset retry-sensitive state before retrying a flow.
+
+        This method is called before each retry to ensure stores start with
+        a clean state. Resets both general store state (buffers, counters) and
+        store-specific retry-sensitive state (e.g., sequence counters).
+
+        Stores can override this to add additional reset logic, but should
+        call super() to ensure base state is reset.
+        """
+        # Reset general store state that accumulates during execution
+        self.data_buffer.clear()
+        self.buffer_size = 0
+        self.current_df = None
+        self.total_rows = 0
+        self.rows_written = 0
+        self.transfers.clear()
+        self.start_time = None
+        self.rows_since_last_log = 0
+
+        # Store-specific state reset (e.g., saved_paths) should be handled
+        # by subclasses overriding this method
+
     async def _stage(self) -> None:
         """
         Stage the current data buffer.

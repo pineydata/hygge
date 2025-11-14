@@ -45,7 +45,7 @@ def with_retry(
         exceptions: Exception types to catch and retry on (default: hygge exceptions)
         logger_name: Name for logging retry attempts (default: hygge.retry)
         retry_if_func: Optional function to determine if error should be retried.
-            Takes (retry_state) and returns bool. If provided, overrides exceptions.
+            Takes (exception) and returns bool. If provided, overrides exceptions.
         before_sleep_func: Optional async function called before each retry.
             Takes (retry_state) and can perform cleanup/setup.
 
@@ -67,7 +67,8 @@ def with_retry(
         # Determine retry condition
         if retry_if_func:
             # Use retry_if_exception which retries only if predicate returns True
-            # When predicate returns False, tenacity will not retry
+            # When predicate returns False, the exception is re-raised immediately
+            # without retrying
             retry_condition = retry_if_exception(retry_if_func)
         else:
             retry_condition = retry_if_exception_type(exceptions)

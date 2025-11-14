@@ -126,9 +126,7 @@ class MockStore(Store):
     async def cleanup_staging(self):
         """Mock cleanup_staging for testing retry logic."""
         self.cleanup_staging_called = True
-        self.cleanup_staging_call_count = (
-            getattr(self, "cleanup_staging_call_count", 0) + 1
-        )
+        self.cleanup_staging_call_count += 1
         # Clear written data to simulate cleanup
         self.written_data.clear()
 
@@ -482,8 +480,7 @@ class TestSimplifiedFlow:
                 attempt_count["count"] += 1
                 # Always fail with non-transient error
                 # Must be an async generator, so we raise before any yield
-                if True:  # Always true, but makes it clear this is intentional
-                    raise ValueError("Invalid configuration")
+                raise ValueError("Invalid configuration")
                 yield  # Unreachable, but makes it an async generator
 
         home = FailingHome("failing_home", sample_data)
@@ -510,10 +507,7 @@ class TestSimplifiedFlow:
                 attempt_count["count"] += 1
                 # Always fail with transient error
                 # Must be an async generator, so we raise before any yield
-                if True:  # Always true, but makes it clear this is intentional
-                    raise Exception(
-                        "Failed to read from MSSQL: connection forcibly closed"
-                    )
+                raise Exception("Failed to read from MSSQL: connection forcibly closed")
                 yield  # Unreachable, but makes it an async generator
 
         home = AlwaysFailingHome("failing_home", sample_data)
