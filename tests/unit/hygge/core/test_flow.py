@@ -92,6 +92,8 @@ class MockStore(Store):
         self.written_data: List[pl.DataFrame] = []
         self.write_called = False
         self.finish_called = False
+        self.cleanup_staging_called = False
+        self.cleanup_staging_call_count = 0
 
     async def write(self, df: pl.DataFrame, is_recursive: bool = False):
         """Mock implementation that collects written data."""
@@ -120,6 +122,13 @@ class MockStore(Store):
 
     async def _cleanup_temp(self, path):
         pass  # Not used in this mock
+
+    async def cleanup_staging(self):
+        """Mock cleanup_staging for testing retry logic."""
+        self.cleanup_staging_called = True
+        self.cleanup_staging_call_count += 1
+        # Clear written data to simulate cleanup
+        self.written_data.clear()
 
 
 @pytest.fixture
@@ -388,3 +397,135 @@ class TestSimplifiedFlow:
         # Then should complete successfully
         assert flow.total_rows == sum(len(df) for df in sample_data)
         assert flow.batches_processed == len(sample_data)
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
+    async def test_flow_retries_on_transient_connection_error(self, sample_data):
+        """Test Flow retries on transient connection errors and cleans up staging."""
+
+        # Create a home that fails with transient error, then succeeds
+        attempt_count = {"count": 0}
+
+        class RetryableHome(MockHome):
+            async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
+                attempt_count["count"] += 1
+                if attempt_count["count"] == 1:
+                    # First attempt: fail with transient connection error
+                    # This will be wrapped as "Producer failed: ..." by Flow
+                    raise Exception(
+                        "Failed to read from MSSQL: ('08S01', "
+                        "'[08S01] [Microsoft][ODBC Driver 18 for SQL Server]"
+                        "TCP Provider: An existing connection was forcibly closed "
+                        "by the remote host. (10054)')"
+                    )
+                # Second attempt: succeed
+                async for df in super()._get_batches():
+                    yield df
+
+        home = RetryableHome("retry_home", sample_data)
+        store = MockStore("retry_store")
+        flow = Flow(name="retry_flow", home=home, store=store)
+
+        # When starting the flow
+        await flow.start()
+
+        # Then should have retried and succeeded
+        assert attempt_count["count"] == 2
+        assert flow.total_rows == sum(len(df) for df in sample_data)
+        # And cleanup_staging should have been called before retry
+        assert store.cleanup_staging_called
+        assert store.cleanup_staging_call_count == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
+    async def test_flow_resets_state_on_retry(self, sample_data):
+        """Test Flow resets state (total_rows, rows_written) before retry."""
+        attempt_count = {"count": 0}
+
+        class RetryableHome(MockHome):
+            async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
+                attempt_count["count"] += 1
+                if attempt_count["count"] == 1:
+                    # First attempt: fail after writing some data
+                    yield pl.DataFrame({"id": [1, 2, 3], "value": ["test"] * 3})
+                    raise Exception(
+                        "Failed to read from MSSQL: connection forcibly closed"
+                    )
+                # Second attempt: succeed
+                async for df in super()._get_batches():
+                    yield df
+
+        home = RetryableHome("retry_home", sample_data)
+        store = MockStore("retry_store")
+        flow = Flow(name="retry_flow", home=home, store=store)
+
+        # When starting the flow
+        await flow.start()
+
+        # Then should have retried and succeeded
+        assert attempt_count["count"] == 2
+        # State should be reset - should only count rows from successful attempt
+        assert flow.total_rows == sum(len(df) for df in sample_data)
+        # Should not have duplicate rows from first attempt
+        assert len(store.written_data) == len(sample_data)
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
+    async def test_flow_does_not_retry_non_transient_errors(self, sample_data):
+        """Test Flow does not retry non-transient errors."""
+        attempt_count = {"count": 0}
+
+        class FailingHome(MockHome):
+            async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
+                attempt_count["count"] += 1
+                # Always fail with non-transient error
+                # Must be an async generator, so we raise before any yield
+                raise ValueError("Invalid configuration")
+                yield  # Unreachable, but makes it an async generator
+
+        home = FailingHome("failing_home", sample_data)
+        store = MockStore("failing_store")
+        flow = Flow(name="failing_flow", home=home, store=store)
+
+        # When starting the flow
+        with pytest.raises(FlowError):
+            await flow.start()
+
+        # Then should not have retried (only one attempt)
+        assert attempt_count["count"] == 1
+        # And cleanup_staging should not have been called
+        assert not store.cleanup_staging_called
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(30)
+    async def test_flow_gives_up_after_max_retries(self, sample_data):
+        """Test Flow gives up after max retries (3 attempts)."""
+        attempt_count = {"count": 0}
+
+        class AlwaysFailingHome(MockHome):
+            async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
+                attempt_count["count"] += 1
+                # Always fail with transient error
+                # Must be an async generator, so we raise before any yield
+                raise Exception("Failed to read from MSSQL: connection forcibly closed")
+                yield  # Unreachable, but makes it an async generator
+
+        home = AlwaysFailingHome("failing_home", sample_data)
+        store = MockStore("failing_store")
+        flow = Flow(name="failing_flow", home=home, store=store)
+
+        # When starting the flow
+        # Tenacity wraps the exception in RetryError when retries are exhausted
+        with pytest.raises(Exception) as exc_info:
+            await flow.start()
+
+        # Should raise either FlowError or RetryError wrapping FlowError
+        assert isinstance(exc_info.value, FlowError) or (
+            hasattr(exc_info.value, "last_attempt")
+            and isinstance(exc_info.value.last_attempt.exception(), FlowError)
+        )
+
+        # Then should have tried 3 times (initial + 2 retries)
+        assert attempt_count["count"] == 3
+        # And cleanup_staging should have been called before each retry (2 times)
+        assert store.cleanup_staging_call_count == 2
