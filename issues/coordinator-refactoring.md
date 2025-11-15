@@ -1,8 +1,12 @@
 # Coordinator Refactoring: Extract Complex Responsibilities
 
-## Problem
+## Status: ✅ COMPLETED (Phases 1, 3-5) | 🔄 Phase 2 Moved to Separate Issue
 
-The `Coordinator` class has grown to 1,341 lines and handles too many concerns:
+**Note:** This issue documents the completed refactoring work. Phase 2 (Flow Creation Extraction) has been moved to a separate issue: `flow-creation-extraction.md`
+
+## Problem (Historical)
+
+The `Coordinator` class had grown to 1,341 lines and handled too many concerns:
 
 - Configuration loading (project, directory, single-file, legacy modes)
 - Entity flow creation with complex path merging and config merging
@@ -11,7 +15,7 @@ The `Coordinator` class has grown to 1,341 lines and handles too many concerns:
 - Flow orchestration with progress tracking
 - Hygge-style summary generation (inspired by dbt)
 
-This violates the KISS principle and makes the codebase harder to maintain, test, and extend.
+This violated the KISS principle and made the codebase harder to maintain, test, and extend.
 
 ## Current Behavior
 
@@ -391,20 +395,11 @@ Create a new `src/hygge/messages/` submodule for messaging utilities:
 
 **Stability Status:** ✅ **STABLE** - All tests passing. Ready for Phase 2.
 
-### 🔄 Phase 2: Extract Flow Creation Logic (READY TO START)
+### 🔄 Phase 2: Extract Flow Creation Logic (MOVED TO SEPARATE ISSUE)
 
-**Status:** 📋 Planned - Not started yet
+**Status:** 📋 Moved to `flow-creation-extraction.md`
 
-**Future Work:**
-- Extract flow creation logic to class methods on `Flow`
-- Add `Flow.from_config()` class method to `src/hygge/core/flow.py`
-- Add `Flow.from_entity()` class method to `src/hygge/core/flow.py`
-- Add helper methods: `_merge_entity_config()`, `_get_journal()`, `_apply_overrides()`
-- Move flow creation logic from Coordinator to Flow class methods
-- Update Coordinator to use `Flow.from_config()` and `Flow.from_entity()`
-- Add unit tests in `tests/unit/hygge/core/test_flow.py`
-
-**Status:** 📋 Ready to start - Phase 1 is stable. Current flow creation in Coordinator works well, but extraction would further simplify Coordinator.
+**Note:** Phase 2 has been moved to a separate, focused issue. See `issues/flow-creation-extraction.md` for detailed implementation plan.
 
 ### ✅ Phase 3: Extract Progress Tracking (COMPLETED & STABLE)
 
@@ -469,10 +464,44 @@ All three components handle messaging/output formatting and live together in a c
 - See `cli-simplification.md` for related CLI refactoring
 - See `watermark-tracker-extraction.md` for related Flow refactoring
 
-## Priority
+## Summary
 
-**✅ Phase 1 Complete & Stable** - Workspace extraction completed, tested, and verified. All tests passing. Coordinator simplified by removing 10+ configuration methods. Clear separation: Workspace handles configuration, Coordinator handles orchestration.
+### ✅ Completed Phases
 
-**✅ Phases 3-5 Complete & Stable** - Progress tracking, summary generation, and messages submodule extraction completed, tested, and verified. All 570 tests passing. Coordinator simplified by removing progress tracking and summary generation implementations. Clear separation: Messages utilities handle output formatting, Coordinator handles orchestration. Submodule renamed to `messages/` to avoid namespace collision with Python's built-in `logging` module - feels more hygge too!
+**Phase 1: Workspace Extraction** ✅
+- Workspace extraction completed, tested, and verified
+- All tests passing
+- Coordinator simplified by removing 10+ configuration methods
+- Clear separation: Workspace handles configuration, Coordinator handles orchestration
 
-**🔄 Phase 2:** **Ready to Start** - Flow creation logic extraction is ready to proceed. Current flow creation in Coordinator works well, but extraction would further simplify Coordinator.
+**Phase 3: Progress Tracking Extraction** ✅
+- Progress tracking extraction completed, tested, and verified
+- All tests passing
+- Coordinator simplified by removing progress tracking implementation
+- Clear separation: Progress handles messaging, Coordinator handles orchestration
+
+**Phase 4: Summary Generation Extraction** ✅
+- Summary generation extraction completed, tested, and verified
+- All tests passing
+- Coordinator simplified by removing summary generation implementation
+- Clear separation: Summary handles messaging, Coordinator handles orchestration
+
+**Phase 5: Messages Submodule Creation** ✅
+- Messages submodule created, consolidated, and verified
+- All 570 tests passing
+- Clean separation of concerns with all messaging utilities in `messages/` submodule
+- Submodule renamed to `messages/` to avoid namespace collision with Python's built-in `logging` module
+
+### 🔄 Remaining Work
+
+**Phase 2: Flow Creation Extraction** 🔄
+- **Status:** Moved to separate issue: `flow-creation-extraction.md`
+- **Ready to Start:** Flow creation logic extraction is ready to proceed
+- **Impact:** Will further simplify Coordinator by removing ~300 lines of flow creation logic
+
+## Related Issues
+
+- **Active:** `flow-creation-extraction.md` - Flow creation logic extraction (Phase 2)
+- **Completed:** This issue documents completed refactoring work (Phases 1, 3-5)
+- See `cli-simplification.md` for related CLI refactoring
+- See `watermark-tracker-extraction.md` for related Flow refactoring
