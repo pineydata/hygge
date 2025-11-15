@@ -300,12 +300,13 @@ To get started, run:
 
             def replace_env_var(match):
                 var_name = match.group(1)
-                default_value = match.group(2) if match.group(2) is not None else ""
+                has_default = match.group(2) is not None
+                default_value = match.group(2) if has_default else ""
 
                 env_value = os.getenv(var_name)
                 if env_value is not None:
                     return env_value
-                elif default_value is not None:
+                elif has_default:
                     return default_value
                 else:
                     raise ConfigError(

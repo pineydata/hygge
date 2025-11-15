@@ -9,6 +9,7 @@ import os
 import tempfile
 from pathlib import Path
 
+import polars as pl
 import pytest
 import yaml
 
@@ -324,8 +325,6 @@ store:
             (temp_path / "data" / "destination").mkdir()
 
             # Create a simple parquet file so the flow has something to process
-            import polars as pl
-
             test_data = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
             test_data.write_parquet(temp_path / "data" / "source" / "test.parquet")
 
