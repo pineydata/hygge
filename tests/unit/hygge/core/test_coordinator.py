@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock
 
 import polars as pl
 import pytest
-import yaml
 
 from hygge.core.coordinator import Coordinator, CoordinatorConfig, validate_config
 from hygge.core.flow import FlowConfig
@@ -109,50 +108,96 @@ class TestValidateConfig:
 class TestCoordinatorInitialization:
     """Test Coordinator initialization and basic setup."""
 
-    def test_coordinator_initialization_with_file(self):
-        """Test Coordinator initialization with file path."""
-        # Create a temporary config file
-        config_data = {
-            "flows": {
-                "test_flow": {"home": "data/test.parquet", "store": "output/test"}
-            }
-        }
+    def test_coordinator_initialization_with_hygge_yml(self):
+        """Test Coordinator initialization with hygge.yml path."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            # Create flows directory
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            coordinator = Coordinator(str(hygge_file))
+            assert coordinator.config_path.resolve() == hygge_file.resolve()
+            assert coordinator.config is None  # Not loaded yet (lazy loading)
+            assert coordinator.flows == []
+            assert coordinator.coordinator_name == "test_project"
+
+    def test_coordinator_initialization_with_non_hygge_yml_raises_error(self):
+        """Test Coordinator raises error for non-hygge.yml files."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
+            f.write("flows: {}")
             config_file = f.name
 
         try:
-            coordinator = Coordinator(config_file)
-            assert coordinator.config_path == Path(config_file)
-            assert coordinator.config is None  # Not loaded yet
-            assert coordinator.flows == []
-            assert coordinator.options == {}
+            with pytest.raises(ConfigError, match="Expected hygge.yml"):
+                Coordinator(config_file)
         finally:
             Path(config_file).unlink(missing_ok=True)
 
-    def test_coordinator_initialization_with_directory(self):
-        """Test Coordinator initialization with directory path."""
-        # Create a temporary directory with flow config
+    def test_coordinator_initialization_with_directory_raises_error(self):
+        """Test Coordinator raises error for directory paths (not hygge.yml)."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            flow_dir = Path(temp_dir) / "test_flow"
-            flow_dir.mkdir()
-
-            flow_config = {"home": "data/test.parquet", "store": "output/test"}
-
-            with open(flow_dir / "flow.yml", "w") as f:
-                yaml.dump(flow_config, f)
-
-            coordinator = Coordinator(temp_dir)
-            assert coordinator.config_path == Path(temp_dir)
-            assert coordinator.config is None  # Not loaded yet
-            assert coordinator.flows == []
+            with pytest.raises(ConfigError, match="Expected hygge.yml"):
+                Coordinator(temp_dir)
 
 
 class TestCoordinatorConfigLoading:
-    """Legacy configuration loading helpers remain covered elsewhere."""
+    """Test configuration loading via Workspace."""
 
-    pass
+    def test_coordinator_loads_config_via_workspace(self):
+        """Test Coordinator loads config via Workspace.prepare()."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+options:
+  continue_on_error: true
+"""
+            )
+
+            # Create flows directory and flow
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/test.parquet"
+store:
+  type: "parquet"
+  path: "output/test"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            # Config loaded lazily - prepare it for this test
+            coordinator.config = coordinator._workspace.prepare()
+
+            assert coordinator.config is not None
+            assert len(coordinator.config.flows) == 1
+            assert "test_flow" in coordinator.config.flows
+            assert coordinator.options == {"continue_on_error": True}
 
 
 class TestCoordinatorJournalIntegration:
@@ -161,30 +206,50 @@ class TestCoordinatorJournalIntegration:
     def test_coordinator_flow_receives_journal_context(self, tmp_path):
         """Coordinator should attach journal and metadata to flows."""
         journal_dir = tmp_path / "journal_dir"
-        config_data = {
-            "journal": {"path": str(journal_dir)},
-            "flows": {
-                "users_flow": {
-                    "home": {
-                        "type": "parquet",
-                        "path": str(tmp_path / "source.parquet"),
-                    },
-                    "store": {"type": "parquet", "path": str(tmp_path / "dest")},
-                    "run_type": "incremental",
-                    "watermark": {
-                        "primary_key": "id",
-                        "watermark_column": "updated_at",
-                    },
-                }
-            },
-        }
 
-        config_file = tmp_path / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_data, f)
+        # Create hygge.yml
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            f"""
+name: "test_project"
+flows_dir: "flows"
+journal:
+  path: "{journal_dir}"
+"""
+        )
 
-        coordinator = Coordinator(str(config_file))
-        coordinator._load_single_file_config()
+        # Create flows directory and flow
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
+
+        flow_dir = flows_dir / "users_flow"
+        flow_dir.mkdir()
+
+        flow_file = flow_dir / "flow.yml"
+        flow_file.write_text(
+            f"""
+name: "users_flow"
+home:
+  type: "parquet"
+  path: "{tmp_path / 'source.parquet'}"
+store:
+  type: "parquet"
+  path: "{tmp_path / 'dest'}"
+run_type: "incremental"
+watermark:
+  primary_key: "id"
+  watermark_column: "updated_at"
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
+        # Update journal_config after config is prepared (needed for journal creation)
+        if coordinator.config and coordinator.config.journal:
+            if isinstance(coordinator.config.journal, JournalConfig):
+                coordinator.journal_config = coordinator.config.journal
+            else:
+                coordinator.journal_config = JournalConfig(**coordinator.config.journal)
         coordinator.coordinator_run_id = "coord_run_123"
         coordinator.coordinator_name = "test_coordinator"
         coordinator._create_flows()
@@ -205,24 +270,37 @@ class TestCoordinatorJournalIntegration:
     @pytest.mark.asyncio
     async def test_run_flow_assigns_flow_run_id(self, tmp_path, monkeypatch):
         """_run_flow should assign deterministic flow_run_id."""
-        config_data = {
-            "flows": {
-                "users_flow": {
-                    "home": {
-                        "type": "parquet",
-                        "path": str(tmp_path / "source.parquet"),
-                    },
-                    "store": {"type": "parquet", "path": str(tmp_path / "dest")},
-                }
-            }
-        }
+        # Create hygge.yml
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = tmp_path / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_data, f)
+        # Create flows directory and flow
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
-        coordinator._load_single_file_config()
+        flow_dir = flows_dir / "users_flow"
+        flow_dir.mkdir()
+
+        flow_file = flow_dir / "flow.yml"
+        flow_file.write_text(
+            f"""
+name: "users_flow"
+home:
+  type: "parquet"
+  path: "{tmp_path / 'source.parquet'}"
+store:
+  type: "parquet"
+  path: "{tmp_path / 'dest'}"
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
         coordinator._create_flows()
 
         coordinator.coordinator_name = "test_coord"
@@ -252,25 +330,40 @@ class TestCoordinatorJournalIntegration:
     @pytest.mark.asyncio
     async def test_flow_run_id_shared_across_entities(self, tmp_path, monkeypatch):
         """Entity flows for same base flow share a flow_run_id."""
-        config_data = {
-            "flows": {
-                "users_flow": {
-                    "home": {
-                        "type": "parquet",
-                        "path": str(tmp_path / "source.parquet"),
-                    },
-                    "store": {"type": "parquet", "path": str(tmp_path / "dest")},
-                    "entities": ["users", "orders"],
-                }
-            }
-        }
+        # Create hygge.yml
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = tmp_path / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_data, f)
+        # Create flows directory and flow
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
-        coordinator._load_single_file_config()
+        flow_dir = flows_dir / "users_flow"
+        flow_dir.mkdir()
+
+        flow_file = flow_dir / "flow.yml"
+        flow_file.write_text(
+            f"""
+name: "users_flow"
+home:
+  type: "parquet"
+  path: "{tmp_path / 'source.parquet'}"
+store:
+  type: "parquet"
+  path: "{tmp_path / 'dest'}"
+entities:
+  - "users"
+  - "orders"
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
         coordinator._create_flows()
 
         coordinator.coordinator_name = "test_coord"
@@ -295,75 +388,72 @@ class TestCoordinatorJournalIntegration:
         assert len(flow_ids) == 1
         assert len(generated_ids) == 1
 
-    def test_load_single_file_config(self):
-        """Test loading configuration from single file."""
-        config_data = {
-            "flows": {
-                "test_flow": {"home": "data/test.parquet", "store": "output/test"}
-            },
-            "options": {"continue_on_error": True},
-        }
-
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
-
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_single_file_config()
-
-            assert coordinator.config is not None
-            assert len(coordinator.config.flows) == 1
-            assert "test_flow" in coordinator.config.flows
-            assert coordinator.options == {"continue_on_error": True}
-        finally:
-            Path(config_file).unlink(missing_ok=True)
-
-    def test_load_directory_config(self):
-        """Test loading configuration from directory structure."""
+    def test_load_config_via_workspace(self):
+        """Test loading configuration via Workspace."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Create flow directory
-            flow_dir = Path(temp_dir) / "test_flow"
+            temp_path = Path(temp_dir)
+
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+options:
+  continue_on_error: true
+"""
+            )
+
+            # Create flows directory and flow
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
             flow_dir.mkdir()
 
-            flow_config = {"home": "data/test.parquet", "store": "output/test"}
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/test.parquet"
+store:
+  type: "parquet"
+  path: "output/test"
+"""
+            )
 
-            with open(flow_dir / "flow.yml", "w") as f:
-                yaml.dump(flow_config, f)
-
-            # Create options file
-            options = {"continue_on_error": True}
-            with open(Path(temp_dir) / "options.yml", "w") as f:
-                yaml.dump(options, f)
-
-            coordinator = Coordinator(temp_dir)
-            coordinator._load_directory_config()
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
 
             assert coordinator.config is not None
             assert len(coordinator.config.flows) == 1
             assert "test_flow" in coordinator.config.flows
             assert coordinator.options == {"continue_on_error": True}
 
-    def test_load_config_file_not_found(self):
-        """Test loading configuration when file doesn't exist."""
-        coordinator = Coordinator("/nonexistent/file.yaml")
+    def test_load_config_with_invalid_hygge_yml(self):
+        """Test loading configuration with invalid hygge.yml."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with pytest.raises(
-            Exception, match="Configuration path must be file or directory"
-        ):
-            coordinator._load_config()
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text("invalid: yaml: content: [")
 
-    def test_load_config_invalid_yaml(self):
-        """Test loading configuration with invalid YAML."""
+            # Error happens during Coordinator.__init__ when
+            # Workspace.from_path() is called
+            with pytest.raises(Exception):
+                Coordinator(str(hygge_file))
+
+    def test_load_config_with_non_hygge_yml_raises_error(self):
+        """Test Coordinator raises error for non-hygge.yml files."""
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("invalid: yaml: content: [")
+            f.write("flows: {}")
             config_file = f.name
 
         try:
-            coordinator = Coordinator(config_file)
-
-            with pytest.raises(Exception, match="Failed to load configuration"):
-                coordinator._load_config()
+            with pytest.raises(ConfigError, match="Expected hygge.yml"):
+                Coordinator(config_file)
         finally:
             Path(config_file).unlink(missing_ok=True)
 
@@ -373,25 +463,62 @@ class TestCoordinatorFlowCreation:
 
     def test_create_flows_from_config(self):
         """Test creating flows from configuration."""
-        config_data = {
-            "flows": {
-                "flow1": {"home": "data/flow1.parquet", "store": "output/flow1"},
-                "flow2": {"home": "data/flow2.parquet", "store": "output/flow2"},
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            # Create flows directory and flows
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            # Create flow1
+            flow1_dir = flows_dir / "flow1"
+            flow1_dir.mkdir()
+            flow1_file = flow1_dir / "flow.yml"
+            flow1_file.write_text(
+                """
+name: "flow1"
+home:
+  type: "parquet"
+  path: "data/flow1.parquet"
+store:
+  type: "parquet"
+  path: "output/flow1"
+"""
+            )
+
+            # Create flow2
+            flow2_dir = flows_dir / "flow2"
+            flow2_dir.mkdir()
+            flow2_file = flow2_dir / "flow.yml"
+            flow2_file.write_text(
+                """
+name: "flow2"
+home:
+  type: "parquet"
+  path: "data/flow2.parquet"
+store:
+  type: "parquet"
+  path: "output/flow2"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             assert len(coordinator.flows) == 2
-            assert coordinator.flows[0].name == "flow1"
-            assert coordinator.flows[1].name == "flow2"
+            # Flow order is not guaranteed, so check set membership
+            flow_names = {flow.name for flow in coordinator.flows}
+            assert flow_names == {"flow1", "flow2"}
 
             # Verify flows have the right components
             for flow in coordinator.flows:
@@ -399,28 +526,47 @@ class TestCoordinatorFlowCreation:
                 assert flow.store is not None
                 assert flow.home.config.type == "parquet"
                 assert flow.store.config.type == "parquet"
-        finally:
-            Path(config_file).unlink(missing_ok=True)
 
 
 class TestCoordinatorIntegration:
     """Test Coordinator integration with registry pattern."""
 
     def test_coordinator_with_simple_config(self):
-        """Test Coordinator with simple string-based configuration."""
-        config_data = {
-            "flows": {
-                "simple_flow": {"home": "data/simple.parquet", "store": "output/simple"}
-            }
-        }
+        """Test Coordinator with simple configuration."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            # Create flows directory and flow
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "simple_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "simple_flow"
+home:
+  type: "parquet"
+  path: "data/simple.parquet"
+store:
+  type: "parquet"
+  path: "output/simple"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             # Verify the flow was created correctly
@@ -432,35 +578,45 @@ class TestCoordinatorIntegration:
             assert flow.store.config.type == "parquet"
             assert flow.home.config.path == "data/simple.parquet"
             assert flow.store.config.path == "output/simple"
-        finally:
-            Path(config_file).unlink(missing_ok=True)
 
     def test_coordinator_with_dict_config(self):
         """Test Coordinator with dictionary-based configuration."""
-        config_data = {
-            "flows": {
-                "dict_flow": {
-                    "home": {
-                        "type": "parquet",
-                        "path": "data/dict.parquet",
-                        "batch_size": 5000,
-                    },
-                    "store": {
-                        "type": "parquet",
-                        "path": "output/dict",
-                        "compression": "snappy",
-                    },
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            # Create flows directory and flow
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "dict_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "dict_flow"
+home:
+  type: "parquet"
+  path: "data/dict.parquet"
+  batch_size: 5000
+store:
+  type: "parquet"
+  path: "output/dict"
+  compression: "snappy"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             # Verify the flow was created correctly
@@ -472,8 +628,6 @@ class TestCoordinatorIntegration:
             assert flow.store.config.type == "parquet"
             assert flow.home.config.batch_size == 5000
             assert flow.store.config.compression == "snappy"
-        finally:
-            Path(config_file).unlink(missing_ok=True)
 
 
 class TestProjectCentricCoordinator:
@@ -499,9 +653,12 @@ flows_dir: "flows"
 
             try:
                 coordinator = Coordinator()
+                # Workspace is found but config is not prepared yet (lazy loading)
                 assert coordinator.config_path.resolve() == hygge_file.resolve()
                 assert coordinator.project_config["name"] == "test_project"
                 assert coordinator.project_config["flows_dir"] == "flows"
+                # Config is None until run() is called (lazy loading)
+                assert coordinator.config is None
             finally:
                 os.chdir(original_cwd)
 
@@ -529,8 +686,11 @@ flows_dir: "flows"
 
             try:
                 coordinator = Coordinator()
+                # Workspace is found but config is not prepared yet (lazy loading)
                 assert coordinator.config_path.resolve() == hygge_file.resolve()
                 assert coordinator.project_config["name"] == "test_project"
+                # Config is None until run() is called (lazy loading)
+                assert coordinator.config is None
             finally:
                 os.chdir(original_cwd)
 
@@ -634,7 +794,8 @@ store:
 
             try:
                 coordinator = Coordinator()
-                coordinator._load_config()
+                # Config is loaded lazily - prepare it explicitly for this test
+                coordinator.config = coordinator._workspace.prepare()
 
                 # Verify flows were loaded
                 assert len(coordinator.config.flows) == 2
@@ -699,7 +860,8 @@ store:
 
             try:
                 coordinator = Coordinator()
-                coordinator._load_config()
+                # Config is loaded lazily - prepare it explicitly for this test
+                coordinator.config = coordinator._workspace.prepare()
 
                 # Verify flow was loaded from custom directory
                 assert len(coordinator.config.flows) == 1
@@ -727,9 +889,11 @@ flows_dir: "nonexistent_flows"
             os.chdir(temp_path)
 
             try:
+                # Workspace.prepare() will raise error when flows directory not found
+                # Config loading happens lazily in run(), so prepare explicitly here
                 coordinator = Coordinator()
                 with pytest.raises(ConfigError, match="Flows directory not found"):
-                    coordinator._load_config()
+                    coordinator.config = coordinator._workspace.prepare()
             finally:
                 os.chdir(original_cwd)
 
@@ -756,9 +920,11 @@ flows_dir: "flows"
             os.chdir(temp_path)
 
             try:
+                # Workspace.prepare() will raise error when no flows found
+                # Config loading happens lazily in run(), so prepare explicitly here
                 coordinator = Coordinator()
                 with pytest.raises(ConfigError, match="No flows found in directory"):
-                    coordinator._load_config()
+                    coordinator.config = coordinator._workspace.prepare()
             finally:
                 os.chdir(original_cwd)
 
@@ -821,7 +987,8 @@ source_config:
 
             try:
                 coordinator = Coordinator()
-                coordinator._load_config()
+                # Config is loaded lazily - prepare it explicitly for this test
+                coordinator.config = coordinator._workspace.prepare()
 
                 # Verify entity inherited defaults
                 flow_config = coordinator.config.flows["test_flow"]
@@ -843,28 +1010,44 @@ class TestCoordinatorEntityPathMerging:
 
     def test_entity_flow_path_merging_simple(self):
         """Test that entity paths are merged correctly with flow paths."""
-        config_data = {
-            "flows": {
-                "test_flow": {
-                    "home": {"type": "parquet", "path": "data/source"},
-                    "store": {"type": "parquet", "path": "data/destination"},
-                    "entities": [
-                        {
-                            "name": "users",
-                            "home": {"path": "users"},
-                        }
-                    ],
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            # Create hygge.yml
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            # Create flows directory and flow
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+entities:
+  - name: "users"
+    home:
+      path: "users"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             # Should create entity flow with merged path
@@ -874,107 +1057,137 @@ class TestCoordinatorEntityPathMerging:
             # Path should be merged: "data/source" + "users" = "data/source/users"
             assert flow.home.config.path == "data/source/users"
 
-        finally:
-            Path(config_file).unlink(missing_ok=True)
-
     def test_entity_flow_path_merging_with_trailing_slash(self):
         """Test path merging handles trailing slashes correctly."""
-        config_data = {
-            "flows": {
-                "test_flow": {
-                    "home": {"type": "parquet", "path": "data/source/"},
-                    "store": {"type": "parquet", "path": "data/destination"},
-                    "entities": [
-                        {
-                            "name": "users",
-                            "home": {"path": "users"},
-                        }
-                    ],
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source/"
+store:
+  type: "parquet"
+  path: "data/destination"
+entities:
+  - name: "users"
+    home:
+      path: "users"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             flow = coordinator.flows[0]
             # Should merge correctly despite trailing slash: "data/source/" + "users"
             assert flow.home.config.path == "data/source/users"
 
-        finally:
-            Path(config_file).unlink(missing_ok=True)
-
     def test_entity_flow_path_merging_with_leading_slash(self):
         """Test path merging handles leading slashes correctly."""
-        config_data = {
-            "flows": {
-                "test_flow": {
-                    "home": {"type": "parquet", "path": "data/source"},
-                    "store": {"type": "parquet", "path": "data/destination"},
-                    "entities": [
-                        {
-                            "name": "users",
-                            "home": {"path": "/users"},
-                        }
-                    ],
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+entities:
+  - name: "users"
+    home:
+      path: "/users"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             flow = coordinator.flows[0]
             # Should merge correctly despite leading slash: "data/source" + "/users"
             assert flow.home.config.path == "data/source/users"
 
-        finally:
-            Path(config_file).unlink(missing_ok=True)
-
     def test_entity_flow_path_merging_both_slashes(self):
         """Test path merging handles both trailing and leading slashes."""
-        config_data = {
-            "flows": {
-                "test_flow": {
-                    "home": {"type": "parquet", "path": "data/source/"},
-                    "store": {"type": "parquet", "path": "data/destination"},
-                    "entities": [
-                        {
-                            "name": "users",
-                            "home": {"path": "/users"},
-                        }
-                    ],
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source/"
+store:
+  type: "parquet"
+  path: "data/destination"
+entities:
+  - name: "users"
+    home:
+      path: "/users"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             flow = coordinator.flows[0]
             # Should merge correctly: "data/source/" + "/users" = "data/source/users"
             assert flow.home.config.path == "data/source/users"
-
-        finally:
-            Path(config_file).unlink(missing_ok=True)
 
 
 class TestCoordinatorFlowOverrides:
@@ -982,30 +1195,43 @@ class TestCoordinatorFlowOverrides:
 
     def test_apply_flow_overrides_full_drop(self):
         """Test that flow-level full_drop is applied to store config."""
-        config_data = {
-            "flows": {
-                "test_flow": {
-                    "home": {"type": "parquet", "path": "data/source"},
-                    "store": {
-                        "type": "open_mirroring",
-                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
-                        "filesystem": "test",
-                        "mirror_name": "test-db",
-                        "key_columns": ["id"],
-                        "row_marker": 0,
-                    },
-                    "full_drop": True,  # Flow-level override
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "open_mirroring"
+  account_url: "https://onelake.dfs.fabric.microsoft.com"
+  filesystem: "test"
+  mirror_name: "test-db"
+  key_columns: ["id"]
+  row_marker: 0
+full_drop: true
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             # Verify flow was created
@@ -1018,37 +1244,47 @@ class TestCoordinatorFlowOverrides:
                 assert store.full_drop_mode is True
             assert flow.run_type == "full_drop"
 
-        finally:
-            Path(config_file).unlink(missing_ok=True)
-
     def test_apply_flow_overrides_via_cli(self):
         """Test that CLI flow overrides are applied correctly."""
-        config_data = {
-            "flows": {
-                "test_flow": {
-                    "home": {"type": "parquet", "path": "data/source"},
-                    "store": {
-                        "type": "open_mirroring",
-                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
-                        "filesystem": "test",
-                        "mirror_name": "test-db",
-                        "key_columns": ["id"],
-                        "row_marker": 0,
-                    },
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "open_mirroring"
+  account_url: "https://onelake.dfs.fabric.microsoft.com"
+  filesystem: "test"
+  mirror_name: "test-db"
+  key_columns: ["id"]
+  row_marker: 0
+"""
+            )
+
             # Simulate CLI override: flow.test_flow.full_drop=true
             flow_overrides = {"test_flow": {"full_drop": True}}
 
-            coordinator = Coordinator(config_file, flow_overrides=flow_overrides)
-            coordinator._load_config()
+            coordinator = Coordinator(str(hygge_file), flow_overrides=flow_overrides)
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             # Verify flow was created
@@ -1066,64 +1302,89 @@ class TestCoordinatorFlowOverrides:
                 assert store.full_drop_mode is True
             assert flow.run_type == "full_drop"
 
-        finally:
-            Path(config_file).unlink(missing_ok=True)
-
     def test_flow_overrides_not_applied_when_none(self):
         """Test that flow overrides don't affect config when not provided."""
-        config_data = {
-            "flows": {
-                "test_flow": {
-                    "home": {"type": "parquet", "path": "data/source"},
-                    "store": {"type": "parquet", "path": "data/output"},
-                    "full_drop": False,  # Flow-level setting
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/output"
+full_drop: false
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             # Verify flow config has the original full_drop value
             flow_config = coordinator.config.flows["test_flow"]
             assert flow_config.full_drop is False
 
-        finally:
-            Path(config_file).unlink(missing_ok=True)
-
     def test_entity_flow_inherits_base_flow_full_drop(self):
         """Test that entity flows inherit flow-level full_drop from base flow."""
-        config_data = {
-            "flows": {
-                "base_flow": {
-                    "home": {"type": "parquet", "path": "data/source"},
-                    "store": {
-                        "type": "open_mirroring",
-                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
-                        "filesystem": "test",
-                        "mirror_name": "test-db",
-                        "key_columns": ["id"],
-                        "row_marker": 0,
-                    },
-                    "full_drop": True,  # Flow-level setting
-                    "entities": ["Account", "Contact"],
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "base_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "base_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "open_mirroring"
+  account_url: "https://onelake.dfs.fabric.microsoft.com"
+  filesystem: "test"
+  mirror_name: "test-db"
+  key_columns: ["id"]
+  row_marker: 0
+full_drop: true
+entities:
+  - "Account"
+  - "Contact"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             # Should create 2 entity flows
@@ -1137,36 +1398,46 @@ class TestCoordinatorFlowOverrides:
                     assert store.full_drop_mode is True
                 assert flow.run_type == "full_drop"
 
-        finally:
-            Path(config_file).unlink(missing_ok=True)
-
     def test_store_incremental_override_forced_incremental(self):
         """Store forcing incremental should override flow full_drop."""
-        config_data = {
-            "flows": {
-                "test_flow": {
-                    "home": {"type": "parquet", "path": "data/source"},
-                    "store": {
-                        "type": "open_mirroring",
-                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
-                        "filesystem": "test",
-                        "mirror_name": "test-db",
-                        "key_columns": ["id"],
-                        "row_marker": 0,
-                        "incremental": True,
-                    },
-                    "full_drop": True,
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "open_mirroring"
+  account_url: "https://onelake.dfs.fabric.microsoft.com"
+  filesystem: "test"
+  mirror_name: "test-db"
+  key_columns: ["id"]
+  row_marker: 0
+  incremental: true
+full_drop: true
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             flow = coordinator.flows[0]
@@ -1174,36 +1445,47 @@ class TestCoordinatorFlowOverrides:
             assert flow.run_type == "full_drop"
             if hasattr(store, "full_drop_mode"):
                 assert store.full_drop_mode is False
-        finally:
-            Path(config_file).unlink(missing_ok=True)
 
     def test_store_incremental_override_forced_full_drop(self):
         """Store forcing full_drop should override flow incremental."""
-        config_data = {
-            "flows": {
-                "test_flow": {
-                    "home": {"type": "parquet", "path": "data/source"},
-                    "store": {
-                        "type": "open_mirroring",
-                        "account_url": "https://onelake.dfs.fabric.microsoft.com",
-                        "filesystem": "test",
-                        "mirror_name": "test-db",
-                        "key_columns": ["id"],
-                        "row_marker": 0,
-                        "incremental": False,
-                    },
-                    "run_type": "incremental",
-                }
-            }
-        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            yaml.dump(config_data, f)
-            config_file = f.name
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
 
-        try:
-            coordinator = Coordinator(config_file)
-            coordinator._load_config()
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "open_mirroring"
+  account_url: "https://onelake.dfs.fabric.microsoft.com"
+  filesystem: "test"
+  mirror_name: "test-db"
+  key_columns: ["id"]
+  row_marker: 0
+  incremental: false
+run_type: "incremental"
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
             coordinator._create_flows()
 
             flow = coordinator.flows[0]
@@ -1211,8 +1493,6 @@ class TestCoordinatorFlowOverrides:
             assert flow.run_type == "incremental"
             if hasattr(store, "full_drop_mode"):
                 assert store.full_drop_mode is True
-        finally:
-            Path(config_file).unlink(missing_ok=True)
 
 
 class TestCoordinatorConcurrency:
@@ -1221,25 +1501,36 @@ class TestCoordinatorConcurrency:
     @pytest.mark.asyncio
     async def test_concurrency_defaults_to_eight(self, tmp_path):
         """Test that concurrency defaults to 8 when no config or pools."""
-        config_data = {
-            "flows": {
-                f"flow_{i}": {
-                    "home": {
-                        "type": "parquet",
-                        "path": str(tmp_path / f"source_{i}.parquet"),
-                    },
-                    "store": {"type": "parquet", "path": str(tmp_path / f"dest_{i}")},
-                }
-                for i in range(10)
-            }
-        }
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = tmp_path / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_data, f)
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
-        coordinator._load_config()
+        for i in range(10):
+            flow_dir = flows_dir / f"flow_{i}"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                f"""
+name: "flow_{i}"
+home:
+  type: "parquet"
+  path: "{tmp_path / f'source_{i}.parquet'}"
+store:
+  type: "parquet"
+  path: "{tmp_path / f'dest_{i}'}"
+"""
+            )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
         coordinator._create_flows()
 
         # Check that max_concurrent would be 8 (default)
@@ -1258,26 +1549,38 @@ class TestCoordinatorConcurrency:
     @pytest.mark.asyncio
     async def test_concurrency_from_config_option(self, tmp_path):
         """Test that concurrency can be set via config option."""
-        config_data = {
-            "options": {"concurrency": 4},
-            "flows": {
-                f"flow_{i}": {
-                    "home": {
-                        "type": "parquet",
-                        "path": str(tmp_path / f"source_{i}.parquet"),
-                    },
-                    "store": {"type": "parquet", "path": str(tmp_path / f"dest_{i}")},
-                }
-                for i in range(10)
-            },
-        }
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+options:
+  concurrency: 4
+"""
+        )
 
-        config_file = tmp_path / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_data, f)
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
-        coordinator._load_config()
+        for i in range(10):
+            flow_dir = flows_dir / f"flow_{i}"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                f"""
+name: "flow_{i}"
+home:
+  type: "parquet"
+  path: "{tmp_path / f'source_{i}.parquet'}"
+store:
+  type: "parquet"
+  path: "{tmp_path / f'dest_{i}'}"
+"""
+            )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
         coordinator._create_flows()
 
         assert coordinator.options.get("concurrency") == 4
@@ -1285,33 +1588,42 @@ class TestCoordinatorConcurrency:
     @pytest.mark.asyncio
     async def test_concurrency_matches_pool_size(self, tmp_path):
         """Test that concurrency matches pool size when pools exist."""
-        config_data = {
-            "connections": {
-                "test_db": {
-                    "type": "mssql",
-                    "server": "test.server",
-                    "database": "test_db",
-                    "pool_size": 12,
-                }
-            },
-            "flows": {
-                f"flow_{i}": {
-                    "home": {
-                        "type": "parquet",
-                        "path": str(tmp_path / f"source_{i}.parquet"),
-                    },
-                    "store": {"type": "parquet", "path": str(tmp_path / f"dest_{i}")},
-                }
-                for i in range(10)
-            },
-        }
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+connections:
+  test_db:
+    type: "mssql"
+    server: "test.server"
+    database: "test_db"
+    pool_size: 12
+"""
+        )
 
-        config_file = tmp_path / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_data, f)
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
-        coordinator._load_config()
+        for i in range(10):
+            flow_dir = flows_dir / f"flow_{i}"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                f"""
+name: "flow_{i}"
+home:
+  type: "parquet"
+  path: "{tmp_path / f'source_{i}.parquet'}"
+store:
+  type: "parquet"
+  path: "{tmp_path / f'dest_{i}'}"
+"""
+            )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
 
         # Mock connection pool initialization to avoid actual DB connection
         # We'll just check the logic for determining max_concurrent
@@ -1339,26 +1651,38 @@ class TestCoordinatorConcurrency:
                 {"id": [1, 2, 3], "value": [f"val_{i}_{j}" for j in range(3)]}
             ).write_parquet(source_file)
 
-        config_data = {
-            "options": {"concurrency": 3},
-            "flows": {
-                f"flow_{i}": {
-                    "home": {
-                        "type": "parquet",
-                        "path": str(tmp_path / f"source_{i}.parquet"),
-                    },
-                    "store": {"type": "parquet", "path": str(tmp_path / f"dest_{i}")},
-                }
-                for i in range(10)
-            },
-        }
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+options:
+  concurrency: 3
+"""
+        )
 
-        config_file = tmp_path / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_data, f)
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
-        coordinator._load_config()
+        for i in range(10):
+            flow_dir = flows_dir / f"flow_{i}"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                f"""
+name: "flow_{i}"
+home:
+  type: "parquet"
+  path: "{tmp_path / f'source_{i}.parquet'}"
+store:
+  type: "parquet"
+  path: "{tmp_path / f'dest_{i}'}"
+"""
+            )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
         coordinator._create_flows()
 
         # Track concurrent executions
@@ -1404,25 +1728,37 @@ class TestCoordinatorConcurrency:
     @pytest.mark.asyncio
     async def test_concurrency_string_conversion(self, tmp_path):
         """Test that concurrency string values are converted to int."""
-        config_data = {
-            "options": {"concurrency": "16"},  # String value
-            "flows": {
-                "flow_1": {
-                    "home": {
-                        "type": "parquet",
-                        "path": str(tmp_path / "source.parquet"),
-                    },
-                    "store": {"type": "parquet", "path": str(tmp_path / "dest")},
-                }
-            },
-        }
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+options:
+  concurrency: "16"
+"""
+        )
 
-        config_file = tmp_path / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_data, f)
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
-        coordinator._load_config()
+        flow_dir = flows_dir / "flow_1"
+        flow_dir.mkdir()
+
+        flow_file = flow_dir / "flow.yml"
+        flow_file.write_text(
+            f"""
+name: "flow_1"
+home:
+  type: "parquet"
+  path: "{tmp_path / 'source.parquet'}"
+store:
+  type: "parquet"
+  path: "{tmp_path / 'dest'}"
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
         coordinator._create_flows()
 
         # Simulate the logic in _run_flows

@@ -589,30 +589,38 @@ class FlowConfig(BaseModel):
     """
     Configuration for a data flow.
 
-    Supports both simple and advanced configurations:
+    Flow configurations are defined in `flows/<flow_name>/flow.yml` files
+    as part of the workspace pattern. Each flow defines its home (source)
+    and store (destination).
 
     Simple (Rails spirit - convention over configuration):
     ```yaml
-    flows:
-      users_to_lake:
-        home: data/users.parquet
-        store: data/lake/users
+    # flows/users_to_lake/flow.yml
+    name: users_to_lake
+    home:
+      type: parquet
+      path: data/users.parquet
+    store:
+      type: parquet
+      path: data/lake/users
     ```
 
     Advanced (full control):
     ```yaml
-    flows:
-      users_to_lake:
-        home:
-          type: sql
-          table: users
-          connection: ${DATABASE_URL}
-        store:
-          type: parquet
-          path: data/lake/users
-          options:
-            compression: snappy
+    # flows/users_to_lake/flow.yml
+    name: users_to_lake
+    home:
+      type: mssql
+      connection: my_database
+      table: dbo.users
+    store:
+      type: parquet
+      path: data/lake/users
+      options:
+        compression: snappy
     ```
+
+    See the workspace documentation for project structure details.
     """
 
     # Clean, simple configuration - only home/store

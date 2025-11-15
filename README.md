@@ -122,15 +122,15 @@ Fix any issues before proceeding to the next step.
 Execute all flows in your project:
 
 ```bash
-# Run all flows
-hygge go
-
-# Get detailed progress information
-hygge go --verbose
-
-# Run a specific flow (coming soon)
-hygge go --flow example_flow
+hygge go  # Run all flows
 ```
+
+**Common options:**
+- `--flow NAME` - Run specific flow(s)
+- `--incremental` - Append data instead of truncating
+- `--verbose` - Detailed progress information
+
+See the [CLI Commands](#cli-commands) section for complete usage details.
 
 **What happens:**
 
@@ -185,10 +185,49 @@ Sets up a comfortable project structure with example configuration files to get 
 Let your data flow comfortably through all your flows:
 
 ```bash
-hygge go                 # Run all flows
-hygge go --verbose       # Enable detailed logging
-hygge go --flow NAME     # Execute specific flow (coming soon)
+# Run all flows
+hygge go
+
+# Run specific flows (comma-separated)
+hygge go --flow users_to_lake,orders_to_lake
+
+# Or use multiple flags
+hygge go --flow users_to_lake --flow orders_to_lake
+
+# Run specific entities within a flow (comma-separated)
+hygge go --entity salesforce.Involvement,salesforce.Account
+
+# Or use multiple flags
+hygge go --entity salesforce.Involvement --entity salesforce.Account
+
+# Override run type (incremental or full-drop)
+hygge go --incremental    # Append data instead of truncating
+hygge go --full-drop      # Truncate destination before loading
+
+# Override flow configuration
+hygge go --var flow.mssql_to_mirrored_db.full_drop=true
+
+# Control concurrency
+hygge go --concurrency 4
+
+# Enable verbose logging
+hygge go --verbose
 ```
+
+**Flow filtering:**
+- `--flow` accepts base flow names (e.g., `salesforce`) or entity flow names (e.g., `salesforce_Involvement`)
+- `--entity` uses format `flow.entity` (e.g., `salesforce.Involvement`)
+- Both support comma-separated values: `--flow flow1,flow2,flow3` OR multiple flags: `--flow flow1 --flow flow2`
+
+**Run type overrides:**
+- `--incremental`: Append data to destination (uses journal + watermarks)
+- `--full-drop`: Truncate destination before loading
+- Cannot specify both flags together
+
+**Flow overrides (`--var`):**
+- Format: `flow.<flow_name>.field=value`
+- Example: `flow.users_to_lake.store.compression=snappy`
+- Supports nested field paths for advanced overrides
 
 Runs all flows in parallel, keeping you informed with cozy progress updates and results.
 
@@ -259,20 +298,30 @@ home:
 
 **MS SQL Server:**
 
+Configure connections in `hygge.yml`:
+
 ```yaml
+# hygge.yml
 connections:
   my_database:
     type: mssql
     server: myserver.database.windows.net
     database: mydatabase
     pool_size: 8
+```
 
-flows:
-  users_flow:
-    home:
-      type: mssql
-      connection: my_database
-      table: dbo.users
+Then define flows in `flows/<flow_name>/flow.yml`:
+
+```yaml
+# flows/users_flow/flow.yml
+name: users_flow
+home:
+  type: mssql
+  connection: my_database
+  table: dbo.users
+store:
+  type: parquet
+  path: data/users
 ```
 
 **Features:**
@@ -365,6 +414,8 @@ Get your data comfortably settled in Fabric:
 1. **Configure Open Mirroring store** in your flow:
 
 ```yaml
+# flows/my_flow/flow.yml
+name: my_flow
 store:
   type: open_mirroring
   account_url: https://onelake.dfs.fabric.microsoft.com
@@ -373,7 +424,7 @@ store:
   key_columns: ["id"]
 ```
 
-1. **Run your flow**:
+2. **Run your flow**:
 
 ```bash
 hygge go
@@ -383,17 +434,7 @@ hygge automatically handles all the cozy details - metadata files, schema manife
 
 ## Programmatic Usage
 
-While hygge is designed CLI-first for maximum comfort, you can also cozy up to it programmatically:
-
-```python
-from hygge.core import Coordinator
-
-# Run flows from a config file
-coordinator = Coordinator(config_path="my_config.yml")
-await coordinator.run()
-```
-
-For more examples, see the `examples/` directory.
+For programmatic usage, see the `examples/` directory. hygge uses a workspace pattern with `hygge.yml` and a `flows/` directory structure - all flows are defined in `flows/<flow_name>/flow.yml` files.
 
 ## Extensibility
 

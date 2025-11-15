@@ -36,7 +36,6 @@ from pathlib import Path
 
 import polars as pl
 import pytest
-import yaml
 
 from hygge import Coordinator
 
@@ -185,23 +184,39 @@ class TestEntityPattern:
         """Test basic entity pattern with multiple entities in one flow definition."""
         setup = landing_zone_setup
 
-        # Create config with entity pattern
-        config_content = {
-            "flows": {
-                "landing_to_lake": {
-                    "home": str(setup["landing_zone"]),
-                    "store": str(setup["data_lake"]),
-                    "entities": ["users", "orders", "products"],
-                }
-            }
-        }
+        # Create workspace with entity pattern
+        hygge_file = setup["temp_path"] / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = setup["temp_path"] / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_content, f)
+        flows_dir = setup["temp_path"] / "flows"
+        flows_dir.mkdir()
+
+        landing_flow_dir = flows_dir / "landing_to_lake"
+        landing_flow_dir.mkdir()
+        landing_flow_file = landing_flow_dir / "flow.yml"
+        landing_flow_file.write_text(
+            f"""
+name: "landing_to_lake"
+home:
+  type: "parquet"
+  path: "{setup['landing_zone']}"
+store:
+  type: "parquet"
+  path: "{setup['data_lake']}"
+entities:
+  - users
+  - orders
+  - products
+"""
+        )
 
         # Run coordinator
-        coordinator = Coordinator(str(config_file))
+        coordinator = Coordinator(str(hygge_file))
         await coordinator.run()
 
         # Verify each entity created its own output directory
@@ -236,29 +251,44 @@ class TestEntityPattern:
         """Test entity pattern with custom flow options."""
         setup = landing_zone_setup
 
-        # Config with custom options that apply to all entities
-        config_content = {
-            "flows": {
-                "landing_to_lake": {
-                    "home": {
-                        "path": str(setup["landing_zone"]),
-                        "options": {"batch_size": 500},
-                    },
-                    "store": {
-                        "path": str(setup["data_lake"]),
-                        "options": {"batch_size": 1000, "compression": "gzip"},
-                    },
-                    "entities": ["users", "orders"],
-                    "options": {"queue_size": 5},
-                }
-            }
-        }
+        # Create workspace with custom options that apply to all entities
+        hygge_file = setup["temp_path"] / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = setup["temp_path"] / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_content, f)
+        flows_dir = setup["temp_path"] / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
+        landing_flow_dir = flows_dir / "landing_to_lake"
+        landing_flow_dir.mkdir()
+        landing_flow_file = landing_flow_dir / "flow.yml"
+        landing_flow_file.write_text(
+            f"""
+name: "landing_to_lake"
+home:
+  type: "parquet"
+  path: "{setup['landing_zone']}"
+  options:
+    batch_size: 500
+store:
+  type: "parquet"
+  path: "{setup['data_lake']}"
+  options:
+    batch_size: 1000
+    compression: "gzip"
+entities:
+  - users
+  - orders
+options:
+  queue_size: 5
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
         await coordinator.run()
 
         # Verify outputs exist
@@ -277,21 +307,37 @@ class TestEntityPattern:
         """Test that entities run in parallel (existing Coordinator behavior)."""
         setup = landing_zone_setup
 
-        config_content = {
-            "flows": {
-                "landing_to_lake": {
-                    "home": str(setup["landing_zone"]),
-                    "store": str(setup["data_lake"]),
-                    "entities": ["users", "orders", "products"],
-                }
-            }
-        }
+        hygge_file = setup["temp_path"] / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = setup["temp_path"] / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_content, f)
+        flows_dir = setup["temp_path"] / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
+        landing_flow_dir = flows_dir / "landing_to_lake"
+        landing_flow_dir.mkdir()
+        landing_flow_file = landing_flow_dir / "flow.yml"
+        landing_flow_file.write_text(
+            f"""
+name: "landing_to_lake"
+home:
+  type: "parquet"
+  path: "{setup['landing_zone']}"
+store:
+  type: "parquet"
+  path: "{setup['data_lake']}"
+entities:
+  - users
+  - orders
+  - products
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
         await coordinator.run()
 
         # With parallel execution, all 3 entities should complete successfully
@@ -305,22 +351,36 @@ class TestEntityPattern:
         """Test error handling when an entity file doesn't exist."""
         setup = landing_zone_setup
 
-        # Reference an entity that doesn't exist
-        config_content = {
-            "flows": {
-                "landing_to_lake": {
-                    "home": str(setup["landing_zone"]),
-                    "store": str(setup["data_lake"]),
-                    "entities": ["users", "nonexistent_entity"],
-                }
-            }
-        }
+        hygge_file = setup["temp_path"] / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = setup["temp_path"] / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_content, f)
+        flows_dir = setup["temp_path"] / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
+        landing_flow_dir = flows_dir / "landing_to_lake"
+        landing_flow_dir.mkdir()
+        landing_flow_file = landing_flow_dir / "flow.yml"
+        landing_flow_file.write_text(
+            f"""
+name: "landing_to_lake"
+home:
+  type: "parquet"
+  path: "{setup['landing_zone']}"
+store:
+  type: "parquet"
+  path: "{setup['data_lake']}"
+entities:
+  - users
+  - nonexistent_entity
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
 
         # Should raise an error for missing file
         with pytest.raises(Exception):  # Will be HomeError or FileNotFoundError
@@ -338,26 +398,53 @@ class TestEntityPattern:
         standalone_file = setup["temp_path"] / "standalone.parquet"
         standalone_df.write_parquet(standalone_file)
 
-        # Mix entity pattern with regular flow
-        config_content = {
-            "flows": {
-                "landing_to_lake": {
-                    "home": str(setup["landing_zone"]),
-                    "store": str(setup["data_lake"]),
-                    "entities": ["users", "orders"],
-                },
-                "standalone_flow": {
-                    "home": str(standalone_file),
-                    "store": str(setup["data_lake"] / "standalone"),
-                },
-            }
-        }
+        hygge_file = setup["temp_path"] / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = setup["temp_path"] / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_content, f)
+        flows_dir = setup["temp_path"] / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
+        # Create landing_to_lake flow with entities
+        landing_flow_dir = flows_dir / "landing_to_lake"
+        landing_flow_dir.mkdir()
+        landing_flow_file = landing_flow_dir / "flow.yml"
+        landing_flow_file.write_text(
+            f"""
+name: "landing_to_lake"
+home:
+  type: "parquet"
+  path: "{setup['landing_zone']}"
+store:
+  type: "parquet"
+  path: "{setup['data_lake']}"
+entities:
+  - users
+  - orders
+"""
+        )
+
+        # Create standalone_flow without entities
+        standalone_flow_dir = flows_dir / "standalone_flow"
+        standalone_flow_dir.mkdir()
+        standalone_flow_file = standalone_flow_dir / "flow.yml"
+        standalone_flow_file.write_text(
+            f"""
+name: "standalone_flow"
+home:
+  type: "parquet"
+  path: "{standalone_file}"
+store:
+  type: "parquet"
+  path: "{setup['data_lake'] / 'standalone'}"
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
         await coordinator.run()
 
         # Verify entity flows worked
@@ -376,22 +463,35 @@ class TestEntityPattern:
         """Test the simplest possible entity pattern syntax."""
         setup = landing_zone_setup
 
-        # Minimal syntax - just paths and entities
-        config_content = {
-            "flows": {
-                "landing_to_lake": {
-                    "home": str(setup["landing_zone"]),
-                    "store": str(setup["data_lake"]),
-                    "entities": ["users"],  # Just one entity to keep it simple
-                }
-            }
-        }
+        hygge_file = setup["temp_path"] / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = setup["temp_path"] / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_content, f)
+        flows_dir = setup["temp_path"] / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
+        landing_flow_dir = flows_dir / "landing_to_lake"
+        landing_flow_dir.mkdir()
+        landing_flow_file = landing_flow_dir / "flow.yml"
+        landing_flow_file.write_text(
+            f"""
+name: "landing_to_lake"
+home:
+  type: "parquet"
+  path: "{setup['landing_zone']}"
+store:
+  type: "parquet"
+  path: "{setup['data_lake']}"
+entities:
+  - users
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
         await coordinator.run()
 
         # Should just work with minimal config
@@ -412,23 +512,36 @@ class TestEntityPattern:
         """
         setup = landing_zone_edge_case
 
-        # Config pointing to single files: landing_zone/users.parquet
-        config_content = {
-            "flows": {
-                "landing_to_lake": {
-                    "home": str(setup["landing_zone"]),
-                    "store": str(setup["data_lake"]),
-                    # Include .parquet extension for single files
-                    "entities": ["users.parquet", "orders.parquet"],
-                }
-            }
-        }
+        hygge_file = setup["temp_path"] / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = setup["temp_path"] / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(config_content, f)
+        flows_dir = setup["temp_path"] / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
+        landing_flow_dir = flows_dir / "landing_to_lake"
+        landing_flow_dir.mkdir()
+        landing_flow_file = landing_flow_dir / "flow.yml"
+        landing_flow_file.write_text(
+            f"""
+name: "landing_to_lake"
+home:
+  type: "parquet"
+  path: "{setup['landing_zone']}"
+store:
+  type: "parquet"
+  path: "{setup['data_lake']}"
+entities:
+  - users.parquet
+  - orders.parquet
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
         await coordinator.run()
 
         # Verify output - each entity creates its own directory
