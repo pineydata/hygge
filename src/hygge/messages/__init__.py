@@ -7,7 +7,7 @@ This submodule provides messaging utilities for hygge:
 - Summary: Hygge-style execution summary formatting
 """
 from hygge.messages.logger import HyggeLogger, get_logger
-from hygge.messages.progress import Progress  # noqa: E402
-from hygge.messages.summary import Summary  # noqa: E402
+from hygge.messages.progress import Progress
+from hygge.messages.summary import Summary
 
 __all__ = ["HyggeLogger", "get_logger", "Progress", "Summary"]
