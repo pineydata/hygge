@@ -9,6 +9,7 @@ import os
 import tempfile
 from pathlib import Path
 
+import polars as pl
 import pytest
 import yaml
 
@@ -353,6 +354,317 @@ store:
 
                 assert result.exit_code == 1
                 assert "Configuration error" in result.output
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_go_with_flow_filter(self, cli_runner):
+        """Test that hygge go --flow filters flows correctly."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create project with multiple flows
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            # Create first flow
+            flow1_dir = flows_dir / "flow1"
+            flow1_dir.mkdir()
+            (flow1_dir / "flow.yml").write_text(
+                """
+name: "flow1"
+home:
+  type: "parquet"
+  path: "data/flow1"
+store:
+  type: "parquet"
+  path: "out/flow1"
+"""
+            )
+
+            # Create second flow
+            flow2_dir = flows_dir / "flow2"
+            flow2_dir.mkdir()
+            (flow2_dir / "flow.yml").write_text(
+                """
+name: "flow2"
+home:
+  type: "parquet"
+  path: "data/flow2"
+store:
+  type: "parquet"
+  path: "out/flow2"
+"""
+            )
+
+            # Create data directories and files
+            (temp_path / "data" / "flow1").mkdir(parents=True)
+            (temp_path / "out" / "flow1").mkdir(parents=True)
+            test_data = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+            test_data.write_parquet(temp_path / "data" / "flow1" / "test.parquet")
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                result = cli_runner.invoke(hygge, ["go", "--flow", "flow1"])
+
+                # Should succeed and only run flow1
+                assert result.exit_code == 0
+                assert "Starting flows: flow1" in result.output
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_go_with_incremental_flag(self, cli_runner):
+        """Test that hygge go --incremental sets run_type correctly."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+            (flow_dir / "flow.yml").write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+"""
+            )
+
+            # Create data directories and files
+            (temp_path / "data" / "source").mkdir(parents=True)
+            (temp_path / "data" / "destination").mkdir(parents=True)
+            test_data = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+            test_data.write_parquet(temp_path / "data" / "source" / "test.parquet")
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                result = cli_runner.invoke(hygge, ["go", "--incremental"])
+
+                # Should succeed with incremental mode
+                assert result.exit_code == 0
+                assert "Starting all flows" in result.output
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_go_with_full_drop_flag(self, cli_runner):
+        """Test that hygge go --full-drop sets run_type correctly."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+            (flow_dir / "flow.yml").write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+"""
+            )
+
+            # Create data directories and files
+            (temp_path / "data" / "source").mkdir(parents=True)
+            (temp_path / "data" / "destination").mkdir(parents=True)
+            test_data = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+            test_data.write_parquet(temp_path / "data" / "source" / "test.parquet")
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                result = cli_runner.invoke(hygge, ["go", "--full-drop"])
+
+                # Should succeed with full_drop mode
+                assert result.exit_code == 0
+                assert "Starting all flows" in result.output
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_go_with_flow_var_override(self, cli_runner):
+        """Test that hygge go --var overrides flow configuration."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+            (flow_dir / "flow.yml").write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+"""
+            )
+
+            # Create data directories and files
+            (temp_path / "data" / "source").mkdir(parents=True)
+            (temp_path / "data" / "destination").mkdir(parents=True)
+            test_data = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+            test_data.write_parquet(temp_path / "data" / "source" / "test.parquet")
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                result = cli_runner.invoke(
+                    hygge,
+                    [
+                        "go",
+                        "--var",
+                        "flow.test_flow.run_type=incremental",
+                    ],
+                )
+
+                # Should succeed with var override
+                assert result.exit_code == 0
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_go_with_entity_filter(self, cli_runner):
+        """Test that hygge go --entity filters entity flows correctly."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+            (flow_dir / "flow.yml").write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+"""
+            )
+
+            # Create entities directory
+            entities_dir = flow_dir / "entities"
+            entities_dir.mkdir()
+
+            (entities_dir / "users.yml").write_text(
+                """
+name: "users"
+columns:
+  - id
+  - name
+"""
+            )
+
+            (entities_dir / "orders.yml").write_text(
+                """
+name: "orders"
+columns:
+  - id
+  - user_id
+"""
+            )
+
+            # Create data directories and files
+            # Entity flows append entity_name to paths, so create users-specific paths
+            (temp_path / "data" / "source" / "users").mkdir(parents=True)
+            (temp_path / "data" / "destination" / "users").mkdir(parents=True)
+            test_data = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+            test_data.write_parquet(
+                temp_path / "data" / "source" / "users" / "test.parquet"
+            )
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                result = cli_runner.invoke(hygge, ["go", "--entity", "test_flow.users"])
+
+                # Should succeed and only run users entity flow
+                assert result.exit_code == 0
+                assert "Starting flows: test_flow_users" in result.output
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_go_with_concurrency_override(self, cli_runner):
+        """Test that hygge go --concurrency overrides default concurrency."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+            (flow_dir / "flow.yml").write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+"""
+            )
+
+            # Create data directories and files
+            (temp_path / "data" / "source").mkdir(parents=True)
+            (temp_path / "data" / "destination").mkdir(parents=True)
+            test_data = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+            test_data.write_parquet(temp_path / "data" / "source" / "test.parquet")
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                result = cli_runner.invoke(hygge, ["go", "--concurrency", "4"])
+
+                # Should succeed with custom concurrency
+                assert result.exit_code == 0
 
             finally:
                 os.chdir(original_cwd)

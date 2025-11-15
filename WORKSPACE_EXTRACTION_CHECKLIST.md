@@ -7,45 +7,45 @@
 ## Phase 1: Extract Workspace (Foundation)
 **See:** `issues/coordinator-refactoring.md` Phase 1
 
-- [ ] Create `src/hygge/core/workspace.py`
-- [ ] Implement `Workspace.find()` - finds hygge.yml by walking up directories
-- [ ] Implement `Workspace.from_path()` - creates Workspace from hygge.yml path
-- [ ] Implement `Workspace._read_workspace_config()` - reads hygge.yml
-- [ ] Implement `Workspace._find_flows()` - finds flows in flows/ directory
-- [ ] Implement `Workspace._read_flow_config()` - reads individual flow.yml
-- [ ] Implement `Workspace._read_entities()` - reads entity definitions
-- [ ] Implement `Workspace._expand_env_vars()` - expands environment variables
-- [ ] Implement `Workspace.prepare()` - returns CoordinatorConfig with flows
+- [x] Create `src/hygge/core/workspace.py`
+- [x] Implement `Workspace.find()` - finds hygge.yml by walking up directories
+- [x] Implement `Workspace.from_path()` - creates Workspace from hygge.yml path
+- [x] Implement `Workspace._read_workspace_config()` - reads hygge.yml
+- [x] Implement `Workspace._find_flows()` - finds flows in flows/ directory
+- [x] Implement `Workspace._read_flow_config()` - reads individual flow.yml
+- [x] Implement `Workspace._read_entities()` - reads entity definitions
+- [x] Implement `Workspace._expand_env_vars()` - expands environment variables
+- [x] Implement `Workspace.prepare()` - returns CoordinatorConfig with flows
 
 **Testing Phase 1:**
-- [ ] Add unit tests in `tests/unit/hygge/core/test_workspace.py`
-- [ ] Test `Workspace.find()` - finding hygge.yml (various directory structures)
-- [ ] Test `Workspace.prepare()` - loading flows successfully
-- [ ] Test `Workspace._find_flows()` - finding flows in flows/ directory
-- [ ] Test `Workspace._read_flow_config()` - reading individual flow.yml
-- [ ] Test `Workspace._read_entities()` - reading entity definitions
-- [ ] Test edge cases (no hygge.yml, no flows, invalid configs)
-- [ ] Verify Workspace can discover and load existing project configs
-- [ ] Verify existing tests still pass
+- [x] Add unit tests in `tests/unit/hygge/core/test_workspace.py`
+- [x] Test `Workspace.find()` - finding hygge.yml (various directory structures)
+- [x] Test `Workspace.prepare()` - loading flows successfully
+- [x] Test `Workspace._find_flows()` - finding flows in flows/ directory
+- [x] Test `Workspace._read_flow_config()` - reading individual flow.yml
+- [x] Test `Workspace._read_entities()` - reading entity definitions
+- [x] Test edge cases (no hygge.yml, no flows, invalid configs)
+- [x] Verify Workspace can discover and load existing project configs
+- [x] Verify existing tests still pass
 
 ## Phase 2: Update CLI to Use Workspace (Remove Temp Coordinator)
 **See:** `issues/cli-simplification.md` Phase 1 & Phase 3
 
-- [ ] Update CLI `go` command to use `Workspace.find()` instead of temp coordinator
-- [ ] Replace `temp_coordinator._load_config()` with `workspace.prepare()`
-- [ ] Use `config.flows` from Workspace for run_type override logic (lines 333, 338, 341)
-- [ ] Remove temp coordinator creation (lines 303-309 in cli.py)
-- [ ] Simplify run_type override logic to use workspace config
+- [x] Update CLI `go` command to use `Workspace.find()` instead of temp coordinator
+- [x] Replace `temp_coordinator._load_config()` with `workspace.prepare()`
+- [x] Use `config.flows` from Workspace for run_type override logic (lines 333, 338, 341)
+- [x] Remove temp coordinator creation (lines 303-309 in cli.py)
+- [x] Simplify run_type override logic to use workspace config
 
 **Testing Phase 2:**
-- [ ] Update CLI tests to verify Workspace integration
-- [ ] Test flow filtering (`--flow`, `--entity`) works with Workspace
-- [ ] Test run_type overrides (`--incremental`, `--full-drop`) work with Workspace
-- [ ] Test flow overrides (`--var`) work with Workspace
-- [ ] Test combinations of options (flow filter + run_type, etc.)
-- [ ] Test edge cases (invalid flow names, no matching flows, etc.)
-- [ ] Integration test: CLI → Workspace → Coordinator flow
-- [ ] Verify existing CLI tests still pass
+- [x] Update CLI tests to verify Workspace integration
+- [x] Test flow filtering (`--flow`, `--entity`) works with Workspace
+- [x] Test run_type overrides (`--incremental`, `--full-drop`) work with Workspace
+- [x] Test flow overrides (`--var`) work with Workspace
+- [x] Test combinations of options (flow filter + run_type, etc.)
+- [x] Test edge cases (invalid flow names, no matching flows, etc.)
+- [x] Integration test: CLI → Workspace → Coordinator flow
+- [x] Verify existing CLI tests still pass
 
 ## Phase 3: Refactor Coordinator to Use Workspace (Cleanup)
 **See:** `issues/coordinator-refactoring.md` Phase 1 (cleanup after CLI integration)

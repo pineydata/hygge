@@ -302,7 +302,9 @@ To get started, run:
         )
 
         # Load global options from project config
-        self.options = self.project_config.get("options", {})
+        # Merge with existing options to preserve CLI overrides (if any)
+        config_options = self.project_config.get("options", {})
+        self.options = {**config_options, **self.options}
 
         self.logger.info(
             f"Loaded project flows with {len(flows)} flows from {flows_dir}"

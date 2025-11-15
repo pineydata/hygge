@@ -13,6 +13,7 @@ from typing import Any, Optional
 import click
 
 from hygge import Coordinator
+from hygge.core.workspace import Workspace
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 
@@ -300,13 +301,9 @@ def go(
             final_key = field_parts[-1]
             current[final_key] = _parse_var_value(value)
 
-        # Create a temporary coordinator to load config (for run_type override logic)
-        # This is needed to determine base flow names from entity flow names
-        temp_coordinator = Coordinator(
-            flow_overrides=flow_overrides if flow_overrides else None,
-            flow_filter=flow_filter if flow_filter else None,
-        )
-        temp_coordinator._load_config()
+        # Use Workspace to load configuration (replaces temp coordinator hack)
+        workspace = Workspace.find()
+        config = workspace.prepare()
 
         # Apply run_type override if specified
         if incremental:
@@ -330,15 +327,15 @@ def go(
                         if len(parts) == 2:
                             potential_base = parts[0]
                             # Check if this base flow exists in config
-                            if potential_base in temp_coordinator.config.flows:
+                            if potential_base in config.flows:
                                 base_flow_names.add(potential_base)
                                 continue
                     # Not an entity flow or base flow not found, use as-is
-                    if flow_name in temp_coordinator.config.flows:
+                    if flow_name in config.flows:
                         base_flow_names.add(flow_name)
             else:
                 # Apply to all flows
-                base_flow_names = set(temp_coordinator.config.flows.keys())
+                base_flow_names = set(config.flows.keys())
 
             # Apply run_type override to all base flows
             for base_flow_name in base_flow_names:
@@ -352,7 +349,7 @@ def go(
             flow_filter=flow_filter if flow_filter else None,
         )
 
-        # Apply CLI concurrency override if provided
+        # Apply CLI concurrency override (will be merged during config load)
         if concurrency is not None:
             coordinator.options["concurrency"] = concurrency
 
@@ -381,26 +378,24 @@ def debug():
     logger = get_logger("hygge.cli.debug")
 
     try:
-        # Create coordinator to validate configuration
-        coordinator = Coordinator()
-        coordinator._load_config()
+        # Use Workspace to load configuration
+        workspace = Workspace.find()
+        config = workspace.prepare()
 
         click.echo("Project configuration is valid")
-        project_name = coordinator.project_config.get("name", "unnamed")
-        click.echo("Project: {}".format(project_name))
-        flows_dir = coordinator.project_config.get("flows_dir", "flows")
-        click.echo("Flows directory: {}".format(flows_dir))
-        click.echo("Number of flows: {}".format(len(coordinator.config.flows)))
+        click.echo("Project: {}".format(workspace.name))
+        click.echo("Flows directory: {}".format(workspace.flows_dir))
+        click.echo("Number of flows: {}".format(len(config.flows)))
 
         # List flows
-        for flow_name in coordinator.config.flows:
-            flow_config = coordinator.config.flows[flow_name]
+        for flow_name in config.flows:
+            flow_config = config.flows[flow_name]
             click.echo(f"   {flow_name}")
             if flow_config.entities:
                 click.echo(f"      Entities: {len(flow_config.entities)}")
 
         # Test all configured connections
-        connections = coordinator.project_config.get("connections", {})
+        connections = config.connections
         if connections:
             click.echo(f"\nTesting {len(connections)} database connections...")
 
