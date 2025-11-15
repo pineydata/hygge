@@ -4,28 +4,7 @@ Progress tracking for coordinator-level milestones.
 import asyncio
 from typing import Optional
 
-from hygge.messages.logger import HyggeLogger
-
-
-def _get_event_loop_time() -> float:
-    """
-    Get current event loop time, handling both async and sync contexts.
-
-    Tries to get the running loop first (Python 3.7+), falls back to
-    getting the event loop if no running loop exists.
-
-    Returns:
-        Current event loop time in seconds
-    """
-    try:
-        # Try to get running loop first (preferred in Python 3.7+)
-        loop = asyncio.get_running_loop()
-        return loop.time()
-    except RuntimeError:
-        # No running loop - fall back to get_event_loop()
-        # This is safe for backwards compatibility
-        loop = asyncio.get_event_loop()
-        return loop.time()
+from hygge.messages.logger import HyggeLogger, _get_event_loop_time
 
 
 class Progress:
