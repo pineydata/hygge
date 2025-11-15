@@ -9,7 +9,6 @@ import os
 import tempfile
 from pathlib import Path
 
-import polars as pl
 import pytest
 import yaml
 
