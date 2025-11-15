@@ -21,7 +21,6 @@ from typing import Dict
 
 import polars as pl
 import pytest
-import yaml
 
 from hygge import Coordinator
 
@@ -94,100 +93,177 @@ def sample_data_files(temp_config_dir: Path) -> Dict[str, Path]:
 def simple_config_file(
     temp_config_dir: Path, sample_data_files: Dict[str, Path]
 ) -> Path:
-    """Create simple YAML configuration file."""
-    config_content = {
-        "flows": {
-            "users_flow": {
-                "home": str(sample_data_files["users"]),
-                "store": str(temp_config_dir / "lake" / "users"),
-            },
-            "orders_flow": {
-                "home": str(sample_data_files["orders"]),
-                "store": str(temp_config_dir / "lake" / "orders"),
-            },
-        }
-    }
+    """Create simple workspace configuration (hygge.yml + flows/)."""
+    # Create hygge.yml
+    hygge_file = temp_config_dir / "hygge.yml"
+    hygge_file.write_text(
+        """
+name: "test_project"
+flows_dir: "flows"
+"""
+    )
 
-    config_file = temp_config_dir / "simple_config.yaml"
-    with open(config_file, "w") as f:
-        yaml.dump(config_content, f, default_flow_style=False)
+    # Create flows directory
+    flows_dir = temp_config_dir / "flows"
+    flows_dir.mkdir()
 
-    return config_file
+    # Create users_flow
+    users_flow_dir = flows_dir / "users_flow"
+    users_flow_dir.mkdir()
+    users_flow_file = users_flow_dir / "flow.yml"
+    users_flow_file.write_text(
+        f"""
+name: "users_flow"
+home:
+  type: "parquet"
+  path: "{sample_data_files['users']}"
+store:
+  type: "parquet"
+  path: "{temp_config_dir / 'lake' / 'users'}"
+"""
+    )
+
+    # Create orders_flow
+    orders_flow_dir = flows_dir / "orders_flow"
+    orders_flow_dir.mkdir()
+    orders_flow_file = orders_flow_dir / "flow.yml"
+    orders_flow_file.write_text(
+        f"""
+name: "orders_flow"
+home:
+  type: "parquet"
+  path: "{sample_data_files['orders']}"
+store:
+  type: "parquet"
+  path: "{temp_config_dir / 'lake' / 'orders'}"
+"""
+    )
+
+    return hygge_file
 
 
 @pytest.fixture
 def advanced_config_file(
     temp_config_dir: Path, sample_data_files: Dict[str, Path]
 ) -> Path:
-    """Create advanced YAML configuration file with custom options."""
-    config_content = {
-        "flows": {
-            "users_flow": {
-                "home": {
-                    "type": "parquet",
-                    "path": str(sample_data_files["users"]),
-                    "options": {"batch_size": 500},
-                },
-                "store": {
-                    "type": "parquet",
-                    "path": str(temp_config_dir / "lake" / "users"),
-                    "options": {
-                        "batch_size": 1000,
-                        "compression": "snappy",
-                        "file_pattern": "users_{sequence:020d}.parquet",
-                    },
-                },
-                "options": {"queue_size": 3, "timeout": 60},
-            },
-            "orders_flow": {
-                "home": {
-                    "type": "parquet",
-                    "path": str(sample_data_files["orders"]),
-                    "options": {"batch_size": 800},
-                },
-                "store": {
-                    "type": "parquet",
-                    "path": str(temp_config_dir / "lake" / "orders"),
-                    "options": {
-                        "batch_size": 1500,
-                        "compression": "gzip",
-                        "file_pattern": "orders_{sequence:020d}.parquet",
-                    },
-                },
-                "options": {"queue_size": 5, "timeout": 120},
-            },
-            "products_flow": {
-                "home": str(sample_data_files["products"]),
-                "store": str(temp_config_dir / "lake" / "products"),
-                "options": {"queue_size": 2},
-            },
-        }
-    }
+    """Create advanced workspace configuration with custom options."""
+    # Create hygge.yml
+    hygge_file = temp_config_dir / "hygge.yml"
+    hygge_file.write_text(
+        """
+name: "test_project"
+flows_dir: "flows"
+"""
+    )
 
-    config_file = temp_config_dir / "advanced_config.yaml"
-    with open(config_file, "w") as f:
-        yaml.dump(config_content, f, default_flow_style=False)
+    # Create flows directory
+    flows_dir = temp_config_dir / "flows"
+    flows_dir.mkdir()
 
-    return config_file
+    # Create users_flow
+    users_flow_dir = flows_dir / "users_flow"
+    users_flow_dir.mkdir()
+    users_flow_file = users_flow_dir / "flow.yml"
+    users_flow_file.write_text(
+        f"""
+name: "users_flow"
+home:
+  type: "parquet"
+  path: "{sample_data_files['users']}"
+  options:
+    batch_size: 500
+store:
+  type: "parquet"
+  path: "{temp_config_dir / 'lake' / 'users'}"
+  options:
+    batch_size: 1000
+    compression: "snappy"
+    file_pattern: "users_{{sequence:020d}}.parquet"
+options:
+  queue_size: 3
+  timeout: 60
+"""
+    )
+
+    # Create orders_flow
+    orders_flow_dir = flows_dir / "orders_flow"
+    orders_flow_dir.mkdir()
+    orders_flow_file = orders_flow_dir / "flow.yml"
+    orders_flow_file.write_text(
+        f"""
+name: "orders_flow"
+home:
+  type: "parquet"
+  path: "{sample_data_files['orders']}"
+  options:
+    batch_size: 800
+store:
+  type: "parquet"
+  path: "{temp_config_dir / 'lake' / 'orders'}"
+  options:
+    batch_size: 1500
+    compression: "gzip"
+    file_pattern: "orders_{{sequence:020d}}.parquet"
+options:
+  queue_size: 5
+  timeout: 120
+"""
+    )
+
+    # Create products_flow
+    products_flow_dir = flows_dir / "products_flow"
+    products_flow_dir.mkdir()
+    products_flow_file = products_flow_dir / "flow.yml"
+    products_flow_file.write_text(
+        f"""
+name: "products_flow"
+home:
+  type: "parquet"
+  path: "{sample_data_files['products']}"
+store:
+  type: "parquet"
+  path: "{temp_config_dir / 'lake' / 'products'}"
+options:
+  queue_size: 2
+"""
+    )
+
+    return hygge_file
 
 
 @pytest.fixture
 def invalid_config_file(temp_config_dir: Path) -> Path:
-    """Create invalid YAML configuration file."""
-    config_content = {
-        "flows": {
-            "invalid_flow": {
-                "home": "/nonexistent/path/file.parquet",
-                "store": "/nonexistent/path/destination",
-            }
-        }
-    }
+    """Create invalid workspace configuration (references nonexistent paths)."""
+    # Create hygge.yml
+    hygge_file = temp_config_dir / "hygge.yml"
+    hygge_file.write_text(
+        """
+name: "test_project"
+flows_dir: "flows"
+"""
+    )
 
-    config_file = temp_config_dir / "invalid_config.yaml"
-    with open(config_file, "w") as f:
-        yaml.dump(config_content, f, default_flow_style=False)
+    # Create flows directory
+    flows_dir = temp_config_dir / "flows"
+    flows_dir.mkdir()
 
-    return config_file
+    # Create invalid_flow with nonexistent path
+    invalid_flow_dir = flows_dir / "invalid_flow"
+    invalid_flow_dir.mkdir()
+    invalid_flow_file = invalid_flow_dir / "flow.yml"
+    invalid_flow_file.write_text(
+        """
+name: "invalid_flow"
+home:
+  type: "parquet"
+  path: "/nonexistent/path/file.parquet"
+store:
+  type: "parquet"
+  path: "/nonexistent/path/destination"
+"""
+    )
+
+    return hygge_file
 
 
 class TestCoordinatorYAMLIntegration:
@@ -197,8 +273,8 @@ class TestCoordinatorYAMLIntegration:
     async def test_simple_config_execution(
         self, simple_config_file: Path, temp_config_dir: Path
     ):
-        """Test Coordinator with simple YAML configuration."""
-        # Given a simple configuration
+        """Test Coordinator with simple workspace configuration."""
+        # Given a simple workspace configuration
         coordinator = Coordinator(str(simple_config_file))
 
         # When running the coordinator
@@ -233,8 +309,8 @@ class TestCoordinatorYAMLIntegration:
     async def test_advanced_config_execution(
         self, advanced_config_file: Path, temp_config_dir: Path
     ):
-        """Test Coordinator with advanced YAML configuration."""
-        # Given an advanced configuration
+        """Test Coordinator with advanced workspace configuration."""
+        # Given an advanced workspace configuration
         coordinator = Coordinator(str(advanced_config_file))
 
         # When running the coordinator
@@ -276,15 +352,22 @@ class TestCoordinatorYAMLIntegration:
     @pytest.mark.asyncio
     async def test_config_validation(self, temp_config_dir: Path):
         """Test configuration validation."""
-        # Test empty flows
-        empty_config = {"flows": {}}
-        empty_config_file = temp_config_dir / "empty_config.yaml"
-        with open(empty_config_file, "w") as f:
-            yaml.dump(empty_config, f)
+        # Test empty flows directory
+        hygge_file = temp_config_dir / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        coordinator = Coordinator(str(empty_config_file))
+        # Create empty flows directory
+        flows_dir = temp_config_dir / "flows"
+        flows_dir.mkdir()
 
-        with pytest.raises(ConfigError, match="At least one flow must be configured"):
+        coordinator = Coordinator(str(hygge_file))
+
+        with pytest.raises(ConfigError, match="No flows found in directory"):
             await coordinator.run()
 
     @pytest.mark.asyncio
@@ -301,6 +384,7 @@ class TestCoordinatorYAMLIntegration:
         self, advanced_config_file: Path, temp_config_dir: Path
     ):
         """Test that Coordinator runs flows in parallel."""
+        # Given an advanced workspace configuration
         coordinator = Coordinator(str(advanced_config_file))
 
         # Track execution time
@@ -333,25 +417,51 @@ class TestCoordinatorYAMLIntegration:
         self, temp_config_dir: Path, sample_data_files: Dict[str, Path]
     ):
         """Test that Coordinator handles individual flow errors appropriately."""
-        # Create config with one valid and one invalid flow
-        mixed_config = {
-            "flows": {
-                "valid_flow": {
-                    "home": str(sample_data_files["users"]),
-                    "store": str(temp_config_dir / "valid_output"),
-                },
-                "invalid_flow": {
-                    "home": "/nonexistent/file.parquet",
-                    "store": str(temp_config_dir / "invalid_output"),
-                },
-            }
-        }
+        # Create workspace with one valid and one invalid flow
+        hygge_file = temp_config_dir / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+"""
+        )
 
-        config_file = temp_config_dir / "mixed_config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(mixed_config, f)
+        flows_dir = temp_config_dir / "flows"
+        flows_dir.mkdir()
 
-        coordinator = Coordinator(str(config_file))
+        # Create valid_flow
+        valid_flow_dir = flows_dir / "valid_flow"
+        valid_flow_dir.mkdir()
+        valid_flow_file = valid_flow_dir / "flow.yml"
+        valid_flow_file.write_text(
+            f"""
+name: "valid_flow"
+home:
+  type: "parquet"
+  path: "{sample_data_files['users']}"
+store:
+  type: "parquet"
+  path: "{temp_config_dir / 'valid_output'}"
+"""
+        )
+
+        # Create invalid_flow
+        invalid_flow_dir = flows_dir / "invalid_flow"
+        invalid_flow_dir.mkdir()
+        invalid_flow_file = invalid_flow_dir / "flow.yml"
+        invalid_flow_file.write_text(
+            """
+name: "invalid_flow"
+home:
+  type: "parquet"
+  path: "/nonexistent/file.parquet"
+store:
+  type: "parquet"
+  path: "/nonexistent/path/destination"
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
 
         # Should raise an error when any flow fails
         with pytest.raises(Exception):
@@ -362,8 +472,8 @@ class TestCoordinatorYAMLIntegration:
         """Test that Coordinator respects flow options from configuration."""
         coordinator = Coordinator(str(simple_config_file))
 
-        # Load configuration
-        coordinator._load_config()
+        # Prepare configuration and create flows
+        coordinator.config = coordinator._workspace.prepare()
         coordinator._create_flows()
 
         # Verify flow options
