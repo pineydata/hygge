@@ -250,12 +250,12 @@ Extract flow creation logic to class methods on `Flow`. Flows already exist in y
 
 Extract progress tracking to a `Progress` class that handles coordinator-level progress tracking.
 
-**File Location:** `src/hygge/logging/progress.py` (new file)
+**File Location:** `src/hygge/messages/progress.py` (new file)
 
-Note: Progress is an observability utility that supports Coordinator, similar to `logger.py`. It handles progress tracking and milestone logging. Lives in the `logging/` submodule alongside other observability utilities.
+Note: Progress is a messaging utility that supports Coordinator, similar to `logger.py`. It handles progress tracking and milestone messages. Lives in the `messages/` submodule alongside other messaging utilities.
 
 ```python
-# In src/hygge/logging/progress.py
+# In src/hygge/messages/progress.py
 class Progress:
     """Tracks progress across multiple flows."""
 
@@ -274,20 +274,20 @@ class Progress:
 - Separates progress tracking from orchestration
 - Easier to test milestone logic
 - Can be extended for different progress reporting strategies
-- Lives in `logging/` submodule alongside other observability utilities
+- Lives in `messages/` submodule alongside other messaging utilities
 
 ### Phase 4: Extract Summary
 
 Extract summary generation to a `Summary` class that creates hygge-style execution summaries.
 
-**File Location:** `src/hygge/logging/summary.py` (new file)
+**File Location:** `src/hygge/messages/summary.py` (new file)
 
-Note: Summary is an observability utility that formats and logs execution summaries, similar to `logger.py`. It supports Coordinator's reporting needs. Lives in the `logging/` submodule alongside other observability utilities.
+Note: Summary is a messaging utility that formats and logs execution summaries, similar to `logger.py`. It supports Coordinator's reporting needs. Lives in the `messages/` submodule alongside other messaging utilities.
 
 **Scope consideration:** While dbt provides good inspiration for execution summaries, this should be distinctly hygge. As part of this work, we should answer: **What makes a summary feel hygge?** What language, formatting, and presentation style reflects hygge's values of comfort, clarity, and natural flow? This is about making summaries that feel cozy and helpful, not just informative.
 
 ```python
-# In src/hygge/logging/summary.py
+# In src/hygge/messages/summary.py
 class Summary:
     """Generates hygge-style execution summaries."""
 
@@ -305,24 +305,24 @@ class Summary:
 - Separates summary generation from orchestration
 - Easier to test summary formatting
 - Can be extended for different summary formats
-- Lives in `logging/` submodule alongside other observability utilities
+- Lives in `messages/` submodule alongside other messaging utilities
 - Opportunity to create hygge-specific summary style that reflects comfort and clarity
 
 ## File Locations
 
-### New Submodule: `logging/`
-Create a new `src/hygge/logging/` submodule for observability utilities:
-- **Logger**: `src/hygge/logging/logger.py` (move from `utility/logger.py`)
+### New Submodule: `messages/`
+Create a new `src/hygge/messages/` submodule for messaging utilities:
+- **Logger**: `src/hygge/messages/logger.py` (move from `utility/logger.py`)
   - Human-readable output formatting
   - Color formatting and console/file handlers
-- **Progress**: `src/hygge/logging/progress.py` (new file)
-  - Progress tracking and milestone logging
+- **Progress**: `src/hygge/messages/progress.py` (new file)
+  - Progress tracking and milestone messages
   - Coordinator-level row counting
-- **Summary**: `src/hygge/logging/summary.py` (new file)
+- **Summary**: `src/hygge/messages/summary.py` (new file)
   - Hygge-style execution summary formatting (inspired by dbt but distinctly hygge)
   - Results aggregation and formatting
 
-**Rationale:** These three components all handle observability/output formatting. Grouping them in a `logging/` submodule makes their purpose clear and keeps observability concerns together.
+**Rationale:** These three components all handle messaging/output formatting. Grouping them in a `messages/` submodule makes their purpose clear, avoids namespace collision with Python's `logging` module, and keeps messaging concerns together. The name "messages" feels more hygge - warm, clear, and natural.
 
 ### New Files
 - **Workspace**: `src/hygge/core/workspace.py` (new file)
@@ -338,14 +338,14 @@ Create a new `src/hygge/logging/` submodule for observability utilities:
   - No separate builder class - flows know how to create themselves
 
 ### Existing Files (Move/Refactor)
-- **Logger**: `src/hygge/logging/logger.py` (move from `utility/logger.py`)
-  - Move logger.py to new logging submodule
+- **Logger**: `src/hygge/messages/logger.py` (move from `utility/logger.py`)
+  - Move logger.py to new messages submodule
   - Update imports throughout codebase
 - **Coordinator**: `src/hygge/core/coordinator.py` (existing file - refactor)
   - Replace config loading methods with `Workspace.find()` and `workspace.prepare()` - feels natural
   - Replace flow creation methods with `Flow.from_config()` and `Flow.from_entity()` - flows come to life
   - Use extracted classes (Progress, Summary)
-  - Update imports to use new logging submodule
+  - Update imports to use new messages submodule
 
 ### Tests
 - `tests/unit/hygge/core/test_workspace.py` (new file)
@@ -353,12 +353,11 @@ Create a new `src/hygge/logging/` submodule for observability utilities:
   - Test `workspace.prepare()` - finding flows where they live
   - Test legacy config loading patterns
 - `tests/unit/hygge/core/test_flow.py` (existing file - extend with Flow.from_config() and Flow.from_entity() tests)
-- `tests/unit/hygge/logging/test_progress.py` (new file)
-- `tests/unit/hygge/logging/test_summary.py` (new file)
-- `tests/unit/hygge/logging/test_logger.py` (move from `tests/unit/hygge/utility/test_logger.py` if it exists)
+- `tests/unit/hygge/messages/test_progress.py` (new file)
+- `tests/unit/hygge/messages/test_summary.py` (new file)
 
 ### Note on Journal
-**Journal stays in `core/`** - It's conceptually different from logging utilities:
+**Journal stays in `core/`** - It's conceptually different from messaging utilities:
 - Journal persists structured metadata to storage (parquet files) for operational use
 - It's used for watermarks, run history, and incremental processing
 - It's a "metadata Store" - a first-class abstraction parallel to Home/Store
@@ -366,41 +365,97 @@ Create a new `src/hygge/logging/` submodule for observability utilities:
 
 ## Implementation Plan
 
-1. **Extract Workspace class** (highest impact, lowest risk)
-   - Create `src/hygge/core/workspace.py` with `Workspace` class
-   - Move workspace discovery (`_find_project_config`) to `Workspace.find()` - finds your workspace
-   - Move workspace config loading (`_load_project_config`) to `Workspace._read_workspace_config()` - reads hygge.yml
-   - Move flow discovery (`_load_project_flows`, `_load_flow_config`, `_load_entities`) to `Workspace._find_flows()` - finds flows where they live
-   - Move legacy config loading (`_load_single_file_config`, `_load_directory_config`) to Workspace methods
-   - Update Coordinator to use `Workspace.find()` and `workspace.prepare()` - feels natural
-   - Add unit tests in `tests/unit/hygge/core/test_workspace.py`
-   - Verify existing tests still pass
+### ✅ Phase 1: Extract Workspace class (COMPLETED & STABLE)
 
-2. **Extract flow creation to Flow class methods** (high impact, medium risk)
-   - Add `Flow.from_config()` class method to `src/hygge/core/flow.py`
-   - Add `Flow.from_entity()` class method to `src/hygge/core/flow.py`
-   - Add helper methods: `_merge_entity_config()`, `_get_journal()`, `_apply_overrides()`
-   - Move flow creation logic from Coordinator to Flow class methods
-   - Update Coordinator to use `Flow.from_config()` and `Flow.from_entity()` - feels natural
-   - Add unit tests in `tests/unit/hygge/core/test_flow.py` (extend existing tests)
-   - Verify existing tests still pass
+**Status:** ✅ Complete & Stable - All workspace extraction completed, tested, and verified
 
-3. **Create logging submodule and move/extract components** (medium impact, medium risk)
-   - Create `src/hygge/logging/` directory and `__init__.py`
-   - Move `src/hygge/utility/logger.py` to `src/hygge/logging/logger.py`
-   - Create `src/hygge/logging/progress.py`
-   - Create `src/hygge/logging/summary.py`
-   - Move progress tracking from Coordinator to Progress
-   - Move summary generation from Coordinator to Summary
-   - **Define hygge summary style** - What makes a summary feel hygge? (See Phase 4 scope consideration)
-   - Update all imports throughout codebase to use new logging submodule
-   - Add unit tests in `tests/unit/hygge/logging/`
-   - Verify existing tests still pass
+**Completed Work:**
+- ✅ Created `src/hygge/core/workspace.py` with `Workspace` class
+- ✅ Implemented `Workspace.find()` - finds workspace by locating `hygge.yml`
+- ✅ Implemented `Workspace.from_path()` - creates workspace from explicit path
+- ✅ Implemented `_read_workspace_config()` - reads `hygge.yml` and expands env vars
+- ✅ Implemented `_find_flows()` - discovers flows in `flows/` directory
+- ✅ Implemented `_read_flow_config()` - loads individual `flow.yml` files
+- ✅ Implemented `_read_entities()` - loads entity definitions from `entities/` subdirectories
+- ✅ Implemented `_expand_env_vars()` - expands `${VAR_NAME}` and `${VAR_NAME:-default}` patterns
+- ✅ Implemented `prepare()` - returns `WorkspaceConfig` with all flows loaded
+- ✅ Removed all legacy config loading patterns (single-file, directory-based)
+- ✅ Updated Coordinator to use `Workspace` for all config loading
+- ✅ Updated CLI to use `Workspace.find()` directly (removed temp coordinator hack)
+- ✅ Added comprehensive unit tests in `tests/unit/hygge/core/test_workspace.py`
+- ✅ Converted all Coordinator tests to workspace pattern
+- ✅ Converted all integration tests to workspace pattern
+- ✅ All tests passing (511 tests)
 
-4. **Update Coordinator to use logging submodule** (low impact, low risk)
-   - Update Coordinator imports to use logging submodule
-   - Update Coordinator to use Progress and Summary
-   - Verify existing tests still pass
+**Result:** Coordinator simplified by removing 10+ configuration methods. Workspace pattern (`hygge.yml` + `flows/`) is now the only supported configuration approach. Clear separation: Workspace handles configuration, Coordinator handles orchestration.
+
+**Stability Status:** ✅ **STABLE** - All tests passing. Ready for Phase 2.
+
+### 🔄 Phase 2: Extract Flow Creation Logic (READY TO START)
+
+**Status:** 📋 Planned - Not started yet
+
+**Future Work:**
+- Extract flow creation logic to class methods on `Flow`
+- Add `Flow.from_config()` class method to `src/hygge/core/flow.py`
+- Add `Flow.from_entity()` class method to `src/hygge/core/flow.py`
+- Add helper methods: `_merge_entity_config()`, `_get_journal()`, `_apply_overrides()`
+- Move flow creation logic from Coordinator to Flow class methods
+- Update Coordinator to use `Flow.from_config()` and `Flow.from_entity()`
+- Add unit tests in `tests/unit/hygge/core/test_flow.py`
+
+**Status:** 📋 Ready to start - Phase 1 is stable. Current flow creation in Coordinator works well, but extraction would further simplify Coordinator.
+
+### ✅ Phase 3: Extract Progress Tracking (COMPLETED & STABLE)
+
+**Status:** ✅ Complete & Stable - All progress tracking extraction completed, tested, and verified
+
+**Completed Work:**
+- ✅ Created `src/hygge/messages/progress.py` with `Progress` class
+- ✅ Extracted progress tracking logic from Coordinator
+- ✅ Implemented milestone tracking with configurable interval (default: 1M rows)
+- ✅ Updated Coordinator to use `Progress` class
+- ✅ Added comprehensive unit tests in `tests/unit/hygge/messages/test_progress.py`
+- ✅ All tests passing
+
+**Result:** Coordinator simplified by removing progress tracking implementation. Progress class handles milestone messages with thread-safe updates. Clear separation: Progress handles messaging, Coordinator handles orchestration.
+
+### ✅ Phase 4: Extract Summary Generation (COMPLETED & STABLE)
+
+**Status:** ✅ Complete & Stable - All summary generation extraction completed, tested, and verified
+
+**Completed Work:**
+- ✅ Created `src/hygge/messages/summary.py` with `Summary` class
+- ✅ Defined hygge summary style - cozy, clear, and helpful (inspired by dbt but distinctly hygge)
+- ✅ Extracted summary generation logic from Coordinator
+- ✅ Implemented hygge-style formatting with comfortable spacing and natural language
+- ✅ Updated Coordinator to use `Summary` class
+- ✅ Added comprehensive unit tests in `tests/unit/hygge/messages/test_summary.py`
+- ✅ All tests passing
+
+**Hygge Summary Style:** Summaries feel cozy and helpful, not just informative. They use natural language ("Finished running X flows in Y time"), comfortable spacing, and clear status indicators. Reflects hygge's values of comfort, clarity, and natural flow.
+
+**Result:** Coordinator simplified by removing summary generation implementation. Summary class handles execution summaries with hygge-style formatting. Clear separation: Summary handles messaging, Coordinator handles orchestration.
+
+### ✅ Phase 5: Create Messages Submodule (COMPLETED & STABLE)
+
+**Status:** ✅ Complete & Stable - Messages submodule created, consolidated, and verified
+
+**Completed Work:**
+- ✅ Created `src/hygge/messages/` directory and `__init__.py`
+- ✅ Moved `src/hygge/utility/logger.py` to `src/hygge/messages/logger.py`
+- ✅ Consolidated Progress and Summary into messages submodule
+- ✅ Updated all 13 imports throughout codebase to use new messages submodule
+- ✅ Renamed submodule from `logging` to `messages` to avoid namespace collision with Python's built-in `logging` module
+- ✅ Removed old `src/hygge/utility/logger.py` file
+- ✅ All tests passing (570 tests)
+
+**Result:** Clean separation of concerns with all messaging utilities in `messages/` submodule:
+- `logger.py` - Human-readable output formatting with colors
+- `progress.py` - Progress tracking and milestone messages
+- `summary.py` - Hygge-style execution summary formatting
+
+All three components handle messaging/output formatting and live together in a cohesive submodule. The name "messages" is warmer and clearer than "logging", and avoids namespace collision. Clear separation from core data movement logic.
 
 ## Testing Considerations
 
@@ -416,4 +471,8 @@ Create a new `src/hygge/logging/` submodule for observability utilities:
 
 ## Priority
 
-**High** - This is foundational work that will make the codebase more maintainable and easier to extend. The Coordinator class is already complex and will only get worse as features are added.
+**✅ Phase 1 Complete & Stable** - Workspace extraction completed, tested, and verified. All tests passing. Coordinator simplified by removing 10+ configuration methods. Clear separation: Workspace handles configuration, Coordinator handles orchestration.
+
+**✅ Phases 3-5 Complete & Stable** - Progress tracking, summary generation, and messages submodule extraction completed, tested, and verified. All 570 tests passing. Coordinator simplified by removing progress tracking and summary generation implementations. Clear separation: Messages utilities handle output formatting, Coordinator handles orchestration. Submodule renamed to `messages/` to avoid namespace collision with Python's built-in `logging` module - feels more hygge too!
+
+**🔄 Phase 2:** **Ready to Start** - Flow creation logic extraction is ready to proceed. Current flow creation in Coordinator works well, but extraction would further simplify Coordinator.

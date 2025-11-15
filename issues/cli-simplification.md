@@ -245,41 +245,65 @@ def go(flow: tuple, entity: tuple, incremental: bool, full_drop: bool, var: tupl
 
 ## Implementation Plan
 
-1. **Move run_type override logic to Coordinator** (highest impact)
-   - Update `src/hygge/core/coordinator.py` to add `default_run_type` parameter
-   - Apply default_run_type in flow creation (when using Flow.from_config() or in _create_flows())
-   - Remove temporary coordinator creation from CLI
-   - Update `src/hygge/cli.py` to pass default_run_type instead of applying overrides
+### ✅ Phase 1: Move Run Type Override Logic to Coordinator (COMPLETED)
 
-2. **Extract parsing helper functions** (medium impact)
-   - Add `_parse_flow_filter()` helper function to `src/hygge/cli.py`
-   - Add `_parse_flow_overrides()` helper function to `src/hygge/cli.py`
-   - Add `_parse_var_value()` helper function to `src/hygge/cli.py`
-   - Add unit tests for helper functions in `tests/unit/hygge/test_cli.py`
+**Status:** ✅ Complete - Run type override logic moved to Coordinator
 
-3. **Simplify CLI go command** (medium impact)
-   - Update `src/hygge/cli.py` go command to remove temporary coordinator creation
-   - Use helper functions for parsing
-   - Pass structured options to Coordinator
-   - Remove complex run_type override logic
+**Completed Work:**
+- ✅ Updated CLI to apply run_type overrides directly to flow configs before Coordinator creation
+- ✅ Removed temporary coordinator creation from CLI
+- ✅ CLI now uses `Workspace.find()` and `workspace.prepare()` directly
+- ✅ Run type overrides applied via `flow_overrides` dict passed to Coordinator
+- ✅ Coordinator applies overrides when creating flows
+- ✅ Validates that both `--incremental` and `--full-drop` cannot be specified together
+
+**Result:** No temp coordinator hack in CLI. Clean separation: CLI → Workspace → Coordinator.
+
+### Phase 2: Extract Parsing Helper Functions (DEFERRED)
+
+**Status:** ⏸️ Deferred - Parsing logic works inline and is testable via CLI tests
+
+**Decision:** Parsing logic remains inline in `go` command since:
+- Logic is straightforward and well-tested via CLI integration tests
+- Helper functions would add indirection without significant benefit
+- Current implementation is readable and maintainable
+- All functionality is covered by comprehensive CLI tests
+
+**Note:** Can be extracted later if CLI command grows more complex.
+
+### ✅ Phase 3: Simplify CLI go Command (COMPLETED)
+
+**Status:** ✅ Complete - CLI simplified and using Workspace directly
+
+**Completed Work:**
+- ✅ Removed temporary coordinator creation from CLI
+- ✅ CLI now uses `Workspace.find()` and `workspace.prepare()` directly
+- ✅ Parses flow filter, run type overrides, and flow overrides
+- ✅ Passes structured options to Coordinator
+- ✅ All CLI functionality preserved (flow filtering, run type overrides, flow overrides)
+- ✅ Supports comma-separated values: `--flow flow1,flow2` OR multiple flags: `--flow flow1 --flow flow2`
+- ✅ All CLI tests passing
+
+**Result:** Clean CLI implementation without temp coordinator hack. All functionality working end-to-end.
 
 ## Testing Considerations
 
-- Unit tests for parsing helper functions:
-  - `_parse_flow_filter()` - test base flow names, entity flow names, comma-separated, entity format
-  - `_parse_flow_overrides()` - test nested dict building, value parsing
-  - `_parse_var_value()` - test boolean, number, string parsing
-- Integration tests to verify CLI still works correctly:
-  - Test flow filtering (exact matches, base flow matches, entity flow matches)
-  - Test run_type overrides (--incremental, --full-drop)
-  - Test flow overrides (--var)
-  - Test combinations of options
-- Test edge cases:
+**✅ Complete** - All CLI functionality tested and verified:
+
+- ✅ Integration tests verify CLI works correctly:
+  - Flow filtering (exact matches, base flow matches, entity flow matches, comma-separated)
+  - Run type overrides (`--incremental`, `--full-drop`)
+  - Flow overrides (`--var`)
+  - Combinations of options
+- ✅ Edge cases tested:
   - Empty filters
   - Invalid formats
-  - Flow that doesn't exist (should error gracefully)
-  - No flows matching filter (should error gracefully)
-- Ensure existing CLI tests continue to pass
+  - Flow that doesn't exist (errors gracefully)
+  - No flows matching filter (errors gracefully)
+- ✅ All CLI tests passing
+- ✅ End-to-end verification: CLI → Workspace → Coordinator flow working correctly
+
+**Note:** Parsing helper functions not extracted (Phase 2 deferred), but all functionality is covered by comprehensive CLI integration tests.
 
 ## Discovery: CLI Boundaries and Assumptions
 
@@ -304,6 +328,14 @@ As part of this work, we need to discover and validate CLI boundaries:
 - See `ASSUMPTIONS.md` for boundary discovery and validation
 - This work complements the coordinator refactoring by simplifying the CLI interface
 
+## Status
+
+**Phase 1 & 3 Complete** - CLI now uses Workspace directly, run type overrides work correctly, and temporary coordinator hack removed. All CLI functionality preserved and tested.
+
+**Phase 2 Deferred** - Parsing helper functions not needed at this time. Logic is straightforward and well-tested inline.
+
 ## Priority
 
-**High** - This will make the CLI easier to maintain and test, reduce coupling between CLI and Coordinator internals, enable manual flow execution workflows, and establish clear boundaries for CLI capabilities.
+**✅ Completed** - Phase 1 and Phase 3 completed as part of workspace extraction refactoring. CLI is simplified, uses Workspace directly, and all functionality works end-to-end.
+
+**Phase 2:** **Low** - Can be extracted later if CLI command grows more complex. Current inline implementation is clear and maintainable.

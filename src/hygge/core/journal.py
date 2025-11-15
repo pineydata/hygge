@@ -14,9 +14,9 @@ from uuid import uuid4
 import polars as pl
 from pydantic import BaseModel, Field, field_validator
 
+from hygge.messages import get_logger
 from hygge.utility.azure_onelake import ADLSOperations
 from hygge.utility.exceptions import ConfigError
-from hygge.utility.logger import get_logger
 from hygge.utility.path_helper import PathHelper
 from hygge.utility.run_id import generate_run_id
 

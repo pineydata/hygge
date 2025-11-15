@@ -8,7 +8,7 @@ connection limits.
 import asyncio
 from typing import Any, Optional
 
-from hygge.utility.logger import get_logger
+from hygge.messages import get_logger
 
 from .base import BaseConnection
 

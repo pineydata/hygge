@@ -15,8 +15,9 @@ from tenacity import (
     wait_exponential,
 )
 
+from hygge.messages import get_logger
+
 from .exceptions import FlowError, HomeError, StoreError
-from .logger import get_logger
 
 
 def with_retry(

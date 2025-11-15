@@ -20,8 +20,8 @@ from typing import Any, Dict, List, Optional, Union
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+from hygge.messages import get_logger
 from hygge.utility.exceptions import ConfigError
-from hygge.utility.logger import get_logger
 
 from .flow import FlowConfig
 from .journal import JournalConfig

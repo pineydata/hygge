@@ -15,8 +15,8 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, List, Optional
 import polars as pl
 from pydantic import BaseModel, Field, field_validator
 
+from hygge.messages import get_logger
 from hygge.utility.exceptions import FlowError
-from hygge.utility.logger import get_logger
 from hygge.utility.retry import with_retry
 
 from .home import Home, HomeConfig

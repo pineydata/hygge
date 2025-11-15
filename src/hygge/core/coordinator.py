@@ -20,8 +20,8 @@ from hygge.connections import (
     ConnectionPool,
     MssqlConnection,
 )
+from hygge.messages import Progress, Summary, get_logger
 from hygge.utility.exceptions import ConfigError
-from hygge.utility.logger import get_logger
 from hygge.utility.path_helper import PathHelper
 from hygge.utility.run_id import generate_run_id
 
@@ -83,9 +83,13 @@ class Coordinator:
         # Workspace instance (for loading config)
         self._workspace: Optional[Workspace] = None
 
-        # Flow results tracking for dbt-style summary
+        # Flow results tracking for hygge-style summary
         self.flow_results: List[Dict[str, Any]] = []
         self.run_start_time: Optional[float] = None
+
+        # Initialize progress and summary
+        self.progress = Progress(logger=self.logger)
+        self.summary = Summary(logger=self.logger)
 
         # If config provided directly, use it
         if config is not None:
@@ -705,11 +709,8 @@ class Coordinator:
         self.flow_results = []
         self.run_start_time = asyncio.get_event_loop().time()
 
-        # Progress tracking for coordinator-level milestones
-        self.total_rows_progress = 0
-        self.last_milestone_rows = 0
-        self.milestone_interval = 1_000_000  # Log every 1M rows
-        self.milestone_lock = asyncio.Lock()
+        # Start progress tracking
+        self.progress.start(self.run_start_time)
 
         # Determine max concurrent flows
         # Limits how many flows run concurrently using a semaphore
@@ -758,9 +759,9 @@ class Coordinator:
         tasks = []
         for i, flow in enumerate(self.flows, 1):
             # Set progress callback so flow can report row updates
-            # Pass flow number (use default arg to capture value, not reference)
-            async def progress_callback(rows, flow_num=i):
-                await self._update_progress(rows, flow_num)
+            # Progress.update() handles milestone tracking
+            async def progress_callback(rows):
+                await self.progress.update(rows)
 
             flow.set_progress_callback(progress_callback)
             task = asyncio.create_task(
@@ -774,9 +775,9 @@ class Coordinator:
         # allowing us to generate a complete summary
         await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Generate and log dbt-style summary BEFORE checking for failures
+        # Generate and log hygge-style summary BEFORE checking for failures
         # This ensures the summary is always shown, even when flows fail
-        self._log_summary()
+        self.summary.generate_summary(self.flow_results, self.run_start_time)
 
         # Check for failed flows based on continue_on_error setting
         # Since _run_flow no longer re-raises, we check flow_results instead
@@ -861,104 +862,6 @@ class Coordinator:
 
         # Don't re-raise here - let _run_flows handle exception propagation
         # based on continue_on_error setting after all flows complete
-
-    async def _update_progress(self, rows: int, flow_num: int) -> None:
-        """Update coordinator-level progress tracking (called by flows)."""
-        async with self.milestone_lock:
-            self.total_rows_progress += rows
-            current_total = self.total_rows_progress
-
-            # Check if we've crossed any milestones since last log
-            # Log at each 1M mark (1M, 2M, 3M, etc.)
-            while current_total >= self.last_milestone_rows + self.milestone_interval:
-                self.last_milestone_rows += self.milestone_interval
-                milestone = self.last_milestone_rows
-
-                elapsed = (
-                    asyncio.get_event_loop().time() - self.run_start_time
-                    if self.run_start_time
-                    else 0.0
-                )
-                if elapsed > 0:
-                    rate = milestone / elapsed
-                    self.logger.info(
-                        f"PROCESSED {milestone:,} rows in {elapsed:.1f}s "
-                        f"({rate:,.0f} rows/s)"
-                    )
-
-    def _log_summary(self) -> None:
-        """Log dbt-style summary after all flows complete."""
-        if not self.flow_results:
-            return
-
-        elapsed_time = (
-            asyncio.get_event_loop().time() - self.run_start_time
-            if self.run_start_time
-            else 0.0
-        )
-
-        total_rows = sum(r["rows"] for r in self.flow_results)
-        passed = sum(1 for r in self.flow_results if r["status"] == "pass")
-        failed = sum(1 for r in self.flow_results if r["status"] == "fail")
-        skipped = sum(1 for r in self.flow_results if r["status"] == "skip")
-
-        # dbt-style summary - clean and information-dense
-        hours = int(elapsed_time // 3600)
-        minutes = int((elapsed_time % 3600) // 60)
-        seconds = elapsed_time % 60
-
-        # Build time string conditionally based on non-zero units
-        time_parts = []
-        if hours > 0:
-            time_parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
-        if minutes > 0:
-            time_parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
-        # Always include seconds
-        time_parts.append(f"{seconds:.2f} second{'s' if seconds != 1.0 else ''}")
-
-        if len(time_parts) > 1:
-            time_str = ", ".join(time_parts[:-1]) + f" and {time_parts[-1]}"
-        else:
-            time_str = time_parts[0]
-
-        # Add cozy spacing
-        self.logger.info("")
-
-        # dbt-style summary line
-        self.logger.info(
-            f"Finished running {len(self.flow_results)} flows "
-            f"in {time_str} ({elapsed_time:.2f}s)."
-        )
-
-        # Final status line (green if all pass, red if failures)
-        if failed == 0:
-            self.logger.info("Completed successfully", color_prefix="OK")
-        else:
-            self.logger.error("Completed with errors")
-
-        # dbt-style status summary
-        self.logger.info(
-            f"Done. PASS={passed} WARN=0 ERROR={failed} SKIP={skipped} "
-            f"TOTAL={len(self.flow_results)}"
-        )
-
-        # Optional: Show total rows processed
-        if total_rows > 0:
-            self.logger.info(f"Total rows processed: {total_rows:,}")
-            if elapsed_time > 0:
-                rate = total_rows / elapsed_time
-                self.logger.info(f"Overall rate: {rate:,.0f} rows/s")
-
-        # Add cozy spacing at end
-        self.logger.info("")
-
-        # Show failed flow details
-        if failed > 0:
-            self.logger.error("Failed flows:")
-            for flow_result in self.flow_results:
-                if flow_result["status"] == "fail":
-                    error_msg = flow_result.get("error", "Unknown error")
-                    self.logger.error(f"  {flow_result['name']}: {error_msg}")
 
     def _should_include_flow(
         self, base_flow_name: str, flow_config: FlowConfig

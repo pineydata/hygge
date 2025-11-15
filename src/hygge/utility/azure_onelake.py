@@ -13,8 +13,8 @@ from typing import BinaryIO, Dict, Optional, Union
 from azure.core.exceptions import AzureError
 from azure.storage.filedatalake import FileSystemClient
 
+from hygge.messages import get_logger
 from hygge.utility.exceptions import StoreError
-from hygge.utility.logger import get_logger
 from hygge.utility.retry import with_retry
 
 

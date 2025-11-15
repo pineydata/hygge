@@ -12,7 +12,7 @@ import concurrent.futures
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator, Callable, Dict, Optional, TypeVar
 
-from hygge.utility.logger import get_logger
+from hygge.messages import get_logger
 
 T = TypeVar("T")
 
