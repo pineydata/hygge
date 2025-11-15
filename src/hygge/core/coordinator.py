@@ -165,6 +165,12 @@ class Coordinator:
                 self.config = self._workspace.prepare()
                 # Update project_config from workspace (in case it changed)
                 self.project_config = self._workspace.config
+                # Update journal_config from prepared config
+                if self.config and self.config.journal:
+                    if isinstance(self.config.journal, JournalConfig):
+                        self.journal_config = self.config.journal
+                    else:
+                        self.journal_config = JournalConfig(**self.config.journal)
 
             # Initialize connection pools
             await self._initialize_connection_pools()
