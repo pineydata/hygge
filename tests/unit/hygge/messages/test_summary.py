@@ -104,7 +104,6 @@ class TestSummary:
         summary.generate_summary(flow_results, start_time)
 
         # Should log error status
-        info_calls = [call[0][0] for call in mock_logger.info.call_args_list]
         error_calls = [call[0][0] for call in mock_logger.error.call_args_list]
 
         assert any("Completed with errors" in msg for msg in error_calls)
