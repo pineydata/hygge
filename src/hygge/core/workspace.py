@@ -305,7 +305,7 @@ To get started, run:
                 env_value = os.getenv(var_name)
                 if env_value is not None:
                     return env_value
-                elif default_value:
+                elif default_value is not None:
                     return default_value
                 else:
                     raise ConfigError(
