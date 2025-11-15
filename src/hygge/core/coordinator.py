@@ -57,6 +57,7 @@ class Coordinator:
         self,
         config_path: Optional[str] = None,
         flow_overrides: Optional[Dict[str, Any]] = None,
+        flow_filter: Optional[List[str]] = None,
     ):
         if config_path is None:
             # Project discovery mode - look for hygge.yml
@@ -69,6 +70,7 @@ class Coordinator:
         self.project_config: Dict[str, Any] = {}
         self.connection_pools: Dict[str, ConnectionPool] = {}  # Named connection pools
         self.flow_overrides = flow_overrides or {}  # CLI overrides for flow configs
+        self.flow_filter = flow_filter or []  # List of flow names to execute
         self.logger = get_logger("hygge.coordinator")
 
         # Flow results tracking for dbt-style summary
@@ -196,6 +198,30 @@ To get started, run:
 
             # Create flows
             self._create_flows()
+
+            # Validate that at least one flow was created (if filter specified)
+            if self.flow_filter and len(self.flows) == 0:
+                available_flows = list(self.config.flows.keys())
+                # Also collect entity flow names
+                entity_flows = []
+                for base_flow_name, flow_config in self.config.flows.items():
+                    if flow_config.entities:
+                        for entity in flow_config.entities:
+                            if isinstance(entity, str):
+                                entity_name = entity
+                            elif isinstance(entity, dict):
+                                entity_name = entity.get("name")
+                            else:
+                                continue
+                            if entity_name:
+                                entity_flows.append(f"{base_flow_name}_{entity_name}")
+
+                entity_flows_str = ", ".join(entity_flows) if entity_flows else "none"
+                raise ConfigError(
+                    f"No flows matched filter: {', '.join(self.flow_filter)}. "
+                    f"Available flows: {', '.join(available_flows)}. "
+                    f"Available entity flows: {entity_flows_str}."
+                )
 
             # Run flows in parallel
             await self._run_flows()
@@ -562,6 +588,12 @@ To get started, run:
 
         for base_flow_name, flow_config in self.config.flows.items():
             try:
+                # If flow filter specified, check if this flow should be included
+                if self.flow_filter and not self._should_include_flow(
+                    base_flow_name, flow_config
+                ):
+                    continue
+
                 # Apply CLI flow-level overrides (use base flow name, not entity name)
                 # Update the config in place so tests can verify it
                 if self.flow_overrides:
@@ -611,6 +643,19 @@ To get started, run:
                         # Create entity-specific flow
                         # Note: entity flows use base_flow_name for overrides
                         entity_flow_name = f"{base_flow_name}_{entity_name}"
+
+                        # If flow filter is specified, check if this specific entity
+                        # flow should be included
+                        if self.flow_filter:
+                            # If base flow name is in filter, include all entities.
+                            # Otherwise, only include if this specific entity flow
+                            # name matches
+                            if (
+                                base_flow_name not in self.flow_filter
+                                and entity_flow_name not in self.flow_filter
+                            ):
+                                continue
+
                         self._create_entity_flow(
                             entity_flow_name,
                             flow_config,
@@ -630,6 +675,11 @@ To get started, run:
 
                     store = Store.create(
                         f"{base_flow_name}_store", store_config, base_flow_name, None
+                    )
+
+                    # Validate run_type and store incremental alignment
+                    self._validate_run_type_incremental_alignment(
+                        store_config, default_run_type, base_flow_name, None
                     )
 
                     # Inject connection pool into stores that need it
@@ -802,6 +852,11 @@ To get started, run:
 
         store = Store.create(f"{flow_name}_store", store_config, flow_name, entity_name)
 
+        # Validate run_type and store incremental alignment
+        self._validate_run_type_incremental_alignment(
+            store_config, entity_run_type, base_flow_name, entity_name
+        )
+
         # Inject connection pool into stores that need it
         self._inject_store_pool(store, store_config)
 
@@ -915,6 +970,10 @@ To get started, run:
         # allowing us to generate a complete summary
         await asyncio.gather(*tasks, return_exceptions=True)
 
+        # Generate and log dbt-style summary BEFORE checking for failures
+        # This ensures the summary is always shown, even when flows fail
+        self._log_summary()
+
         # Check for failed flows based on continue_on_error setting
         # Since _run_flow no longer re-raises, we check flow_results instead
         failed_flows = [r for r in self.flow_results if r.get("status") == "fail"]
@@ -922,9 +981,6 @@ To get started, run:
             # At least one flow failed and we're not continuing on error
             # Re-raise the first exception that was stored
             raise failed_flows[0]["_exception"]
-
-        # Generate and log dbt-style summary
-        self._log_summary()
 
     async def _run_flow_with_semaphore(
         self,
@@ -1099,6 +1155,110 @@ To get started, run:
                 if flow_result["status"] == "fail":
                     error_msg = flow_result.get("error", "Unknown error")
                     self.logger.error(f"  {flow_result['name']}: {error_msg}")
+
+    def _should_include_flow(
+        self, base_flow_name: str, flow_config: FlowConfig
+    ) -> bool:
+        """
+        Check if a flow should be included based on flow filter.
+
+        Supports:
+        - Exact base flow name match (e.g., "salesforce")
+        - Exact entity flow name match (e.g., "salesforce_Involvement")
+        - Base flow name match includes all entities
+          (e.g., "salesforce" matches all salesforce_* flows)
+
+        Args:
+            base_flow_name: Base flow name from config
+            flow_config: Flow configuration
+
+        Returns:
+            True if flow should be included, False otherwise
+        """
+        if not self.flow_filter:
+            return True
+
+        # Check if base flow name matches
+        if base_flow_name in self.flow_filter:
+            return True
+
+        # Check if any entity flow name would match
+        if flow_config.entities and len(flow_config.entities) > 0:
+            for entity in flow_config.entities:
+                # Handle string entities
+                if isinstance(entity, str):
+                    entity_name = entity
+                # Handle dict entities
+                elif isinstance(entity, dict):
+                    entity_name = entity.get("name")
+                    if not entity_name:
+                        continue
+                else:
+                    continue
+
+                # Check if entity flow name matches
+                entity_flow_name = f"{base_flow_name}_{entity_name}"
+                if entity_flow_name in self.flow_filter:
+                    return True
+
+        return False
+
+    def _validate_run_type_incremental_alignment(
+        self,
+        store_config: Any,
+        run_type: str,
+        flow_name: str,
+        entity_name: Optional[str] = None,
+    ) -> None:
+        """
+        Validate that Flow run_type and store incremental behavior align.
+
+        Warns when Flow run_type and store incremental override diverge,
+        as this can lead to confusing behavior where the flow thinks it's
+        running incrementally but the store is configured to truncate.
+
+        Args:
+            store_config: Store configuration object
+            run_type: Flow run_type ('incremental' or 'full_drop')
+            flow_name: Name of the flow
+            entity_name: Optional entity name (for entity flows)
+        """
+        # Only validate ADLS-family stores (ADLS, OneLake, OpenMirroring)
+        # They have the incremental field
+        if not hasattr(store_config, "incremental"):
+            return
+
+        incremental_override = getattr(store_config, "incremental", None)
+        if incremental_override is None:
+            # No override set, so store defers to flow run_type - this is fine
+            return
+
+        # Determine expected behavior from run_type
+        is_incremental_from_run_type = run_type != "full_drop"
+
+        # Check if store override matches flow run_type
+        if incremental_override != is_incremental_from_run_type:
+            entity_str = f" (entity: {entity_name})" if entity_name else ""
+            flow_display = f"{flow_name}{entity_str}"
+
+            if incremental_override:
+                # Store forces incremental, but flow is full_drop
+                self.logger.warning(
+                    f"Flow {flow_display} has run_type='{run_type}' (full reload), "
+                    f"but store has incremental=True (append mode). "
+                    f"Store will append new data instead of truncating. "
+                    f"Consider setting store.incremental=False or "
+                    f"flow run_type='incremental'."
+                )
+            else:
+                # Store forces full_drop, but flow is incremental
+                self.logger.warning(
+                    f"Flow {flow_display} has run_type='{run_type}' (incremental), "
+                    f"but store has incremental=False (truncate mode). "
+                    f"Store will truncate destination before writing new data. "
+                    f"Consider setting store.incremental=True or "
+                    f"flow run_type='full_drop'."
+                )
 
     def _apply_flow_overrides(
         self, flow_config: FlowConfig, flow_name: str
