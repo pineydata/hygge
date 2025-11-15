@@ -10,15 +10,14 @@ Ports proven pattern from elk2 with improvements:
 import asyncio
 import struct
 import time
-from itertools import chain, repeat
 from typing import Any, Dict, Optional
 
 import pyodbc
 from azure.core.credentials import AccessToken
 from azure.identity import DefaultAzureCredential
 
+from hygge.messages import get_logger
 from hygge.utility.exceptions import HomeError
-from hygge.utility.logger import get_logger
 
 from .base import BaseConnection
 
@@ -222,12 +221,11 @@ class MssqlConnection(BaseConnection):
 
     def _convert_token_to_bytes(self, token: AccessToken) -> bytes:
         """
-        Convert Azure AD token to MS Windows byte string format required by SQL Server.
+        Convert Azure AD token to MS Windows byte string format.
 
-        SQL Server expects the access token to be provided as a length-prefixed, UTF-8 encoded
-        byte string with each character interleaved with a zero byte (similar to UTF-16LE encoding),
-        as described in the Microsoft documentation for ODBC Azure Active Directory authentication.
-        See: https://learn.microsoft.com/en-us/sql/connect/odbc/using-azure-active-directory?view=sql-server-ver16#access-token-authentication
+        SQL Server expects a length-prefixed UTF-8 encoded byte string with
+        each character interleaved with a zero byte (similar to UTF-16LE).
+        See Microsoft docs for ODBC Azure AD authentication.
 
         Args:
             token: Azure AD access token

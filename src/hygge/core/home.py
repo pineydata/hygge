@@ -23,7 +23,7 @@ from typing import Any, AsyncIterator, Dict, Optional, Type, Union
 import polars as pl
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from hygge.utility.logger import get_logger
+from hygge.messages import get_logger
 
 
 class Home(ABC):

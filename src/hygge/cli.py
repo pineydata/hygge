@@ -14,8 +14,8 @@ import click
 
 from hygge import Coordinator
 from hygge.core.workspace import Workspace
+from hygge.messages import get_logger
 from hygge.utility.exceptions import ConfigError
-from hygge.utility.logger import get_logger
 
 
 def _parse_var_value(value: str) -> Any:
