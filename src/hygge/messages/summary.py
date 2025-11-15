@@ -4,9 +4,31 @@ Hygge-style execution summaries.
 Summaries that feel cozy and helpful, not just informative.
 Reflects hygge's values of comfort, clarity, and natural flow.
 """
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from hygge.messages.logger import HyggeLogger
+
+
+def _get_event_loop_time() -> float:
+    """
+    Get current event loop time, handling both async and sync contexts.
+
+    Tries to get the running loop first (Python 3.7+), falls back to
+    getting the event loop if no running loop exists.
+
+    Returns:
+        Current event loop time in seconds
+    """
+    try:
+        # Try to get running loop first (preferred in Python 3.7+)
+        loop = asyncio.get_running_loop()
+        return loop.time()
+    except RuntimeError:
+        # No running loop - fall back to get_event_loop()
+        # This is safe for backwards compatibility
+        loop = asyncio.get_event_loop()
+        return loop.time()
 
 
 class Summary:
@@ -42,12 +64,8 @@ class Summary:
         if not flow_results:
             return
 
-        import asyncio
-
         elapsed_time = (
-            asyncio.get_event_loop().time() - start_time
-            if start_time is not None
-            else 0.0
+            _get_event_loop_time() - start_time if start_time is not None else 0.0
         )
 
         total_rows = sum(r["rows"] for r in flow_results)
