@@ -16,9 +16,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
 
-from hygge.connections import MSSQL_CONNECTION_DEFAULTS, ConnectionPool, MssqlConnection
+from hygge.connections import (
+    MSSQL_CONNECTION_DEFAULTS,
+    ConnectionPool,
+    MssqlConnection,
+)
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 from hygge.utility.path_helper import PathHelper
@@ -28,6 +31,10 @@ from .flow import Flow, FlowConfig
 from .home import Home
 from .journal import Journal, JournalConfig
 from .store import Store
+from .workspace import Workspace, WorkspaceConfig
+
+# Alias for backward compatibility - WorkspaceConfig is the canonical name
+CoordinatorConfig = WorkspaceConfig
 
 # Store-related configuration keys that can be applied as defaults
 STORE_DEFAULT_KEYS = ["if_exists", "batch_size", "parallel_workers", "timeout"]
@@ -36,7 +43,7 @@ STORE_DEFAULT_KEYS = ["if_exists", "batch_size", "parallel_workers", "timeout"]
 def validate_config(config: Dict[str, Any]) -> List[str]:
     """Validate configuration using Pydantic models."""
     try:
-        CoordinatorConfig.from_dict(config)
+        WorkspaceConfig.from_dict(config)
         return []
     except Exception as e:
         return [str(e)]
@@ -56,132 +63,109 @@ class Coordinator:
     def __init__(
         self,
         config_path: Optional[str] = None,
+        config: Optional[WorkspaceConfig] = None,
         flow_overrides: Optional[Dict[str, Any]] = None,
         flow_filter: Optional[List[str]] = None,
     ):
-        if config_path is None:
-            # Project discovery mode - look for hygge.yml
-            config_path = self._find_project_config()
+        """
+        Initialize Coordinator.
 
-        self.config_path = Path(config_path)
-        self.config = None
+        Args:
+            config_path: Optional path to config file/directory (legacy mode)
+            config: Optional WorkspaceConfig instance (new mode, takes precedence)
+            flow_overrides: Optional flow-level configuration overrides
+            flow_filter: Optional list of flow names to execute
+        """
         self.flows: List[Flow] = []
         self.options: Dict[str, Any] = {}
-        self.project_config: Dict[str, Any] = {}
         self.connection_pools: Dict[str, ConnectionPool] = {}  # Named connection pools
         self.flow_overrides = flow_overrides or {}  # CLI overrides for flow configs
         self.flow_filter = flow_filter or []  # List of flow names to execute
         self.logger = get_logger("hygge.coordinator")
+        # Workspace instance (if using project mode)
+        self._workspace: Optional[Workspace] = None
 
         # Flow results tracking for dbt-style summary
         self.flow_results: List[Dict[str, Any]] = []
         self.run_start_time: Optional[float] = None
 
-        # Load project config if we found hygge.yml
-        self._load_project_config()
+        # If config provided directly, use it (new mode)
+        if config is not None:
+            self.config = config
+            self.config_path = None
+            self.project_config = {}
+            # Coordinator name from config if available, otherwise use "coordinator"
+            self.coordinator_name = "coordinator"
+        elif config_path is None:
+            # Project discovery mode - use Workspace to find workspace
+            # Read workspace config but don't prepare flows yet - that happens in run()
+            workspace = Workspace.find()
+            workspace._read_workspace_config()  # Populate workspace.config
+            self.config = None  # Will be loaded in run() via workspace.prepare()
+            self.config_path = workspace.hygge_yml
+            self.project_config = workspace.config
+            self.coordinator_name = workspace.name
+            # Store workspace for later use
+            self._workspace = workspace
+        else:
+            # Legacy mode - use Workspace if it's hygge.yml, otherwise legacy loading
+            self.config_path = Path(config_path)
+            if self.config_path.name == "hygge.yml":
+                # Use Workspace for hygge.yml files (project-centric mode)
+                # Read workspace config but don't prepare flows yet
+                # (flows are prepared in run() when needed)
+                workspace = Workspace.from_path(self.config_path)
+                workspace._read_workspace_config()  # Populate workspace.config
+                self.config = None  # Will be loaded in run() via workspace.prepare()
+                self.project_config = workspace.config
+                self.coordinator_name = workspace.name
+                # Store workspace for later use
+                self._workspace = workspace
+            else:
+                # Truly legacy mode - single file or directory config
+                self.config = None
+                self.project_config = {}
+                self.coordinator_name = self._resolve_coordinator_name()
+                self._workspace = None
+
+        # Extract options from config if available
+        # Options are stored in project_config, not in CoordinatorConfig
+        # So we need to get them from project_config
+        if self.project_config:
+            config_options = self.project_config.get("options", {})
+            self.options = {**config_options, **self.options}
+
+        # Extract journal config
+        if self.config:
+            self.journal_config = (
+                self.config.journal
+                if isinstance(self.config.journal, JournalConfig)
+                else None
+            )
+        else:
+            self.journal_config = None
 
         # No longer need Factory - using registry pattern directly
-        self.coordinator_name = self._resolve_coordinator_name()
         self.coordinator_run_id: Optional[str] = None
         self.coordinator_start_time: Optional[datetime] = None
-        self.journal_config: Optional[JournalConfig] = None
         self.journal: Optional[Journal] = None
         self._journal_cache: Dict[str, Journal] = {}
         self.flow_run_ids: Dict[str, str] = {}
 
-    def _find_project_config(self) -> str:
-        """Look for hygge.yml in current directory and parents."""
-        current = Path.cwd()
-        searched_paths = []
-
-        while current != current.parent:
-            project_file = current / "hygge.yml"
-            searched_paths.append(str(project_file))
-            if project_file.exists():
-                return str(project_file)
-            current = current.parent
-
-        # dbt-style error message
-        error_msg = f"""
-No hygge.yml found in current path: {Path.cwd()}
-
-Searched locations:
-{chr(10).join(f"  - {path}" for path in searched_paths)}
-
-To get started, run:
-  hygge init <project_name>
-"""
-        raise ConfigError(error_msg)
-
-    def _load_project_config(self) -> None:
-        """Load project configuration from hygge.yml."""
-        if self.config_path.name == "hygge.yml":
-            # We found hygge.yml, load project config
-            with open(self.config_path, "r") as f:
-                raw_config = yaml.safe_load(f)
-                self.project_config = raw_config or {}
-
-            project_name = self.project_config.get("name", "unnamed")
-            self.logger.info(f"Loaded project config: {project_name}")
-            self.logger.debug(f"Raw project config: {raw_config}")
-        else:
-            # Legacy mode - no project config
-            self.project_config = {}
-
-        # Expand environment variables in project config
-        self.project_config = self._expand_env_vars(self.project_config)
-
     def _resolve_coordinator_name(self) -> str:
-        """Determine coordinator name from project config or config path."""
-        if self.project_config and self.project_config.get("name"):
-            return str(self.project_config["name"])
+        """Determine coordinator name from config path (legacy mode only)."""
         if self.config_path:
             stem = self.config_path.stem
             if stem:
                 return stem
         return "coordinator"
 
-    def _expand_env_vars(self, data: Any) -> Any:
-        """
-        Recursively expand environment variables in configuration data.
-
-        Supports patterns like ${VAR_NAME} and ${VAR_NAME:-default_value}
-        """
-        import os
-        import re
-
-        if isinstance(data, str):
-            # Pattern: ${VAR_NAME} or ${VAR_NAME:-default}
-            pattern = r"\$\{([^:}]+)(?::-([^}]*))?\}"
-
-            def replace_env_var(match):
-                var_name = match.group(1)
-                default_value = match.group(2) if match.group(2) is not None else ""
-
-                env_value = os.getenv(var_name)
-                if env_value is not None:
-                    return env_value
-                elif default_value:
-                    return default_value
-                else:
-                    raise ConfigError(
-                        f"Environment variable '{var_name}' is not set and no default"
-                    )
-
-            return re.sub(pattern, replace_env_var, data)
-
-        elif isinstance(data, dict):
-            return {key: self._expand_env_vars(value) for key, value in data.items()}
-
-        elif isinstance(data, list):
-            return [self._expand_env_vars(item) for item in data]
-
-        else:
-            return data
-
     async def run(self) -> None:
         """Run all configured flows."""
-        self.logger.info(f"Starting coordinator with config: {self.config_path}")
+        config_source = (
+            str(self.config_path) if self.config_path else "Workspace-provided config"
+        )
+        self.logger.info(f"Starting coordinator with config: {config_source}")
         self.coordinator_start_time = datetime.now(timezone.utc)
         coordinator_start_iso = self.coordinator_start_time.isoformat()
         self.coordinator_run_id = generate_run_id(
@@ -190,8 +174,16 @@ To get started, run:
         self.flow_run_ids = {}
 
         try:
-            # Load and validate configuration
-            self._load_config()
+            # Load configuration if not already loaded
+            if self.config is None:
+                # If we have a workspace, use it to prepare config
+                if hasattr(self, "_workspace") and self._workspace:
+                    self.config = self._workspace.prepare()
+                    # Update project_config from workspace (in case it changed)
+                    self.project_config = self._workspace.config
+                else:
+                    # Legacy mode - use _load_config()
+                    self._load_config()
 
             # Initialize connection pools
             await self._initialize_connection_pools()
@@ -231,15 +223,19 @@ To get started, run:
             await self._cleanup_connection_pools()
 
     def _load_config(self) -> None:
-        """Load and validate configuration from file or directory."""
+        """
+        Load and validate configuration from file or directory (legacy mode only).
+
+        This method is only called for truly legacy config patterns:
+        - Single YAML file (not hygge.yml)
+        - Directory structure without hygge.yml
+
+        For hygge.yml files, Workspace is used in __init__.
+        """
         try:
             if self.config_path.is_file():
-                if self.config_path.name == "hygge.yml":
-                    # Project-centric mode - load flows from flows/ directory
-                    self._load_project_flows()
-                else:
-                    # Single file configuration (legacy)
-                    self._load_single_file_config()
+                # Single file configuration (legacy - not hygge.yml)
+                self._load_single_file_config()
             elif self.config_path.is_dir():
                 # Directory-based configuration (legacy progressive approach)
                 self._load_directory_config()
@@ -258,94 +254,6 @@ To get started, run:
                 else None
             )
 
-    def _load_project_flows(self) -> None:
-        """Load flows from flows/ directory in project-centric mode."""
-        # Get flows directory from project config
-        flows_dir_name = self.project_config.get("flows_dir", "flows")
-        flows_dir = self.config_path.parent / flows_dir_name
-
-        self.logger.debug(f"Looking for flows in: {flows_dir}")
-        self.logger.debug(f"Project config: {self.project_config}")
-
-        if not flows_dir.exists():
-            raise ConfigError(f"Flows directory not found: {flows_dir}")
-
-        flows = {}
-
-        # Look for flow directories
-        for flow_dir in flows_dir.iterdir():
-            self.logger.debug(f"Checking directory: {flow_dir}")
-            if flow_dir.is_dir() and (flow_dir / "flow.yml").exists():
-                flow_name = flow_dir.name
-                try:
-                    # Load flow config
-                    flow_config = self._load_flow_config(flow_dir)
-                    flows[flow_name] = flow_config
-                    self.logger.debug(f"Loaded flow: {flow_name}")
-                except Exception as e:
-                    self.logger.error(f"Failed to load flow {flow_name}: {str(e)}")
-                    raise ConfigError(f"Failed to load flow {flow_name}: {str(e)}")
-
-        if not flows:
-            raise ConfigError(f"No flows found in directory: {flows_dir}")
-
-        # Create coordinator config with connections if present
-        connections = self.project_config.get("connections", {})
-        journal_config = self.project_config.get("journal")
-        self.config = CoordinatorConfig(
-            flows=flows, connections=connections, journal=journal_config
-        )
-        self.journal_config = (
-            self.config.journal
-            if isinstance(self.config.journal, JournalConfig)
-            else None
-        )
-
-        # Load global options from project config
-        # Merge with existing options to preserve CLI overrides (if any)
-        config_options = self.project_config.get("options", {})
-        self.options = {**config_options, **self.options}
-
-        self.logger.info(
-            f"Loaded project flows with {len(flows)} flows from {flows_dir}"
-        )
-
-    def _load_flow_config(self, flow_dir: Path) -> FlowConfig:
-        """Load flow configuration from flow directory."""
-        flow_file = flow_dir / "flow.yml"
-        with open(flow_file, "r") as f:
-            flow_data = yaml.safe_load(f)
-
-        # Expand environment variables in flow config
-        flow_data = self._expand_env_vars(flow_data)
-
-        # Load entities if they exist
-        entities_dir = flow_dir / "entities"
-        if entities_dir.exists():
-            entities = self._load_entities(entities_dir, flow_data.get("defaults", {}))
-            flow_data["entities"] = entities
-
-        return FlowConfig(**flow_data)
-
-    def _load_entities(
-        self, entities_dir: Path, defaults: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """Load entity definitions from entities directory."""
-        entities = []
-
-        for entity_file in entities_dir.glob("*.yml"):
-            with open(entity_file, "r") as f:
-                entity_data = yaml.safe_load(f)
-
-            # Expand environment variables in entity config
-            entity_data = self._expand_env_vars(entity_data)
-
-            # Merge with defaults
-            entity_data = {**defaults, **entity_data}
-            entities.append(entity_data)
-
-        return entities
-
     def _load_single_file_config(self) -> None:
         """Load configuration from single YAML file (legacy approach)."""
         with open(self.config_path, "r") as f:
@@ -357,7 +265,7 @@ To get started, run:
             raise ConfigError(f"Configuration validation failed: {errors}")
 
         # Parse with Pydantic
-        self.config = CoordinatorConfig.from_dict(config_data)
+        self.config = WorkspaceConfig.from_dict(config_data)
         self.journal_config = (
             self.config.journal
             if isinstance(self.config.journal, JournalConfig)
@@ -393,8 +301,8 @@ To get started, run:
         if not flows:
             raise ConfigError(f"No flows found in directory: {self.config_path}")
 
-        # Create coordinator config
-        self.config = CoordinatorConfig(flows=flows, journal=None)
+        # Create workspace config
+        self.config = WorkspaceConfig(flows=flows, journal=None)
         self.journal_config = None
 
         # Load global options if they exist
@@ -1299,49 +1207,3 @@ To get started, run:
 
         deep_merge(config_dict, overrides)
         return FlowConfig(**config_dict)
-
-
-class CoordinatorConfig(BaseModel):
-    """Main configuration model for hygge."""
-
-    flows: Dict[str, FlowConfig] = Field(..., description="Flow configurations")
-    connections: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict, description="Named connection pool configurations"
-    )
-    journal: Optional[Union[Dict[str, Any], JournalConfig]] = Field(
-        default=None,
-        description="Journal configuration for tracking execution metadata",
-    )
-
-    @field_validator("flows")
-    @classmethod
-    def validate_flows_not_empty(cls, v):
-        """Validate flows section is not empty."""
-        if not v:
-            raise ValueError("At least one flow must be configured")
-        return v
-
-    @field_validator("journal", mode="before")
-    @classmethod
-    def validate_journal(cls, v):
-        """Validate and normalize journal configuration."""
-        if v is None:
-            return None
-        if isinstance(v, JournalConfig):
-            return v
-        if isinstance(v, dict):
-            return JournalConfig(**v)
-        raise ValueError(
-            "Journal configuration must be a dict or JournalConfig instance"
-        )
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CoordinatorConfig":
-        """Create configuration from dictionary."""
-        return cls(**data)
-
-    def get_flow_config(self, flow_name: str) -> FlowConfig:
-        """Get configuration for a specific flow."""
-        if flow_name not in self.flows:
-            raise ValueError(f"Flow '{flow_name}' not found in configuration")
-        return self.flows[flow_name]

@@ -15,15 +15,62 @@ orchestration responsibilities.
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
+from pydantic import BaseModel, Field, field_validator
 
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.logger import get_logger
 
-from .coordinator import CoordinatorConfig
 from .flow import FlowConfig
+from .journal import JournalConfig
+
+
+class WorkspaceConfig(BaseModel):
+    """Configuration model for a hygge workspace/project."""
+
+    flows: Dict[str, FlowConfig] = Field(..., description="Flow configurations")
+    connections: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict, description="Named connection pool configurations"
+    )
+    journal: Optional[Union[Dict[str, Any], JournalConfig]] = Field(
+        default=None,
+        description="Journal configuration for tracking execution metadata",
+    )
+
+    @field_validator("flows")
+    @classmethod
+    def validate_flows_not_empty(cls, v):
+        """Validate flows section is not empty."""
+        if not v:
+            raise ValueError("At least one flow must be configured")
+        return v
+
+    @field_validator("journal", mode="before")
+    @classmethod
+    def validate_journal(cls, v):
+        """Validate and normalize journal configuration."""
+        if v is None:
+            return None
+        if isinstance(v, JournalConfig):
+            return v
+        if isinstance(v, dict):
+            return JournalConfig(**v)
+        raise ValueError(
+            "Journal configuration must be a dict or JournalConfig instance"
+        )
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "WorkspaceConfig":
+        """Create configuration from dictionary."""
+        return cls(**data)
+
+    def get_flow_config(self, flow_name: str) -> FlowConfig:
+        """Get configuration for a specific flow."""
+        if flow_name not in self.flows:
+            raise ValueError(f"Flow '{flow_name}' not found in configuration")
+        return self.flows[flow_name]
 
 
 class Workspace:
@@ -276,15 +323,15 @@ To get started, run:
         else:
             return data
 
-    def prepare(self) -> CoordinatorConfig:
+    def prepare(self) -> WorkspaceConfig:
         """
         Prepare workspace configuration for Coordinator execution.
 
-        Reads hygge.yml, discovers flows, and returns a CoordinatorConfig
-        ready for execution.
+        Reads hygge.yml, discovers flows, and returns a validated
+        WorkspaceConfig ready for execution.
 
         Returns:
-            CoordinatorConfig with flows, connections, and journal config
+            WorkspaceConfig with flows, connections, and journal config
 
         Raises:
             ConfigError: If configuration cannot be loaded
@@ -295,9 +342,9 @@ To get started, run:
         # Find all flows
         flows = self._find_flows()
 
-        # Create coordinator config with connections and journal if present
+        # Create workspace config with connections and journal if present
         journal_config = self.config.get("journal")
-        config = CoordinatorConfig(
+        config = WorkspaceConfig(
             flows=flows, connections=self.connections, journal=journal_config
         )
 

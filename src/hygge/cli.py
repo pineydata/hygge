@@ -343,13 +343,15 @@ def go(
                     flow_overrides[base_flow_name] = {}
                 flow_overrides[base_flow_name]["run_type"] = run_type_override
 
-        # Create actual coordinator with final overrides
+        # Create coordinator with prepared config and final overrides
+        # Pass config directly to avoid Workspace.find() being called again
         coordinator = Coordinator(
+            config=config,
             flow_overrides=flow_overrides if flow_overrides else None,
             flow_filter=flow_filter if flow_filter else None,
         )
 
-        # Apply CLI concurrency override (will be merged during config load)
+        # Apply CLI concurrency override (will override config options)
         if concurrency is not None:
             coordinator.options["concurrency"] = concurrency
 

@@ -9,9 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from hygge.core.coordinator import CoordinatorConfig
 from hygge.core.flow import FlowConfig
-from hygge.core.workspace import Workspace
+from hygge.core.workspace import Workspace, WorkspaceConfig
 from hygge.homes.parquet.home import ParquetHome, ParquetHomeConfig  # noqa: F401
 from hygge.stores.parquet.store import ParquetStore, ParquetStoreConfig  # noqa: F401
 from hygge.utility.exceptions import ConfigError
@@ -601,10 +600,10 @@ columns:
 
 
 class TestWorkspacePrepare:
-    """Test Workspace.prepare() - returning CoordinatorConfig with flows."""
+    """Test Workspace.prepare() - returning WorkspaceConfig with flows."""
 
     def test_prepare_returns_coordinator_config(self, tmp_path):
-        """Test that prepare() returns CoordinatorConfig."""
+        """Test that prepare() returns WorkspaceConfig."""
         hygge_file = tmp_path / "hygge.yml"
         hygge_file.write_text(
             """
@@ -639,7 +638,7 @@ store:
         workspace = Workspace.find(start_path=tmp_path)
         config = workspace.prepare()
 
-        assert isinstance(config, CoordinatorConfig)
+        assert isinstance(config, WorkspaceConfig)
         assert len(config.flows) == 1
         assert "test_flow" in config.flows
         assert len(config.connections) == 1

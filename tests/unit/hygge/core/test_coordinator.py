@@ -499,9 +499,12 @@ flows_dir: "flows"
 
             try:
                 coordinator = Coordinator()
+                # Workspace is found but config is not prepared yet (lazy loading)
                 assert coordinator.config_path.resolve() == hygge_file.resolve()
                 assert coordinator.project_config["name"] == "test_project"
                 assert coordinator.project_config["flows_dir"] == "flows"
+                # Config is None until run() is called (lazy loading)
+                assert coordinator.config is None
             finally:
                 os.chdir(original_cwd)
 
@@ -529,8 +532,11 @@ flows_dir: "flows"
 
             try:
                 coordinator = Coordinator()
+                # Workspace is found but config is not prepared yet (lazy loading)
                 assert coordinator.config_path.resolve() == hygge_file.resolve()
                 assert coordinator.project_config["name"] == "test_project"
+                # Config is None until run() is called (lazy loading)
+                assert coordinator.config is None
             finally:
                 os.chdir(original_cwd)
 
@@ -634,7 +640,8 @@ store:
 
             try:
                 coordinator = Coordinator()
-                coordinator._load_config()
+                # Config is loaded lazily - prepare it explicitly for this test
+                coordinator.config = coordinator._workspace.prepare()
 
                 # Verify flows were loaded
                 assert len(coordinator.config.flows) == 2
@@ -699,7 +706,8 @@ store:
 
             try:
                 coordinator = Coordinator()
-                coordinator._load_config()
+                # Config is loaded lazily - prepare it explicitly for this test
+                coordinator.config = coordinator._workspace.prepare()
 
                 # Verify flow was loaded from custom directory
                 assert len(coordinator.config.flows) == 1
@@ -727,9 +735,11 @@ flows_dir: "nonexistent_flows"
             os.chdir(temp_path)
 
             try:
+                # Workspace.prepare() will raise error when flows directory not found
+                # Config loading happens lazily in run(), so prepare explicitly here
                 coordinator = Coordinator()
                 with pytest.raises(ConfigError, match="Flows directory not found"):
-                    coordinator._load_config()
+                    coordinator.config = coordinator._workspace.prepare()
             finally:
                 os.chdir(original_cwd)
 
@@ -756,9 +766,11 @@ flows_dir: "flows"
             os.chdir(temp_path)
 
             try:
+                # Workspace.prepare() will raise error when no flows found
+                # Config loading happens lazily in run(), so prepare explicitly here
                 coordinator = Coordinator()
                 with pytest.raises(ConfigError, match="No flows found in directory"):
-                    coordinator._load_config()
+                    coordinator.config = coordinator._workspace.prepare()
             finally:
                 os.chdir(original_cwd)
 
@@ -821,7 +833,8 @@ source_config:
 
             try:
                 coordinator = Coordinator()
-                coordinator._load_config()
+                # Config is loaded lazily - prepare it explicitly for this test
+                coordinator.config = coordinator._workspace.prepare()
 
                 # Verify entity inherited defaults
                 flow_config = coordinator.config.flows["test_flow"]
