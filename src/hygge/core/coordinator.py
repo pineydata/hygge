@@ -15,8 +15,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import yaml
-
 from hygge.connections import (
     MSSQL_CONNECTION_DEFAULTS,
     ConnectionPool,
@@ -71,8 +69,8 @@ class Coordinator:
         Initialize Coordinator.
 
         Args:
-            config_path: Optional path to config file/directory (legacy mode)
-            config: Optional WorkspaceConfig instance (new mode, takes precedence)
+            config_path: Optional path to hygge.yml file (uses Workspace.from_path())
+            config: Optional WorkspaceConfig instance (takes precedence)
             flow_overrides: Optional flow-level configuration overrides
             flow_filter: Optional list of flow names to execute
         """
@@ -82,51 +80,42 @@ class Coordinator:
         self.flow_overrides = flow_overrides or {}  # CLI overrides for flow configs
         self.flow_filter = flow_filter or []  # List of flow names to execute
         self.logger = get_logger("hygge.coordinator")
-        # Workspace instance (if using project mode)
+        # Workspace instance (for loading config)
         self._workspace: Optional[Workspace] = None
 
         # Flow results tracking for dbt-style summary
         self.flow_results: List[Dict[str, Any]] = []
         self.run_start_time: Optional[float] = None
 
-        # If config provided directly, use it (new mode)
+        # If config provided directly, use it
         if config is not None:
             self.config = config
             self.config_path = None
             self.project_config = {}
-            # Coordinator name from config if available, otherwise use "coordinator"
             self.coordinator_name = "coordinator"
         elif config_path is None:
-            # Project discovery mode - use Workspace to find workspace
-            # Read workspace config but don't prepare flows yet - that happens in run()
+            # Project discovery mode - use Workspace to find hygge.yml
             workspace = Workspace.find()
             workspace._read_workspace_config()  # Populate workspace.config
             self.config = None  # Will be loaded in run() via workspace.prepare()
             self.config_path = workspace.hygge_yml
             self.project_config = workspace.config
             self.coordinator_name = workspace.name
-            # Store workspace for later use
             self._workspace = workspace
         else:
-            # Legacy mode - use Workspace if it's hygge.yml, otherwise legacy loading
+            # Explicit hygge.yml path provided
             self.config_path = Path(config_path)
-            if self.config_path.name == "hygge.yml":
-                # Use Workspace for hygge.yml files (project-centric mode)
-                # Read workspace config but don't prepare flows yet
-                # (flows are prepared in run() when needed)
-                workspace = Workspace.from_path(self.config_path)
-                workspace._read_workspace_config()  # Populate workspace.config
-                self.config = None  # Will be loaded in run() via workspace.prepare()
-                self.project_config = workspace.config
-                self.coordinator_name = workspace.name
-                # Store workspace for later use
-                self._workspace = workspace
-            else:
-                # Truly legacy mode - single file or directory config
-                self.config = None
-                self.project_config = {}
-                self.coordinator_name = self._resolve_coordinator_name()
-                self._workspace = None
+            if self.config_path.name != "hygge.yml":
+                raise ConfigError(
+                    f"Expected hygge.yml, got {self.config_path.name}. "
+                    "Only hygge.yml workspace configuration is supported."
+                )
+            workspace = Workspace.from_path(self.config_path)
+            workspace._read_workspace_config()  # Populate workspace.config
+            self.config = None  # Will be loaded in run() via workspace.prepare()
+            self.project_config = workspace.config
+            self.coordinator_name = workspace.name
+            self._workspace = workspace
 
         # Extract options from config if available
         # Options are stored in project_config, not in CoordinatorConfig
@@ -152,14 +141,6 @@ class Coordinator:
         self._journal_cache: Dict[str, Journal] = {}
         self.flow_run_ids: Dict[str, str] = {}
 
-    def _resolve_coordinator_name(self) -> str:
-        """Determine coordinator name from config path (legacy mode only)."""
-        if self.config_path:
-            stem = self.config_path.stem
-            if stem:
-                return stem
-        return "coordinator"
-
     async def run(self) -> None:
         """Run all configured flows."""
         config_source = (
@@ -176,14 +157,14 @@ class Coordinator:
         try:
             # Load configuration if not already loaded
             if self.config is None:
-                # If we have a workspace, use it to prepare config
-                if hasattr(self, "_workspace") and self._workspace:
-                    self.config = self._workspace.prepare()
-                    # Update project_config from workspace (in case it changed)
-                    self.project_config = self._workspace.config
-                else:
-                    # Legacy mode - use _load_config()
-                    self._load_config()
+                if not self._workspace:
+                    raise ConfigError(
+                        "No workspace available. Coordinator requires hygge.yml "
+                        "workspace configuration."
+                    )
+                self.config = self._workspace.prepare()
+                # Update project_config from workspace (in case it changed)
+                self.project_config = self._workspace.config
 
             # Initialize connection pools
             await self._initialize_connection_pools()
@@ -221,99 +202,6 @@ class Coordinator:
         finally:
             # Clean up connection pools
             await self._cleanup_connection_pools()
-
-    def _load_config(self) -> None:
-        """
-        Load and validate configuration from file or directory (legacy mode only).
-
-        This method is only called for truly legacy config patterns:
-        - Single YAML file (not hygge.yml)
-        - Directory structure without hygge.yml
-
-        For hygge.yml files, Workspace is used in __init__.
-        """
-        try:
-            if self.config_path.is_file():
-                # Single file configuration (legacy - not hygge.yml)
-                self._load_single_file_config()
-            elif self.config_path.is_dir():
-                # Directory-based configuration (legacy progressive approach)
-                self._load_directory_config()
-            else:
-                raise ConfigError(
-                    f"Configuration path must be file or directory: {self.config_path}"
-                )
-
-        except Exception as e:
-            raise ConfigError(f"Failed to load configuration: {str(e)}")
-
-        if self.config:
-            self.journal_config = (
-                self.config.journal
-                if isinstance(self.config.journal, JournalConfig)
-                else None
-            )
-
-    def _load_single_file_config(self) -> None:
-        """Load configuration from single YAML file (legacy approach)."""
-        with open(self.config_path, "r") as f:
-            config_data = yaml.safe_load(f)
-
-        # Validate configuration
-        errors = validate_config(config_data)
-        if errors:
-            raise ConfigError(f"Configuration validation failed: {errors}")
-
-        # Parse with Pydantic
-        self.config = WorkspaceConfig.from_dict(config_data)
-        self.journal_config = (
-            self.config.journal
-            if isinstance(self.config.journal, JournalConfig)
-            else None
-        )
-
-        # Extract options
-        self.options = config_data.get("options", {})
-
-        self.logger.info(
-            f"Loaded single-file configuration with {len(self.config.flows)} flows"
-        )
-
-    def _load_directory_config(self) -> None:
-        """Load configuration from directory structure (progressive approach)."""
-        flows = {}
-
-        # Look for flow directories
-        for flow_dir in self.config_path.iterdir():
-            if flow_dir.is_dir() and (flow_dir / "flow.yml").exists():
-                flow_name = flow_dir.name
-                try:
-                    # Load flow config directly
-                    flow_file = flow_dir / "flow.yml"
-                    with open(flow_file, "r") as f:
-                        flow_data = yaml.safe_load(f)
-                    flow_config = FlowConfig(**flow_data)
-                    flows[flow_name] = flow_config
-                    self.logger.debug(f"Loaded flow: {flow_name}")
-                except Exception as e:
-                    raise ConfigError(f"Failed to load flow {flow_name}: {str(e)}")
-
-        if not flows:
-            raise ConfigError(f"No flows found in directory: {self.config_path}")
-
-        # Create workspace config
-        self.config = WorkspaceConfig(flows=flows, journal=None)
-        self.journal_config = None
-
-        # Load global options if they exist
-        options_file = self.config_path / "options.yml"
-        if options_file.exists():
-            with open(options_file, "r") as f:
-                self.options = yaml.safe_load(f) or {}
-        else:
-            self.options = {}
-
-        self.logger.info(f"Loaded directory configuration with {len(flows)} flows")
 
     async def _initialize_connection_pools(self) -> None:
         """Initialize connection pools and execution engines from configuration."""
