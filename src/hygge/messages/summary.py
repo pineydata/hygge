@@ -75,7 +75,7 @@ class Summary:
 
         # Hygge-style summary line - comfortable and clear
         self.logger.info(
-            f"Finished running {len(flow_results)} flows "
+            f"Finished running {len(flow_results)} {'flow' if len(flow_results) == 1 else 'flows'} "
             f"in {time_str} ({elapsed_time:.2f}s)."
         )
 
