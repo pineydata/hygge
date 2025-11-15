@@ -158,7 +158,34 @@ source_config:
 @click.option(
     "--flow",
     "-f",
-    help="Run specific flow by name",
+    multiple=True,
+    help=(
+        "Run specific flow(s) by name. Can be specified multiple times or "
+        "comma-separated. Supports base flow names (e.g., 'salesforce') or "
+        "entity flow names (e.g., 'salesforce_Involvement'). "
+        "Example: --flow salesforce --flow users_to_lake"
+    ),
+)
+@click.option(
+    "--entity",
+    "-e",
+    multiple=True,
+    help=(
+        "Run specific entity(ies) within a flow. Format: flow.entity. "
+        "Example: --entity salesforce.Involvement --entity salesforce.Account"
+    ),
+)
+@click.option(
+    "--incremental",
+    "-i",
+    is_flag=True,
+    help="Run flows in incremental mode (appends data instead of truncating)",
+)
+@click.option(
+    "--full-drop",
+    "-d",
+    is_flag=True,
+    help="Run flows in full_drop mode (truncates destination before writing)",
 )
 @click.option(
     "--concurrency",
@@ -184,15 +211,53 @@ source_config:
         "Example: --var flow.mssql_to_mirrored_db.full_drop=true"
     ),
 )
-def go(flow: Optional[str], concurrency: Optional[int], verbose: bool, var: tuple):
-    """Execute all flows in the current hygge project."""
+def go(
+    flow: tuple,
+    entity: tuple,
+    incremental: bool,
+    full_drop: bool,
+    concurrency: Optional[int],
+    verbose: bool,
+    var: tuple,
+):
+    """Execute flows in the current hygge project."""
     logger = get_logger("hygge.cli.go")
 
     if verbose:
         # TODO: Set log level to DEBUG
         pass
 
+    # Validate run_type flags
+    if incremental and full_drop:
+        click.echo("Error: Cannot specify both --incremental and --full-drop")
+        sys.exit(1)
+
     try:
+        # Parse flow filter from --flow and --entity options
+        flow_filter = []
+
+        # Parse --flow options (can be comma-separated)
+        for flow_str in flow:
+            # Split comma-separated flows
+            flows = [f.strip() for f in flow_str.split(",") if f.strip()]
+            flow_filter.extend(flows)
+
+        # Parse --entity options (format: flow.entity)
+        for entity_str in entity:
+            # Split comma-separated entities
+            entities = [e.strip() for e in entity_str.split(",") if e.strip()]
+            for entity_spec in entities:
+                if "." not in entity_spec:
+                    click.echo(
+                        f"Error: Invalid --entity format: {entity_spec}. "
+                        f"Use flow.entity (e.g., salesforce.Involvement)"
+                    )
+                    sys.exit(1)
+                flow_name, entity_name = entity_spec.split(".", 1)
+                # Convert to entity flow name format
+                entity_flow_name = f"{flow_name}_{entity_name}"
+                flow_filter.append(entity_flow_name)
+
         # Parse CLI variable overrides
         # Supports: flow.<flow_name>.field=value (flow-level overrides)
         flow_overrides = {}  # Flow-specific overrides
@@ -235,24 +300,71 @@ def go(flow: Optional[str], concurrency: Optional[int], verbose: bool, var: tupl
             final_key = field_parts[-1]
             current[final_key] = _parse_var_value(value)
 
-        # Create coordinator (will discover project automatically)
+        # Create a temporary coordinator to load config (for run_type override logic)
+        # This is needed to determine base flow names from entity flow names
+        temp_coordinator = Coordinator(
+            flow_overrides=flow_overrides if flow_overrides else None,
+            flow_filter=flow_filter if flow_filter else None,
+        )
+        temp_coordinator._load_config()
+
+        # Apply run_type override if specified
+        if incremental:
+            run_type_override = "incremental"
+        elif full_drop:
+            run_type_override = "full_drop"
+        else:
+            run_type_override = None
+
+        # If run_type override specified, apply to all flows (filtered or all)
+        if run_type_override:
+            # Determine which base flows to override
+            if flow_filter:
+                # Extract base flow names from filter
+                base_flow_names = set()
+                for flow_name in flow_filter:
+                    # Check if it's an entity flow (contains underscore)
+                    if "_" in flow_name:
+                        # Try to extract base flow name
+                        parts = flow_name.rsplit("_", 1)
+                        if len(parts) == 2:
+                            potential_base = parts[0]
+                            # Check if this base flow exists in config
+                            if potential_base in temp_coordinator.config.flows:
+                                base_flow_names.add(potential_base)
+                                continue
+                    # Not an entity flow or base flow not found, use as-is
+                    if flow_name in temp_coordinator.config.flows:
+                        base_flow_names.add(flow_name)
+            else:
+                # Apply to all flows
+                base_flow_names = set(temp_coordinator.config.flows.keys())
+
+            # Apply run_type override to all base flows
+            for base_flow_name in base_flow_names:
+                if base_flow_name not in flow_overrides:
+                    flow_overrides[base_flow_name] = {}
+                flow_overrides[base_flow_name]["run_type"] = run_type_override
+
+        # Create actual coordinator with final overrides
         coordinator = Coordinator(
-            flow_overrides=flow_overrides if flow_overrides else None
+            flow_overrides=flow_overrides if flow_overrides else None,
+            flow_filter=flow_filter if flow_filter else None,
         )
 
         # Apply CLI concurrency override if provided
         if concurrency is not None:
             coordinator.options["concurrency"] = concurrency
 
-        if flow:
-            click.echo(f"Starting flow: {flow}")
-            # TODO: Implement single flow execution
-            click.echo("Single flow execution not yet implemented")
+        # Run flows
+        if flow_filter:
+            flow_list = ", ".join(flow_filter)
+            click.echo(f"Starting flows: {flow_list}")
         else:
             click.echo("Starting all flows...")
-            # Run all flows
-            asyncio.run(coordinator.run())
-            click.echo("All flows completed successfully!")
+
+        asyncio.run(coordinator.run())
+        click.echo("All flows completed successfully!")
 
     except ConfigError as e:
         click.echo(f"Configuration error: {e}")

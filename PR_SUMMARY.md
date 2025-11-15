@@ -1,25 +1,59 @@
+---
+title: PR Summary
+---
+
 ## Overview
-- Extend hygge’s Azure lineage so flow `run_type` drives truncate-versus-append behavior consistently across ADLS, OneLake, and Open Mirroring stores; the legacy `full_drop` switches disappear in favor of per-run configuration hooks.
-- Give the execution journal a remote home: lake-based flows now keep their parquet run log beside their data (`Files/.hygge_journal/journal.parquet`), while filesystem flows continue writing locally.
-- Offer optional mirrored journal telemetry for Open Mirroring by streaming journal rows into a dedicated Fabric table; documentation and progress logs record the milestone.
+
+- Implemented automatic retry mechanism for transient connection errors at the flow level, ensuring data integrity by cleaning up staging directories before each retry.
+- Enhanced retry decorator with custom retry conditions and before-sleep callbacks for flexible error handling.
+- Fixed summary display to always show execution results, even when flows fail.
 
 ## Key Changes
-### Store & Flow Runtime Wiring
-- `src/hygge/core/store.py`: introduces a `configure_for_run` hook so stores can reset staging state or truncate destinations when the flow requests a full drop.
-- `src/hygge/core/flow.py`: calls the new hook during construction, ensuring each store reacts to the upcoming run type before data moves.
 
-### Azure Store Enhancements
-- `src/hygge/stores/adls/store.py`, `src/hygge/stores/onelake/store.py`, `src/hygge/stores/openmirroring/store.py`: track `full_drop_mode`, reset counters, and truncate destinations only for full-drop runs; Open Mirroring config now exposes `mirror_journal` / `journal_table_name`.
-- `src/hygge/utility/azure_onelake.py`: adds byte-level reads to support remote journal operations.
+### Flow Retry & Error Handling
 
-### Journal & Coordinator Updates
-- `src/hygge/core/journal.py`: refactored to support both local and ADLS-backed storage, handle atomic remote writes, create mirrored sinks when requested, and expose a shared read path for aggregations.
-- `src/hygge/core/coordinator.py`: passes store instances/configs into the journal factory so it can detect remote scenarios; simplification of `full_drop` propagation.
+- `src/hygge/core/flow.py`:
+  - Implemented flow-level retry using enhanced `with_retry` decorator
+  - Added `_should_retry_flow_error()` to identify transient connection errors
+  - Added `_cleanup_before_retry()` to reset flow state and clean staging before retries
+  - Retries entire flow (producer + consumer) on transient errors for atomicity
 
-### Tests & Docs
-- `tests/unit/hygge/core/test_journal.py`: new ADLS stub verifies remote journal paths and append logic.
-- `tests/unit/hygge/stores/*`: cover the per-run configuration hooks and full-drop handling across ADLS, OneLake, and Open Mirroring.
-- `HYGGE_PROGRESS.md`, `HYGGE_DONE.md`: document the remote journal milestone.
+- `src/hygge/core/coordinator.py`:
+  - Fixed summary display to always show execution results before re-raising exceptions
+  - Ensures dbt-style summary is visible even when flows fail
+
+### Retry Utility
+
+- `src/hygge/utility/retry.py`:
+  - Enhanced `with_retry` decorator with `retry_if_func` for custom retry conditions
+  - Added `before_sleep_func` parameter for cleanup/setup before each retry
+  - Fixed logger compatibility (uses standard logger for tenacity's before_sleep_log)
+  - Changed from `retry_if` to `retry_if_exception` (correct tenacity import)
+
+### Store Cleanup
+
+- `src/hygge/core/store.py`:
+  - Added abstract `cleanup_staging()` method for stores to clean temporary directories
+
+- `src/hygge/stores/parquet/store.py`:
+  - Implemented `cleanup_staging()` to remove local staging files before retry
+
+- `src/hygge/stores/adls/store.py`:
+  - Implemented `cleanup_staging()` to remove cloud `_tmp` directories before retry
+  - Fixed path construction to correctly target entity-specific staging directories
+
+### Tests
+
+- `tests/unit/hygge/core/test_flow.py`:
+  - Added tests for flow retry on transient connection errors
+  - Added tests for state reset and cleanup before retry
+  - Added tests for non-transient error handling (no retry)
+  - Added tests for max retry limit
+
+- `tests/unit/hygge/utility/test_retry.py`:
+  - Comprehensive unit tests for `with_retry` decorator
+  - Tests for custom retry conditions, before_sleep callbacks, exponential backoff, timeout enforcement, and more
 
 ## Testing
-- `pytest`
+
+- All tests passing: `pytest` (502 tests collected, all passing)

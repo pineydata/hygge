@@ -1,0 +1,526 @@
+diff --git a/src/hygge/core/journal.py b/src/hygge/core/journal.py
+index 20ba00a..8f275ee 100644
+--- a/src/hygge/core/journal.py
++++ b/src/hygge/core/journal.py
+@@ -309,7 +309,7 @@ class Journal:
+             "client_id": getattr(store_config, "client_id", None),
+             "client_secret": getattr(store_config, "client_secret", None),
+             "storage_account_key": getattr(store_config, "storage_account_key", None),
+-            "schema_name": getattr(store_config, "schema_name", None),
++            "schema_name": "__hygge",
+             "partner_name": getattr(store_config, "partner_name", None),
+             "source_type": getattr(store_config, "source_type", None),
+             "source_version": getattr(store_config, "source_version", None),
+@@ -327,13 +327,17 @@ class Journal:
+             )
+             return None
+
++        # Force journal table into the dedicated __hygge schema so mirrored telemetry
++        # stays separate from business entities.
++        journal_store_config.schema_name = "__hygge"
++
+         journal_store = OpenMirroringStore(
+             name=f"{self.name}_journal_mirror_store",
+             config=journal_store_config,
+             flow_name=self.coordinator_name,
+             entity_name=journal_table,
+         )
+-        return MirroredJournalWriter(journal_store)
++        return MirroredJournalWriter(journal_store, self)
+
+     def _build_adls_ops_from_store_config(
+         self, store_config: Optional[Any]
+@@ -809,11 +813,27 @@ class Journal:
+ class MirroredJournalWriter:
+     """Append-only writer that mirrors journal entries into an Open Mirroring table."""
+
+-    def __init__(self, store) -> None:
++    def __init__(self, store, journal: "Journal") -> None:
+         self.store = store
++        self._journal = journal
+         self._lock = asyncio.Lock()
+
+-    async def append(self, df: pl.DataFrame) -> None:
++    async def append(self, _df: pl.DataFrame) -> None:
++        """
++        Synchronize the mirrored table with the canonical journal parquet.
++
++        Instead of streaming individual rows (which led to schema inference issues
++        inside Fabric), we reload the authoritative parquet and publish it as a full
++        drop so the mirrored table exactly matches `.hygge_journal/journal.parquet`.
++        """
++
+         async with self._lock:
+-            await self.store.write(df)
++            journal_df = await self._journal._read_journal_df()
++            if journal_df is None or len(journal_df) == 0:
++                return
++
++            # Replace the mirrored table with the latest journal snapshot.
++            if hasattr(self.store, "configure_for_run"):
++                self.store.configure_for_run("full_drop")
++            await self.store.write(journal_df)
+             await self.store.finish()
+diff --git a/src/hygge/stores/openmirroring/store.py b/src/hygge/stores/openmirroring/store.py
+index 11f7401..614ec8c 100644
+--- a/src/hygge/stores/openmirroring/store.py
++++ b/src/hygge/stores/openmirroring/store.py
+@@ -283,6 +283,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
+         # Track metadata file paths (for full_drop atomic operation)
+         self._metadata_tmp_path = None
+         self._partner_events_tmp_path = None
++        self._schema_tmp_path = None
++        self._schema_tmp_path = None
+
+         # Track if table folder has been prepared (full_drop + metadata)
+         self._table_folder_prepared = False
+@@ -302,6 +304,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
+         self._partner_events_written = False
+         self._metadata_tmp_path = None
+         self._partner_events_tmp_path = None
++        self._schema_tmp_path = None
+         self._table_folder_prepared = False
+         self.sequence_counter = None
+
+@@ -744,6 +747,84 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
+             f"with keyColumns: {self.key_columns}"
+         )
+         self._metadata_written = True
++        await self._write_schema_json(to_tmp=to_tmp)
++
++    async def _write_schema_json(self, to_tmp: bool = False) -> None:
++        """
++        Write `_schema.json` file describing column order/types so Fabric mirrors
++        the journal parquet without relying on inference.
++        """
++        from hygge.core.journal import Journal
++
++        schema_columns = []
++        for column_name, dtype in Journal.JOURNAL_SCHEMA.items():
++            schema_columns.append(
++                {
++                    "name": column_name,
++                    "type": self._map_polars_dtype_to_fabric(dtype),
++                }
++            )
++
++        schema_payload = {"columns": schema_columns}
++
++        if to_tmp:
++            if self.base_path and "LandingZone" in self.base_path:
++                tmp_base_path = self.base_path.replace(
++                    "/Files/LandingZone/", "/Files/_tmp/"
++                )
++                schema_path = f"{tmp_base_path}/_schema.json"
++            else:
++                raise StoreError(
++                    "Cannot construct _tmp path for schema: "
++                    f"base_path '{self.base_path}' does not contain 'LandingZone'."
++                )
++        else:
++            schema_path = f"{self.base_path}/_schema.json"
++
++        adls_ops = self._get_adls_ops()
++        json_data = json.dumps(schema_payload, indent=2).encode("utf-8")
++
++        directory_path = str(Path(schema_path).parent)
++        try:
++            directory_client = adls_ops.file_system_client.get_directory_client(
++                directory_path
++            )
++            if not directory_client.exists():
++                directory_client.create_directory(timeout=adls_ops.timeout)
++                self.logger.debug(f"Created directory for schema: {directory_path}")
++        except Exception as exc:
++            self.logger.debug(
++                f"Directory check/create failed (may already exist): {str(exc)}"
++            )
++
++        file_client = adls_ops.file_system_client.get_file_client(schema_path)
++        file_client.upload_data(json_data, overwrite=True, timeout=adls_ops.timeout)
++        if to_tmp:
++            self._schema_tmp_path = schema_path
++        self.logger.debug(f"Wrote _schema.json to {schema_path}")
++
++    @staticmethod
++    def _map_polars_dtype_to_fabric(dtype) -> str:
++        """Map Polars dtype to Fabric-compatible type names."""
++        if dtype in {pl.Utf8}:
++            return "string"
++        integer_types = {
++            pl.Int8,
++            pl.Int16,
++            pl.Int32,
++            pl.Int64,
++            pl.UInt8,
++            pl.UInt16,
++            pl.UInt32,
++            pl.UInt64,
++        }
++        if dtype in integer_types:
++            return "long"
++        if dtype in {pl.Float32, pl.Float64}:
++            return "double"
++        if dtype in {pl.Datetime, pl.Date, pl.Time}:
++            return "datetime"
++        return "string"
+
+     async def _write_partner_events_json(self, to_tmp: bool = False) -> None:
+         """
+@@ -1016,13 +1097,13 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
+             buffer = io.BytesIO()
+             df.write_parquet(buffer, compression=self.compression)
+             data = buffer.getvalue()
+-            await adls_ops.upload_bytes(data, cloud_staging_path)
++            stored_staging_path = await adls_ops.upload_bytes(data, cloud_staging_path)
+
+             # Log and track (reusing parent's tracking logic)
+             self._log_write_progress(len(df))
+             if not hasattr(self, "saved_paths"):
+                 self.saved_paths = []
+-            self.saved_paths.append(cloud_staging_path)
++            self.saved_paths.append(stored_staging_path or cloud_staging_path)
+             if not hasattr(self, "uploaded_files"):
+                 self.uploaded_files = []
+             self.uploaded_files.append(filename)
+@@ -1055,120 +1136,151 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
+         if self.rows_since_last_log > 0:
+             self.logger.debug(f"WROTE {self.rows_since_last_log:,} rows")
+
+-        if self.full_drop_mode:
+-            # Atomic operation: Delete production folder AFTER all data written
+-            self.logger.debug(
+-                "full_drop mode: Performing atomic operation - "
+-                "deleting production folder and moving files from _tmp"
+-            )
++        try:
++            if self.full_drop_mode:
++                # Atomic operation: Delete production folder AFTER all data written
++                self.logger.debug(
++                    "full_drop mode: Performing atomic operation - "
++                    "deleting production folder and moving files from _tmp"
++                )
+
+-            # Step 1: Delete production folder (ACID: only after all writes succeed)
+-            await self._delete_table_folder()
++                # Step 1: Delete production folder (ACID: only after all writes succeed)
++                await self._delete_table_folder()
+
+-            # Step 2: Move all data files from _tmp to production
+-            # Collect any errors but continue moving files to minimize data loss
+-            adls_ops = self._get_adls_ops()
+-            move_errors = []
++                # Step 2: Move all data files from _tmp to production
++                # Collect any errors but continue moving files to minimize data loss
++                adls_ops = self._get_adls_ops()
++                move_errors = []
+
+-            if hasattr(self, "saved_paths") and self.saved_paths:
+-                for staging_path_str in self.saved_paths:
+-                    if not staging_path_str:
+-                        continue
++                if hasattr(self, "saved_paths") and self.saved_paths:
++                    for staging_path_str in self.saved_paths:
++                        if not staging_path_str:
++                            continue
+
+-                    # Build final path: replace _tmp with LandingZone
+-                    if "_tmp" in staging_path_str:
+-                        final_path_str = self._convert_tmp_to_production_path(
+-                            staging_path_str
+-                        )
+-                    else:
+-                        # Fallback: build final path from staging path
+-                        # This should not happen in full_drop mode (all paths should
+-                        # contain _tmp), but we handle it defensively
+-                        self.logger.warning(
+-                            f"full_drop mode: staging path '{staging_path_str}' "
+-                            "does not contain '_tmp'. This is unexpected and may "
+-                            "indicate a configuration issue. Using fallback path "
+-                            "construction."
+-                        )
+-                        staging_path = Path(staging_path_str)
+-                        final_dir = self.get_final_directory()
+-                        if final_dir:
+-                            final_path = final_dir / staging_path.name
+-                            final_path_str = final_path.as_posix()
++                        # Build final path: replace _tmp with LandingZone
++                        if "_tmp" in staging_path_str:
++                            final_path_str = self._convert_tmp_to_production_path(
++                                staging_path_str
++                            )
+                         else:
+-                            # Build from base_path
++                            # Fallback: build final path from staging path
++                            # This should not happen in full_drop mode (all paths should
++                            # contain _tmp), but we handle it defensively
++                            self.logger.warning(
++                                f"full_drop mode: staging path '{staging_path_str}' "
++                                "does not contain '_tmp'. This is unexpected and may "
++                                "indicate a configuration issue. Using fallback path "
++                                "construction."
++                            )
++                            staging_path = Path(staging_path_str)
++                            final_dir = self.get_final_directory()
++                            if final_dir:
++                                final_path = final_dir / staging_path.name
++                                final_path_str = final_path.as_posix()
++                            else:
++                                # Build from base_path
++                                filename = PathHelper.get_filename(staging_path_str)
++                                final_path_str = f"{self.base_path}/{filename}"
++
++                        # Move file from _tmp to production
++                        try:
++                            await adls_ops.move_file(staging_path_str, final_path_str)
++                            self.logger.debug(
++                                f"Moved {PathHelper.get_filename(staging_path_str)} "
++                                f"from _tmp to production"
++                            )
++                        except Exception as e:
+                             filename = PathHelper.get_filename(staging_path_str)
+-                            final_path_str = f"{self.base_path}/{filename}"
+-
+-                    # Move file from _tmp to production
++                            error_msg = f"Failed to move {filename}: {str(e)}"
++                            move_errors.append(error_msg)
++                            self.logger.error(error_msg)
++                            # Continue moving other files to minimize data loss
++
++                # Step 3: Move metadata files from _tmp to production (if they exist)
++                if self._metadata_tmp_path:
++                    # Build final metadata path: replace _tmp with LandingZone
++                    final_metadata_path = self._convert_tmp_to_production_path(
++                        self._metadata_tmp_path
++                    )
+                     try:
+-                        await adls_ops.move_file(staging_path_str, final_path_str)
++                        await adls_ops.move_file(
++                            self._metadata_tmp_path, final_metadata_path
++                        )
+                         self.logger.debug(
+-                            f"Moved {PathHelper.get_filename(staging_path_str)} "
+-                            f"from _tmp to production"
++                            "Moved _metadata.json from _tmp to production"
+                         )
+                     except Exception as e:
+-                        filename = PathHelper.get_filename(staging_path_str)
+-                        error_msg = f"Failed to move {filename}: {str(e)}"
++                        error_msg = f"Failed to move _metadata.json: {str(e)}"
+                         move_errors.append(error_msg)
+                         self.logger.error(error_msg)
+-                        # Continue moving other files to minimize data loss
+
+-            # Step 3: Move metadata files from _tmp to production (if they exist)
+-            if self._metadata_tmp_path:
+-                # Build final metadata path: replace _tmp with LandingZone
+-                final_metadata_path = self._convert_tmp_to_production_path(
+-                    self._metadata_tmp_path
+-                )
+-                try:
+-                    await adls_ops.move_file(
+-                        self._metadata_tmp_path, final_metadata_path
++                # Step 4: Move partner events file (if it exists and was written
++                # to _tmp)
++                if self._partner_events_tmp_path:
++                    # Build final partner events path: replace _tmp with LandingZone
++                    final_partner_events_path = self._convert_tmp_to_production_path(
++                        self._partner_events_tmp_path
+                     )
+-                    self.logger.debug("Moved _metadata.json from _tmp to production")
+-                except Exception as e:
+-                    error_msg = f"Failed to move _metadata.json: {str(e)}"
+-                    move_errors.append(error_msg)
+-                    self.logger.error(error_msg)
+-
+-            # Step 4: Move partner events file (if it exists and was written to _tmp)
+-            if self._partner_events_tmp_path:
+-                # Build final partner events path: replace _tmp with LandingZone
+-                final_partner_events_path = self._convert_tmp_to_production_path(
+-                    self._partner_events_tmp_path
+-                )
+-                try:
+-                    await adls_ops.move_file(
+-                        self._partner_events_tmp_path, final_partner_events_path
++                    try:
++                        await adls_ops.move_file(
++                            self._partner_events_tmp_path,
++                            final_partner_events_path,
++                        )
++                        self.logger.debug(
++                            "Moved _partnerEvents.json from _tmp to production"
++                        )
++                    except Exception as e:
++                        error_msg = f"Failed to move _partnerEvents.json: {str(e)}"
++                        move_errors.append(error_msg)
++                        self.logger.error(error_msg)
++
++                # Step 5: Move schema file if it was written to _tmp
++                if self._schema_tmp_path:
++                    final_schema_path = self._convert_tmp_to_production_path(
++                        self._schema_tmp_path
+                     )
+-                    self.logger.debug(
+-                        "Moved _partnerEvents.json from _tmp to production"
++                    try:
++                        await adls_ops.move_file(
++                            self._schema_tmp_path,
++                            final_schema_path,
++                        )
++                        self.logger.debug("Moved _schema.json from _tmp to production")
++                    except Exception as e:
++                        error_msg = f"Failed to move _schema.json: {str(e)}"
++                        move_errors.append(error_msg)
++                        self.logger.error(error_msg)
++
++                # If any moves failed, raise a comprehensive error
++                if move_errors:
++                    error_summary = (
++                        f"full_drop atomic operation partially failed. "
++                        f"{len(move_errors)} file(s) failed to move from _tmp "
++                        f"to production. Production folder was deleted, but some "
++                        f"files remain in _tmp. Manual intervention required: "
++                        f"Files in _tmp may need to be moved manually or cleaned up. "
++                        f"Errors: {'; '.join(move_errors)}"
+                     )
+-                except Exception as e:
+-                    error_msg = f"Failed to move _partnerEvents.json: {str(e)}"
+-                    move_errors.append(error_msg)
+-                    self.logger.error(error_msg)
+-
+-            # If any moves failed, raise a comprehensive error
+-            if move_errors:
+-                error_summary = (
+-                    f"full_drop atomic operation partially failed. "
+-                    f"{len(move_errors)} file(s) failed to move from _tmp "
+-                    f"to production. Production folder was deleted, but some "
+-                    f"files remain in _tmp. "
+-                    f"Manual intervention required: Files in _tmp may need to be "
+-                    f"moved manually or cleaned up. Errors: {'; '.join(move_errors)}"
+-                )
+-                raise StoreError(error_summary)
++                    raise StoreError(error_summary)
+
+-            self.logger.success(
+-                "Atomic full_drop operation completed: "
+-                "All data successfully moved from _tmp to production"
+-            )
++                self.logger.success(
++                    "Atomic full_drop operation completed: "
++                    "All data successfully moved from _tmp to production"
++                )
+
+-            # Log completion stats using shared helper
+-            self._log_completion_stats()
+-        else:
+-            # Normal mode: use parent's finish() which moves files and logs stats
+-            # Buffer already flushed and rows logged above, so parent will skip
+-            # those steps (checks if buffer exists and rows_since_last_log > 0)
+-            await super().finish()
++                # Log completion stats using shared helper
++                self._log_completion_stats()
++            else:
++                # Normal mode: use parent's finish() which moves files and logs stats
++                # Buffer already flushed and rows logged above, so parent will skip
++                # those steps (checks if buffer exists and rows_since_last_log > 0)
++                await super().finish()
++        finally:
++            # Reset per-write staging state so repeated finish() calls (e.g., mirrored
++            # journal appends) don't attempt to move already-published files.
++            if hasattr(self, "saved_paths"):
++                self.saved_paths = []
++            if hasattr(self, "uploaded_files"):
++                self.uploaded_files = []
++            self._metadata_tmp_path = None
++            self._partner_events_tmp_path = None
++            self._schema_tmp_path = None
+diff --git a/src/hygge/utility/azure_onelake.py b/src/hygge/utility/azure_onelake.py
+index 9778a27..8d66561 100644
+--- a/src/hygge/utility/azure_onelake.py
++++ b/src/hygge/utility/azure_onelake.py
+@@ -168,23 +168,38 @@ class ADLSOperations:
+         """
+         try:
+             # Create all parent directories recursively
+-            dest_dir = str(Path(dest_path).parent)
+-            await self.create_directory_recursive(dest_dir)
++            raw_dest_dir = str(Path(dest_path).parent)
++            dest_dir = raw_dest_dir.lstrip("/")
++            dest_path_normalized = dest_path.lstrip("/")
++
++            if dest_dir:
++                await self.create_directory_recursive(dest_dir)
++            else:
++                # When uploading to the root, skip directory creation but ensure the
++                # filesystem exists (upload will fail later if it doesn't).
++                self.logger.debug(
++                    "Destination is filesystem root; skipping directory creation"
++                )
+
+             # Add a small delay to allow for directory propagation
+             import time
+
+             time.sleep(0.5)  # 500ms delay
+
+-            # Verify directory exists
+-            if not await self.directory_exists(dest_dir):
+-                raise StoreError(
+-                    "Directory creation failed - "
+-                    f"{dest_dir} does not exist after creation"
+-                )
++            # Verify directory exists (skip for OneLake to avoid transient policy
++            # checks)
++            if dest_dir and not self.is_onelake:
++                resolved_dir = dest_dir
++                if not await self.directory_exists(resolved_dir):
++                    raise StoreError(
++                        "Directory creation failed - "
++                        f"{raw_dest_dir} does not exist after creation"
++                    )
+
+             # Create file first
+-            file_client = self.file_system_client.get_file_client(dest_path)
++            file_client = self.file_system_client.get_file_client(
++                dest_path_normalized or dest_path
++            )
+             file_client.create_file()
+
+             # Get data to upload
+@@ -201,7 +216,7 @@ class ADLSOperations:
+             file_client.flush_data(len(data))
+
+             self.logger.debug(f"Successfully uploaded file to: {dest_path}")
+-            return dest_path
++            return dest_path_normalized or dest_path
+
+         except Exception as e:
+             if "timeout" in str(e).lower():
+@@ -288,15 +303,26 @@ class ADLSOperations:
+             self.logger.debug(f"Creating directory recursively: {path}")
+
+             # Create parent directories first
+-            path_parts = path.split("/")
++            path_parts = [part for part in path.split("/") if part]
+             current_path = ""
+
+-            for part in path_parts:
++            for idx, part in enumerate(path_parts):
+                 if current_path:
+                     current_path += f"/{part}"
+                 else:
+                     current_path = part
+
++                if (
++                    self.is_onelake
++                    and idx == 0
++                    and part.lower() not in {"files", "tables"}
++                ):
++                    # Mounted relational databases expose a top-level GUID folder that
++                    # already exists and cannot be re-created. Skip explicit creation
++                    # for that segment and continue with child folders where writes
++                    # are permitted (Files/…, Tables/…).
++                    continue
++
+                 if current_path:  # Skip empty parts
+                     try:
+                         directory_client = self.file_system_client.get_directory_client(
