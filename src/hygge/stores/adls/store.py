@@ -19,6 +19,7 @@ from azure.identity import (
 from azure.storage.filedatalake import DataLakeServiceClient
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from hygge.core.polish import PolishConfig, Polisher
 from hygge.core.store import Store, StoreConfig
 from hygge.utility.azure_onelake import ADLSOperations
 from hygge.utility.exceptions import StoreError
@@ -98,6 +99,11 @@ class ADLSStoreConfig(BaseModel, StoreConfig, config_type="adls"):
     # Additional options
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional ADLS store options"
+    )
+    # Optional last-mile polishing configuration
+    polish: Optional[PolishConfig] = Field(
+        default=None,
+        description="Optional Polisher configuration for last-mile transforms.",
     )
 
     @field_validator("credential")
@@ -198,6 +204,10 @@ class ADLSStore(Store, store_type="adls"):
 
         super().__init__(name, merged_options)
         self.config = config
+        # Optional polish configuration
+        self._polisher = (
+            Polisher(config.polish) if getattr(config, "polish", None) else None
+        )
         self.entity_name = entity_name
         self.flow_name = flow_name or name
 
