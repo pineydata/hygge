@@ -117,26 +117,51 @@ class TestOpenMirroringStoreConfig:
             )
         assert "mirror_name" in str(exc_info.value).lower()
 
-    def test_config_requires_key_columns(self):
-        """Test that key_columns is required."""
-        with pytest.raises(ValidationError) as exc_info:
-            OpenMirroringStoreConfig(
-                account_url="https://onelake.dfs.fabric.microsoft.com",
-                filesystem="MyLake",
-                mirror_name="MyMirror",
-                row_marker=0,
-                # key_columns missing
-            )
-        assert "key_columns" in str(exc_info.value).lower()
+    def test_config_allows_optional_key_columns(self):
+        """Test that key_columns is optional at config level.
 
-    def test_config_requires_key_columns_non_empty(self):
-        """Test that key_columns must have at least one column."""
+        Validation happens at store creation, not config creation.
+        """
+        # Should not raise validation error at config level
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            row_marker=0,
+            # key_columns missing - OK at config level
+        )
+        assert config.key_columns is None
+
+    def test_config_key_columns_string_conversion(self):
+        """Test that key_columns string is converted to list."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns="id",  # String format
+            row_marker=0,
+        )
+        assert config.key_columns == ["id"]  # Converted to list
+
+    def test_config_key_columns_list_unchanged(self):
+        """Test that key_columns list stays as list."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id", "user_id"],  # List format
+            row_marker=0,
+        )
+        assert config.key_columns == ["id", "user_id"]
+
+    def test_config_key_columns_invalid_type(self):
+        """Test that invalid key_columns type raises error."""
         with pytest.raises(ValidationError):
             OpenMirroringStoreConfig(
                 account_url="https://onelake.dfs.fabric.microsoft.com",
                 filesystem="MyLake",
                 mirror_name="MyMirror",
-                key_columns=[],  # Empty list
+                key_columns=123,  # Invalid type
                 row_marker=0,
             )
 
@@ -339,6 +364,61 @@ class TestOpenMirroringStoreInitialization:
         store.configure_for_run("incremental")
         assert store.full_drop_mode is True
         assert store.incremental_override is False
+
+    def test_store_requires_key_columns_at_initialization(self):
+        """Test that store raises error when key_columns is None."""
+        from hygge.utility.exceptions import StoreError
+
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            row_marker=0,
+            # key_columns is None
+        )
+
+        with pytest.raises(StoreError) as exc_info:
+            OpenMirroringStore("test_store", config, entity_name="users")
+
+        assert "key_columns is required" in str(exc_info.value).lower()
+        assert "entity" in str(exc_info.value).lower()
+
+    def test_config_rejects_empty_list_key_columns(self):
+        """Test that config validation rejects empty list key_columns."""
+        with pytest.raises(ValidationError) as exc_info:
+            OpenMirroringStoreConfig(
+                account_url="https://onelake.dfs.fabric.microsoft.com",
+                filesystem="MyLake",
+                mirror_name="MyMirror",
+                key_columns=[],  # Empty list
+                row_marker=0,
+            )
+        assert "empty list" in str(exc_info.value).lower()
+
+    def test_config_rejects_empty_string_key_columns(self):
+        """Test that config validation rejects empty string key_columns."""
+        with pytest.raises(ValidationError) as exc_info:
+            OpenMirroringStoreConfig(
+                account_url="https://onelake.dfs.fabric.microsoft.com",
+                filesystem="MyLake",
+                mirror_name="MyMirror",
+                key_columns="",  # Empty string
+                row_marker=0,
+            )
+        assert "empty string" in str(exc_info.value).lower()
+
+    def test_store_initialization_with_string_key_columns(self):
+        """Test that store accepts string key_columns (converted to list)."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns="id",  # String format
+            row_marker=0,
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        assert store.key_columns == ["id"]  # Should be converted to list
 
 
 class TestOpenMirroringStoreRowMarker:

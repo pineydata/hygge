@@ -69,13 +69,17 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
     )
 
     # Required for Open Mirroring - key columns
-    key_columns: List[str] = Field(
-        ...,
+    # Can be set at flow level or per-entity via entity.store.key_columns
+    key_columns: Optional[List[str]] = Field(
+        default=None,
         description=(
-            "List of column names that form the unique key "
-            "(required for updates/deletes)"
+            "Required for Open Mirroring (metadata.json keyColumns). "
+            "Can be set at flow level or per-entity via "
+            "entity.store.key_columns. "
+            "Accepts both string (single column) or list (multiple columns). "
+            "Note: This is Open Mirroring specific - no other stores "
+            "require key_columns."
         ),
-        min_length=1,
     )
 
     # File naming strategy
@@ -158,6 +162,24 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         if v not in valid_markers:
             raise ValueError(f"row_marker must be one of {valid_markers}, got '{v}'")
         return v
+
+    @field_validator("key_columns", mode="before")
+    @classmethod
+    def normalize_key_columns(cls, v):
+        """Convert string to list for convenience."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            if not v.strip():  # Empty string
+                raise ValueError("key_columns cannot be an empty string")
+            return [v]  # Convert "Id" -> ["Id"]
+        if isinstance(v, list):
+            if len(v) == 0:
+                raise ValueError("key_columns cannot be an empty list")
+            return v  # Already a list
+        raise ValueError(
+            f"key_columns must be a string or list of strings, got {type(v)}"
+        )
 
     @model_validator(mode="after")
     def build_open_mirroring_path(self):
@@ -265,6 +287,15 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
     ):
         # Let OneLakeStore handle base initialization
         super().__init__(name, config, flow_name, entity_name)
+
+        # Validate key_columns is set (required for Open Mirroring)
+        if config.key_columns is None or len(config.key_columns) == 0:
+            entity_info = f" for entity '{entity_name}'" if entity_name else ""
+            raise StoreError(
+                f"key_columns is required for Open Mirroring store{entity_info}. "
+                f"Please specify key_columns in the store config or "
+                f"entity.store.key_columns."
+            )
 
         # Open Mirroring specific configuration
         self.key_columns = config.key_columns
