@@ -110,6 +110,10 @@ class Store(ABC):
             "progress_interval", self.row_multiplier
         )
 
+        # Optional last-mile polisher, configured per-Store.
+        # Concrete stores can set this based on their config (e.g., store.polish).
+        self._polisher = None
+
     def configure_for_run(self, run_type: str) -> None:
         """
         Configure the store for the upcoming run type.
@@ -219,6 +223,9 @@ class Store(ABC):
             # Combine all buffered data
             combined_data = self._combine_buffered_data()
 
+            # Apply optional last-mile polish before saving.
+            combined_data = self._pre_write(combined_data)
+
             # If data exceeds batch_size, only flush one batch
             if len(combined_data) > self.batch_size:
                 batch_data = combined_data.slice(0, self.batch_size)
@@ -283,6 +290,33 @@ class Store(ABC):
         else:
             # Combine multiple DataFrames
             return pl.concat(self.data_buffer)
+
+    def _pre_write(self, data: pl.DataFrame) -> pl.DataFrame:
+        """
+        Hook for last-mile Store transformations.
+
+        By default, applies an optional Polisher if configured. Stores with
+        stricter invariants (e.g., Open Mirroring) can override this method
+        but should usually start by calling super()._pre_write(data).
+        """
+        if data is None:
+            return data
+
+        polisher = getattr(self, "_polisher", None)
+        if polisher is None:
+            return data
+
+        try:
+            return polisher.apply(data)
+        except Exception:
+            # Comfort over force: if polishing fails for any reason,
+            # log at DEBUG level and continue with original data.
+            # Avoid breaking flows due to cosmetic transforms.
+            if hasattr(self, "logger"):
+                self.logger.debug(
+                    "Polisher failed; writing unpolished data.", exc_info=True
+                )
+            return data
 
     def _log_write_progress(self, rows_written: int) -> None:
         """

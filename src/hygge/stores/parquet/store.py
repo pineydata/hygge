@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 import polars as pl
 from pydantic import Field, field_validator
 
+from hygge.core.polish import PolishConfig, Polisher
 from hygge.core.store import BaseStoreConfig, Store, StoreConfig
 from hygge.utility.exceptions import StoreError
 from hygge.utility.path_helper import PathHelper
@@ -48,6 +49,10 @@ class ParquetStore(Store, store_type="parquet"):
 
         super().__init__(name, merged_options)
         self.config = config
+        # Optional polish configuration
+        self._polisher = (
+            Polisher(config.polish) if getattr(config, "polish", None) else None
+        )
         # Progress tracking is handled by base Store class
         self.entity_name = entity_name
 
@@ -233,6 +238,11 @@ class ParquetStoreConfig(StoreConfig, BaseStoreConfig, config_type="parquet"):
     compression: str = Field(default="snappy", description="Compression algorithm")
     file_pattern: str = Field(
         default="{sequence:020d}.parquet", description="File naming pattern"
+    )
+    # Optional last-mile polishing configuration
+    polish: Optional[PolishConfig] = Field(
+        default=None,
+        description="Optional Polisher configuration for last-mile transforms.",
     )
     options: Dict[str, Any] = Field(
         default_factory=dict, description="Additional parquet store options"
