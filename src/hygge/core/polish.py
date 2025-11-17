@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 import polars as pl
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from hygge.messages import get_logger
 
 
 class ColumnRules(BaseModel):
@@ -94,6 +96,22 @@ class TimestampRule(BaseModel):
         description="Optional strftime format if type='string'.",
     )
 
+    @field_validator("source")
+    @classmethod
+    def validate_source(cls, v):
+        """Validate source value."""
+        if v not in ["now_utc", "now_local"]:
+            raise ValueError(f"source must be one of: 'now_utc', 'now_local'. Got: {v}")
+        return v
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v):
+        """Validate type value."""
+        if v not in ["datetime", "string"]:
+            raise ValueError(f"type must be one of: 'datetime', 'string'. Got: {v}")
+        return v
+
 
 class RowMarkerAlias(BaseModel):
     """Back-compat alias for row marker configuration."""
@@ -168,18 +186,31 @@ class Polisher:
     """
 
     config: PolishConfig
+    logger: Any = field(init=False, repr=False)
+
+    def __post_init__(self):
+        """Initialize logger after dataclass instantiation."""
+        self.logger = get_logger("hygge.polisher")
 
     def apply(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Apply all configured polish steps to the DataFrame."""
+        """
+        Apply all configured polish steps to the DataFrame.
+
+        Order of operations:
+        1. Hash ID generation (uses original column names from the DataFrame)
+        2. Column normalization (applies to all columns, including hash ID columns)
+        3. Constant columns
+        4. Timestamp columns
+        """
         if df is None or not isinstance(df, pl.DataFrame) or df.is_empty():
             return df
 
-        # 1) Column normalization
-        df = self._apply_columns(df)
-
-        # 2) Hash IDs
+        # 1) Hash IDs (before normalization so users can reference original names)
         if self.config.hash_ids:
             df = self._apply_hash_ids(df, self.config.hash_ids)
+
+        # 2) Column normalization (applies to all columns including hash IDs)
+        df = self._apply_columns(df)
 
         # 3) Constants
         if self.config.constants:
@@ -201,7 +232,11 @@ class Polisher:
         - "XMLParser" -> ["XML", "Parser"]
         - "HTTPSConnection" -> ["HTTPS", "Connection"]
         - "employeeNumber" -> ["employee", "Number"]
-        - "XMLHTTPRequest" -> ["XML", "HTTP", "Request"]
+        - "XMLHTTPRequest" -> ["XMLHTTP", "Request"] (consecutive all-caps not split)
+
+        Note: Consecutive all-caps acronyms (e.g., "XMLHTTPRequest") are not split
+        into individual acronyms. This is an accepted limitation to avoid brittle
+        edge-case handling.
         """
         # First, normalize delimiters to spaces
         base = name.replace("_", " ").replace("-", " ")
@@ -224,6 +259,8 @@ class Polisher:
     def _to_pascal_case(self, name: str) -> str:
         """Convert to PascalCase: 'employee number' -> 'EmployeeNumber'."""
         words = self._normalize_to_words(name)
+        if not words:
+            return name
         return "".join(word.capitalize() for word in words)
 
     def _to_camel_case(self, name: str) -> str:
@@ -236,6 +273,8 @@ class Polisher:
     def _to_snake_case(self, name: str) -> str:
         """Convert to snake_case: 'Employee Number' -> 'employee_number'."""
         words = self._normalize_to_words(name)
+        if not words:
+            return name
         return "_".join(word.lower() for word in words)
 
     def _apply_columns(self, df: pl.DataFrame) -> pl.DataFrame:
@@ -295,6 +334,43 @@ class Polisher:
 
             mapping[col] = new_name
 
+        # Detect and handle duplicate normalized column names
+        normalized_names = list(mapping.values())
+        duplicates = {
+            name for name in normalized_names if normalized_names.count(name) > 1
+        }
+
+        if duplicates:
+            # Find which original columns map to each duplicate
+            dup_details: Dict[str, List[str]] = {}
+            for src, dst in mapping.items():
+                if dst in duplicates:
+                    if dst not in dup_details:
+                        dup_details[dst] = []
+                    dup_details[dst].append(src)
+
+            # Apply deduplication with suffixes
+            # First occurrence keeps original name, subsequent ones get "_1", "_2", etc.
+            seen_names: Dict[str, int] = {}
+            for col in df.columns:
+                normalized = mapping[col]
+                if normalized in duplicates:
+                    if normalized not in seen_names:
+                        # First occurrence: keep original name
+                        seen_names[normalized] = 0
+                    else:
+                        # Subsequent occurrences: add suffix
+                        seen_names[normalized] += 1
+                        mapping[col] = f"{normalized}_{seen_names[normalized]}"
+
+            # Log warning for each duplicate group
+            for dst, sources in dup_details.items():
+                final_names = [mapping[src] for src in sources]
+                self.logger.warning(
+                    f"Column name collision: {sources} all normalize to '{dst}'. "
+                    f"Applied deduplication: {final_names}"
+                )
+
         # Only rename if something actually changed
         if any(src != dst for src, dst in mapping.items()):
             df = df.rename(mapping)
@@ -310,12 +386,29 @@ class Polisher:
                 # rather than fail the flow.
                 continue
 
+            # Respect existing column; do not override silently.
+            if rule.name in df.columns:
+                continue
+
+            algo = rule.algo or "sha256"
+
+            # Validate algorithm before creating digest function
+            # Comfort over correctness: skip invalid algorithms gracefully
+            try:
+                # Test if algorithm is valid by creating a hasher
+                hashlib.new(algo)
+            except ValueError:
+                self.logger.debug(
+                    f"Skipping hash ID rule '{rule.name}': "
+                    f"invalid algorithm '{algo}'. "
+                    f"Common algorithms: md5, sha1, sha256, sha512"
+                )
+                continue
+
             concat = pl.concat_str(
                 [pl.col(c).cast(pl.Utf8) for c in rule.from_columns],
                 separator="|",
             )
-
-            algo = rule.algo or "sha256"
 
             def _digest(val: Optional[str]) -> Any:
                 s = "" if val is None else str(val)
@@ -339,14 +432,12 @@ class Polisher:
     ) -> pl.DataFrame:
         existing = set(df.columns)
         new_exprs = []
-        new_names: List[str] = []
 
         for rule in rules:
             if rule.name in existing:
                 # Respect existing column; do not override silently.
                 continue
             new_exprs.append(pl.lit(rule.value).alias(rule.name))
-            new_names.append(rule.name)
 
         if not new_exprs:
             return df
