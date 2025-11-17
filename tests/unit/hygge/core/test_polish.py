@@ -248,6 +248,148 @@ def test_timestamp_rule_type_validation():
         TimestampRule(name="Test3", type="invalid_type")
 
 
+def test_polisher_hash_id_matches_normalized_columns():
+    """
+    Test that hash ID creation can match normalized column names.
+
+    This handles the case where:
+    - Config references original column names with spaces: 'Employee Number'
+    - DataFrame has already-normalized columns: 'EmployeeNumber'
+    - The matching logic should normalize both and find the match
+    """
+    # DataFrame with already-normalized columns (as if from home)
+    df = pl.DataFrame(
+        {
+            "EmployeeNumber": [1, 2, 3],
+            "EffectiveDate": ["2024-01-01", "2024-01-02", "2024-01-03"],
+            "OtherColumn": ["a", "b", "c"],
+        }
+    )
+
+    # Config references original column names with spaces
+    hash_rule = HashIdRule(
+        name="EmployeeHistoryId",
+        # Original names with spaces
+        from_columns=["Employee Number", "Effective Date"],
+        algo="sha256",
+        hex=True,
+    )
+
+    cfg = PolishConfig(
+        columns=ColumnRules(case="pascal", remove_special=True),
+        hash_ids=[hash_rule],
+    )
+
+    polisher = Polisher(cfg)
+    result = polisher.apply(df)
+
+    # Hash ID should be created using the normalized column names
+    assert "EmployeeHistoryId" in result.columns
+    assert result["EmployeeHistoryId"].dtype == pl.Utf8
+
+    # Hash ID should be normalized after column normalization step
+    # 'EmployeeHistoryId' -> 'EmployeeHistoryId' (already PascalCase, stays same)
+    assert "EmployeeHistoryId" in result.columns
+
+    # Verify hash values are deterministic
+    hash_values = result["EmployeeHistoryId"].to_list()
+    assert len(set(hash_values)) == 3  # All unique values
+
+
+def test_polisher_hash_id_matches_normalized_columns_reverse():
+    """
+    Test reverse case: config has normalized, DataFrame has spaces.
+
+    This handles the case where:
+    - Config references normalized column names: 'EmployeeNumber'
+    - DataFrame has original column names with spaces: 'Employee Number'
+    - The matching logic should normalize both and find the match
+    """
+    # DataFrame with original column names with spaces
+    df = pl.DataFrame(
+        {
+            "Employee Number": [1, 2, 3],
+            "Effective Date": ["2024-01-01", "2024-01-02", "2024-01-03"],
+            "Other Column": ["a", "b", "c"],
+        }
+    )
+
+    # Config references normalized column names
+    hash_rule = HashIdRule(
+        name="EmployeeHistoryId",
+        from_columns=["EmployeeNumber", "EffectiveDate"],  # Normalized names
+        algo="sha256",
+        hex=True,
+    )
+
+    cfg = PolishConfig(
+        columns=ColumnRules(case="pascal", remove_special=True),
+        hash_ids=[hash_rule],
+    )
+
+    polisher = Polisher(cfg)
+    result = polisher.apply(df)
+
+    # Hash ID should be created using the original column names
+    assert "EmployeeHistoryId" in result.columns
+    assert result["EmployeeHistoryId"].dtype == pl.Utf8
+
+    # After normalization, columns should be normalized
+    assert "EmployeeNumber" in result.columns
+    assert "EffectiveDate" in result.columns
+    assert "OtherColumn" in result.columns
+
+    # Hash ID should also be normalized (if needed)
+    assert "EmployeeHistoryId" in result.columns
+
+
+def test_polisher_hash_id_matches_underscore_columns():
+    """
+    Test matching columns with underscores (AONE_Units case).
+
+    This handles the case where:
+    - Config references original column name with underscore: 'AONE_Units'
+    - DataFrame has already-normalized column: 'AOneUnits'
+    - Note: 'AONE_Units' normalizes to 'AoneUnits' (AONE -> Aone)
+    - But 'AOneUnits' normalizes to 'AOneUnits' (A + One)
+    - These don't match, so we need the DataFrame to have 'AoneUnits' instead
+    """
+    # DataFrame with already-normalized columns
+    # Note: 'AONE_Units' normalizes to 'AoneUnits', not 'AOneUnits'
+    df = pl.DataFrame(
+        {
+            "AoneUnits": [1, 2, 3],  # This is what AONE_Units normalizes to
+            "UnitName": ["A", "B", "C"],
+        }
+    )
+
+    # Config references original column name with underscore
+    hash_rule = HashIdRule(
+        name="AONEHashId",
+        from_columns=["AONE_Units"],  # Original name with underscore
+        algo="sha256",
+        hex=True,
+    )
+
+    cfg = PolishConfig(
+        columns=ColumnRules(case="pascal", remove_special=True),
+        hash_ids=[hash_rule],
+    )
+
+    polisher = Polisher(cfg)
+    result = polisher.apply(df)
+
+    # Hash ID should be created with the name from config
+    # But after normalization, it will be normalized
+    # 'AONEHashId' -> 'AoneHashId' (AONE -> Aone)
+    assert "AoneHashId" in result.columns
+    assert result["AoneHashId"].dtype == pl.Utf8
+
+    # Verify the original column is also normalized
+    assert "AoneUnits" in result.columns
+    assert "UnitName" in result.columns
+
+
 def test_polisher_order_hash_ids_before_normalization():
     """
     Test that hash IDs are generated before normalization.

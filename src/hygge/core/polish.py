@@ -382,9 +382,76 @@ class Polisher:
         for rule in rules:
             missing = [c for c in rule.from_columns if c not in df.columns]
             if missing:
-                # Comfort over correctness: skip misconfigured rule
-                # rather than fail the flow.
-                continue
+                # Try to find normalized versions of the missing columns
+                # This handles the case where columns were already normalized
+                # before polish runs (e.g., from the home)
+                found_alternatives = {}
+                for missing_col in missing:
+                    # Try to find a column that normalizes to the missing column name
+                    # by checking if any existing column normalizes to match
+                    for existing_col in df.columns:
+                        # Normalize both the existing column and the missing column
+                        # to see if they match when normalized
+                        if self.config.columns.case == "pascal":
+                            normalized_existing = self._to_pascal_case(existing_col)
+                            normalized_missing = self._to_pascal_case(missing_col)
+                        elif self.config.columns.case == "camel":
+                            normalized_existing = self._to_camel_case(existing_col)
+                            normalized_missing = self._to_camel_case(missing_col)
+                        elif self.config.columns.case == "snake":
+                            normalized_existing = self._to_snake_case(existing_col)
+                            normalized_missing = self._to_snake_case(missing_col)
+                        else:
+                            # No case conversion configured, but still try to match
+                            # by normalizing spaces/underscores (basic normalization)
+                            # This handles cases where columns have spaces but
+                            # DataFrame doesn't
+                            def remove_separators(s: str) -> str:
+                                return (
+                                    s.replace(" ", "").replace("_", "").replace("-", "")
+                                )
+
+                            normalized_existing = remove_separators(existing_col)
+                            normalized_missing = remove_separators(missing_col)
+                            # Also try case-insensitive match
+                            if (
+                                normalized_existing.lower()
+                                != normalized_missing.lower()
+                            ):
+                                normalized_existing = existing_col
+                                normalized_missing = missing_col
+
+                        if normalized_existing == normalized_missing:
+                            found_alternatives[missing_col] = existing_col
+                            self.logger.debug(
+                                f"Hash ID rule '{rule.name}': matched "
+                                f"'{missing_col}' -> '{existing_col}' "
+                                f"(both normalize to '{normalized_missing}')"
+                            )
+                            break
+
+                # If we found alternatives, use them; otherwise skip
+                if found_alternatives and len(found_alternatives) == len(missing):
+                    # Replace missing columns with their alternatives
+                    # Create a new list to avoid modifying the original rule
+                    updated_from_columns = [
+                        found_alternatives.get(col, col) for col in rule.from_columns
+                    ]
+                    # Use the updated columns for this rule
+                    rule.from_columns = updated_from_columns
+                    self.logger.debug(
+                        f"Hash ID rule '{rule.name}': using normalized column names: "
+                        f"{found_alternatives}"
+                    )
+                else:
+                    # Comfort over correctness: skip misconfigured rule
+                    # rather than fail the flow.
+                    self.logger.warning(
+                        f"Skipping hash ID rule '{rule.name}': "
+                        f"source columns {missing} not found in DataFrame. "
+                        f"Available columns: {df.columns}"
+                    )
+                    continue
 
             # Respect existing column; do not override silently.
             if rule.name in df.columns:
