@@ -28,7 +28,7 @@ from hygge.utility.run_id import generate_run_id
 from .flow import Flow, FlowConfig
 from .home import Home
 from .journal import Journal, JournalConfig
-from .store import Store
+from .store import Store, StoreConfig
 from .workspace import Workspace, WorkspaceConfig
 
 # Alias for backward compatibility - WorkspaceConfig is the canonical name
@@ -479,8 +479,53 @@ class Coordinator:
                     home = flow_config.home_instance
                     home_config = home.config
 
-                    store_config = flow_config.store_config
+                    # Get raw store config dict to avoid triggering store creation
+                    # (which would validate key_columns before we can check)
+                    if isinstance(flow_config.store, dict):
+                        store_config_dict = flow_config.store
+                    elif isinstance(flow_config.store, str):
+                        store_config_dict = {
+                            "type": "parquet",
+                            "path": flow_config.store,
+                        }
+                    else:
+                        # Already a StoreConfig or Store instance
+                        # Check if it's a StoreConfig (has model_dump) or Store instance
+                        if hasattr(flow_config.store, "model_dump"):
+                            # It's a StoreConfig - use it directly
+                            store_config_dict = flow_config.store.model_dump()
+                        elif hasattr(flow_config.store, "config"):
+                            # It's a Store instance - get config
+                            store_config_dict = (
+                                flow_config.store.config.model_dump()
+                                if hasattr(flow_config.store.config, "model_dump")
+                                else flow_config.store.config.__dict__
+                            )
+                        else:
+                            # Fallback - try to get via property
+                            # (may trigger validation)
+                            store_config = flow_config.store_config
+                            store_config_dict = (
+                                store_config.model_dump()
+                                if hasattr(store_config, "model_dump")
+                                else store_config.__dict__
+                            )
 
+                    # For Open Mirroring stores without entities, key_columns must be
+                    # provided at flow level
+                    if store_config_dict.get("type") == "open_mirroring" and (
+                        "key_columns" not in store_config_dict
+                        or store_config_dict.get("key_columns") is None
+                        or len(store_config_dict.get("key_columns", [])) == 0
+                    ):
+                        raise ConfigError(
+                            f"Flow '{base_flow_name}' uses Open Mirroring store but "
+                            f"does not have entities. key_columns must be provided "
+                            f"at the flow level in store config."
+                        )
+
+                    # Now create store config and store instance
+                    store_config = StoreConfig.create(store_config_dict)
                     store = Store.create(
                         f"{base_flow_name}_store", store_config, base_flow_name, None
                     )
@@ -522,10 +567,23 @@ class Coordinator:
                     )
                     self.flows.append(flow)
 
-                    self.logger.debug(f"Created flow: {base_flow_name}")
+                self.logger.debug(f"Created flow: {base_flow_name}")
 
             except Exception as e:
-                raise ConfigError(f"Failed to create flow {base_flow_name}: {str(e)}")
+                # Preserve entity context in error message if available
+                error_msg = str(e)
+                # entity_name might not be defined if error occurs before entity loop
+                if "entity" not in error_msg.lower():
+                    # Try to extract entity name from error or flow name
+                    if "_" in base_flow_name and "entity" not in error_msg.lower():
+                        # Flow name might be base_entity, try to extract
+                        parts = base_flow_name.split("_", 1)
+                        if len(parts) > 1:
+                            potential_entity = parts[-1]
+                            error_msg = f"Entity '{potential_entity}': {error_msg}"
+                raise ConfigError(
+                    f"Failed to create flow {base_flow_name}: {error_msg}"
+                )
 
     def _create_entity_flow(
         self,
@@ -541,7 +599,39 @@ class Coordinator:
         """Create a flow for a specific entity with entity subdirectories."""
         # Get the original config from home/store instances
         home_config = flow_config.home_config
-        store_config = flow_config.store_config
+
+        # Get raw store config dict to avoid triggering store creation
+        # (which would validate key_columns before entity configs are merged)
+        if isinstance(flow_config.store, dict):
+            store_config_dict = flow_config.store.copy()
+            # Create StoreConfig from dict (doesn't trigger store creation/validation)
+            store_config = StoreConfig.create(store_config_dict)
+        elif isinstance(flow_config.store, str):
+            store_config_dict = {"type": "parquet", "path": flow_config.store}
+            store_config = StoreConfig.create(store_config_dict)
+        else:
+            # Already a StoreConfig instance - use it directly
+            # Check if it's a StoreConfig (has model_dump) or Store instance
+            if hasattr(flow_config.store, "model_dump"):
+                # It's a StoreConfig - use it directly
+                store_config = flow_config.store
+                store_config_dict = store_config.model_dump()
+            elif hasattr(flow_config.store, "config"):
+                # It's a Store instance - get config
+                store_config = flow_config.store.config
+                store_config_dict = (
+                    store_config.model_dump()
+                    if hasattr(store_config, "model_dump")
+                    else store_config.__dict__
+                )
+            else:
+                # Fallback - try to get via property (may trigger validation)
+                store_config = flow_config.store_config
+                store_config_dict = (
+                    store_config.model_dump()
+                    if hasattr(store_config, "model_dump")
+                    else store_config.__dict__
+                )
 
         if not home_config or not store_config:
             raise ConfigError(
@@ -607,6 +697,18 @@ class Coordinator:
                 )
                 merged_store_config = {**store_config_dict, **entity_store_config}
                 store_config = type(store_config)(**merged_store_config)
+            elif store_config.type == "open_mirroring":
+                # For Open Mirroring, if entity doesn't provide key_columns,
+                # check if flow-level has it
+                if not hasattr(store_config, "key_columns") or (
+                    store_config.key_columns is None
+                    or len(store_config.key_columns) == 0
+                ):
+                    self.logger.warning(
+                        f"Entity '{entity_name}' does not provide store.key_columns. "
+                        f"Flow-level store config also missing key_columns. "
+                        f"This will fail at store creation."
+                    )
 
         # Apply flow defaults to store config
         # The defaults are already merged into entity_config in _load_entities()

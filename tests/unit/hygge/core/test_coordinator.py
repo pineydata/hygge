@@ -17,9 +17,11 @@ import pytest
 from hygge.core.coordinator import Coordinator, CoordinatorConfig, validate_config
 from hygge.core.flow import FlowConfig
 from hygge.core.journal import Journal, JournalConfig
-
-# Import Parquet implementations to register them
 from hygge.homes.parquet.home import ParquetHome, ParquetHomeConfig  # noqa: F401
+from hygge.stores.openmirroring.store import (  # noqa: F401
+    OpenMirroringStore,
+    OpenMirroringStoreConfig,
+)
 from hygge.stores.parquet.store import ParquetStore, ParquetStoreConfig  # noqa: F401
 from hygge.utility.exceptions import ConfigError
 
@@ -1768,6 +1770,229 @@ store:
 
         assert max_concurrent == 16
         assert isinstance(max_concurrent, int)
+
+
+class TestCoordinatorOpenMirroringKeyColumns:
+    """Test Open Mirroring key_columns validation for non-entity flows."""
+
+    def test_open_mirroring_flow_without_entities_requires_key_columns(self):
+        """Test Open Mirroring flow without entities requires flow-level key_columns."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "open_mirroring"
+  account_url: "https://onelake.dfs.fabric.microsoft.com"
+  filesystem: "test"
+  mirror_name: "test-db"
+  row_marker: 0
+  # key_columns missing - should fail for non-entity flow
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
+
+            with pytest.raises(ConfigError) as exc_info:
+                coordinator._create_flows()
+
+            assert "key_columns" in str(exc_info.value).lower()
+            # Error should mention entities or flow-level key_columns
+            error_msg = str(exc_info.value).lower()
+            assert (
+                "does not have entities" in error_msg
+                or "flow level" in error_msg
+                or "store config" in error_msg
+            )
+
+    def test_open_mirroring_flow_without_entities_with_key_columns_succeeds(self):
+        """Test Open Mirroring flow without entities works when key_columns provided."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "open_mirroring"
+  account_url: "https://onelake.dfs.fabric.microsoft.com"
+  filesystem: "test"
+  mirror_name: "test-db"
+  key_columns: ["id"]
+  row_marker: 0
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
+            coordinator._create_flows()
+
+            # Should succeed - flow created
+            assert len(coordinator.flows) == 1
+            flow = coordinator.flows[0]
+            assert flow.name == "test_flow"
+
+    def test_open_mirroring_flow_with_entities_works_without_flow_level_key_columns(
+        self,
+    ):
+        """Test Open Mirroring flow with entities works when entities provide key_columns."""  # noqa: E501
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "open_mirroring"
+  account_url: "https://onelake.dfs.fabric.microsoft.com"
+  filesystem: "test"
+  mirror_name: "test-db"
+  row_marker: 0
+  # key_columns not provided at flow level - entities will provide it
+"""
+            )
+
+            # Create entities directory
+            entities_dir = flow_dir / "entities"
+            entities_dir.mkdir()
+
+            # Create entity file with key_columns
+            entity_file = entities_dir / "users.yml"
+            entity_file.write_text(
+                """
+name: "users"
+store:
+  key_columns: ["user_id"]
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
+            coordinator._create_flows()
+
+            # Should succeed - entity flow created with key_columns from entity config
+            assert len(coordinator.flows) == 1
+            flow = coordinator.flows[0]
+            assert flow.name == "test_flow_users"
+            # Verify store has key_columns from entity config
+            assert flow.store.key_columns == ["user_id"]
+
+    def test_open_mirroring_flow_with_entities_missing_key_columns_fails(self):
+        """Test Open Mirroring flow with entities fails if entity missing key_columns."""  # noqa: E501
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text(
+                """
+name: "test_project"
+flows_dir: "flows"
+"""
+            )
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "open_mirroring"
+  account_url: "https://onelake.dfs.fabric.microsoft.com"
+  filesystem: "test"
+  mirror_name: "test-db"
+  row_marker: 0
+  # key_columns not provided at flow level
+"""
+            )
+
+            # Create entities directory
+            entities_dir = flow_dir / "entities"
+            entities_dir.mkdir()
+
+            # Create entity file WITHOUT key_columns
+            entity_file = entities_dir / "users.yml"
+            entity_file.write_text(
+                """
+name: "users"
+# No store.key_columns provided
+"""
+            )
+
+            coordinator = Coordinator(str(hygge_file))
+            coordinator.config = coordinator._workspace.prepare()
+
+            with pytest.raises(ConfigError) as exc_info:
+                coordinator._create_flows()
+
+            # Should fail with entity context in error message
+            error_msg = str(exc_info.value).lower()
+            assert "key_columns" in error_msg
+            assert "users" in error_msg or "entity" in error_msg
 
 
 if __name__ == "__main__":

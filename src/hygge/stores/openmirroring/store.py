@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 import polars as pl
 from pydantic import Field, field_validator, model_validator
 
+from hygge.core.polish import PolishConfig, Polisher
 from hygge.stores.onelake import OneLakeStore, OneLakeStoreConfig
 from hygge.utility.azure_onelake import ADLSOperations
 from hygge.utility.exceptions import StoreError
@@ -141,6 +142,12 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
             "Table name to use when `mirror_journal` is true. "
             "Defaults to '__hygge_journal'."
         ),
+    )
+
+    # Optional last-mile polishing configuration
+    polish: Optional[PolishConfig] = Field(
+        default=None,
+        description="Optional Polisher configuration for last-mile transforms.",
     )
 
     @field_validator("file_detection")
@@ -306,6 +313,16 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         self.source_version = config.source_version
         self.schema_name = config.schema_name
         self.starting_sequence = config.starting_sequence
+
+        # Optional polish configuration
+        if getattr(config, "polish", None):
+            self._polisher = Polisher(config.polish)
+            hash_id_count = len(config.polish.hash_ids) if config.polish.hash_ids else 0
+            self.logger.debug(
+                f"Initialized polisher for {name} with {hash_id_count} hash ID rules"
+            )
+        else:
+            self._polisher = None
 
         # Track if metadata files have been written
         self._metadata_written = False
@@ -627,6 +644,10 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         """
         Validate that DataFrame contains all required key columns.
 
+        If polish normalization is configured, normalizes key column names to match
+        the normalized DataFrame columns
+        (e.g., 'ISTARDesignationHashId' -> 'IstarDesignationHashId').
+
         Args:
             df: DataFrame to validate
 
@@ -634,12 +655,33 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             StoreError: If key columns are missing
         """
         df_columns = set(df.columns)
-        missing_keys = [col for col in self.key_columns if col not in df_columns]
+
+        # If polish is configured with column normalization, normalize key_columns
+        # to match the normalized DataFrame columns
+        key_columns_to_check = list(self.key_columns)
+        if self._polisher and self._polisher.config.columns.case:
+            # Apply the same normalization that polish applies
+            normalized_key_columns = []
+            for key_col in self.key_columns:
+                if self._polisher.config.columns.case == "pascal":
+                    normalized = self._polisher._to_pascal_case(key_col)
+                elif self._polisher.config.columns.case == "camel":
+                    normalized = self._polisher._to_camel_case(key_col)
+                elif self._polisher.config.columns.case == "snake":
+                    normalized = self._polisher._to_snake_case(key_col)
+                else:
+                    normalized = key_col
+                normalized_key_columns.append(normalized)
+            key_columns_to_check = normalized_key_columns
+
+        missing_keys = [col for col in key_columns_to_check if col not in df_columns]
 
         if missing_keys:
             raise StoreError(
                 f"DataFrame missing required key columns: {missing_keys}. "
-                f"Required key columns: {self.key_columns}"
+                f"Required key columns: {self.key_columns} "
+                f"(normalized to: {key_columns_to_check}). "
+                f"Available columns: {sorted(df_columns)}"
             )
 
     def _validate_update_rows(self, df: pl.DataFrame) -> None:
@@ -1060,6 +1102,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         Save data to Open Mirroring landing zone.
 
         Overrides OneLakeStore._save() to add:
+        - Polish transform (hash IDs, column normalization) - FIRST
         - __rowMarker__ column injection/validation
         - Column reordering (__rowMarker__ must be last)
         - Metadata file writing
@@ -1081,7 +1124,13 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             # Table folder preparation is now handled in write() method
             # before any data is written, so we don't need to do it here
 
-            # Validate key columns exist
+            # CRITICAL: Apply polish FIRST (creates hash IDs, normalizes columns)
+            # This ensures hash ID columns exist before validation
+            # Note: _pre_write() is also called in _flush_buffer(), but we ensure
+            # it's applied here as well for safety (idempotent - won't double-apply)
+            df = self._pre_write(df)
+
+            # Validate key columns exist (after polish has created them)
             self._validate_key_columns(df)
 
             # Add __rowMarker__ column if needed
