@@ -357,22 +357,21 @@ To get started, run:
                     # Extract entity name
                     if isinstance(entity_config, str):
                         entity_name = entity_config
-                        entity_config_dict = entity_config
                     elif isinstance(entity_config, dict):
                         entity_name = entity_config.get("name")
                         if not entity_name:
                             raise ConfigError(
                                 f"Entity in flow {base_flow_name} missing 'name' field"
                             )
-                        entity_config_dict = entity_config
                     else:
                         raise ConfigError(
                             f"Entity must be string or dict, got {type(entity_config)}"
                         )
 
                     # Create Entity with merged config
+                    # entity_config can be string (landing zone pattern) or dict
                     entity = self._create_entity(
-                        base_flow_name, flow_config, entity_name, entity_config_dict
+                        base_flow_name, flow_config, entity_name, entity_config
                     )
                     entities.append(entity)
             else:
