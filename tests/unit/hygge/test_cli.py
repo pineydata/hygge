@@ -203,7 +203,7 @@ store:
                 assert "Project configuration is valid" in result.output
                 assert "Project: test_project" in result.output
                 assert "Flows directory: flows" in result.output
-                assert "Number of flows: 1" in result.output
+                assert "Number of entities: 1" in result.output
                 assert "test_flow" in result.output
 
             finally:

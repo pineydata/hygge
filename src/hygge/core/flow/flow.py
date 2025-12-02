@@ -76,7 +76,7 @@ class Flow:
         self.coordinator_run_id = coordinator_run_id
         self.flow_run_id = flow_run_id
         self.coordinator_name = coordinator_name
-        self.base_flow_name = base_flow_name or name
+        self.base_flow_name = base_flow_name
         self.entity_name = entity_name
         self.run_type = run_type or "full_drop"
         self.watermark_config = watermark_config
@@ -429,7 +429,7 @@ class Flow:
         if not self.journal or not self.watermark_config:
             return
 
-        entity_identifier = self._resolve_entity_name() or self.base_flow_name
+        entity_identifier = self.entity_name
 
         try:
             watermark_info = await self.journal.get_watermark(
@@ -539,8 +539,8 @@ class Flow:
             return
 
         try:
-            # Extract entity name (if not provided, extract from flow name)
-            entity = self._resolve_entity_name()
+            # Entity name is always set (from Entity or flow_name for non-entity flows)
+            entity = self.entity_name
 
             # Determine final status
             if status == "success" and self.total_rows == 0:
@@ -588,7 +588,7 @@ class Flow:
                 flow_run_id=self.flow_run_id,
                 coordinator=self.coordinator_name or "unknown",
                 flow=self.base_flow_name,
-                entity=entity or self.base_flow_name,
+                entity=entity,
                 start_time=self.entity_start_time or datetime.now(timezone.utc),
                 finish_time=finish_time,
                 status=final_status,
@@ -615,13 +615,3 @@ class Flow:
             )
             # Don't raise - journal failures should not break flows
             # But log as error so it's visible
-
-    def _resolve_entity_name(self) -> Optional[str]:
-        """Resolve entity name for journal lookups."""
-        if self.entity_name:
-            return self.entity_name
-        if self.name != self.base_flow_name and self.name.startswith(
-            f"{self.base_flow_name}_"
-        ):
-            return self.name[len(f"{self.base_flow_name}_") :]
-        return None

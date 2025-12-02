@@ -24,7 +24,7 @@ from hygge.messages import Progress, Summary, get_logger
 from hygge.utility.exceptions import ConfigError
 from hygge.utility.run_id import generate_run_id
 
-from .flow import Flow, FlowConfig, FlowFactory
+from .flow import Entity, Flow, FlowFactory
 from .journal import Journal, JournalConfig
 from .workspace import Workspace, WorkspaceConfig
 
@@ -178,25 +178,23 @@ class Coordinator:
 
             # Validate that at least one flow was created (if filter specified)
             if self.flow_filter and len(self.flows) == 0:
-                available_flows = list(self.config.flows.keys())
-                # Also collect entity flow names
-                entity_flows = []
-                for base_flow_name, flow_config in self.config.flows.items():
-                    if flow_config.entities:
-                        for entity in flow_config.entities:
-                            if isinstance(entity, str):
-                                entity_name = entity
-                            elif isinstance(entity, dict):
-                                entity_name = entity.get("name")
-                            else:
-                                continue
-                            if entity_name:
-                                entity_flows.append(f"{base_flow_name}_{entity_name}")
+                # Collect available flow names from entities
+                available_base_flows = {
+                    entity.base_flow_name for entity in self.config.entities
+                }
+                available_entity_flows = [
+                    entity.flow_name for entity in self.config.entities
+                ]
 
-                entity_flows_str = ", ".join(entity_flows) if entity_flows else "none"
+                available_flows_str = ", ".join(sorted(available_base_flows))
+                entity_flows_str = (
+                    ", ".join(sorted(available_entity_flows))
+                    if available_entity_flows
+                    else "none"
+                )
                 raise ConfigError(
                     f"No flows matched filter: {', '.join(self.flow_filter)}. "
-                    f"Available flows: {', '.join(available_flows)}. "
+                    f"Available base flows: {available_flows_str}. "
                     f"Available entity flows: {entity_flows_str}."
                 )
 
@@ -361,134 +359,54 @@ class Coordinator:
         return journal
 
     def _create_flows(self) -> None:
-        """Create Flow instances from configuration."""
+        """Create Flow instances from entities (already expanded by Workspace)."""
         self.flows = []
 
-        for base_flow_name, flow_config in self.config.flows.items():
+        for entity in self.config.entities:
             try:
-                # If flow filter specified, check if this flow should be included
-                if self.flow_filter and not self._should_include_flow(
-                    base_flow_name, flow_config
-                ):
+                # If flow filter specified, check if this entity should be included
+                if self.flow_filter and not self._should_include_entity(entity):
                     continue
 
-                # Determine default run type and watermark
-                default_run_type = flow_config.run_type or "full_drop"
-                if flow_config.full_drop is not None:
-                    default_run_type = (
-                        "full_drop" if flow_config.full_drop else "incremental"
+                # Apply CLI flow-level overrides if specified
+                # Overrides are keyed by base_flow_name
+                if self.flow_overrides and entity.base_flow_name in self.flow_overrides:
+                    # Apply overrides to the entity's flow_config
+                    updated_flow_config = FlowFactory._apply_overrides(
+                        entity.flow_config,
+                        entity.base_flow_name,
+                        self.flow_overrides,
                     )
-                default_watermark = flow_config.watermark
-                flow_journal_config = (
-                    flow_config.journal
-                    if isinstance(flow_config.journal, JournalConfig)
-                    else None
+                    # Create new Entity with updated flow_config
+                    entity = entity.model_copy(
+                        update={"flow_config": updated_flow_config}
+                    )
+
+                # Create flow from Entity (already merged and validated)
+                flow = FlowFactory.from_entity(
+                    entity,
+                    coordinator_run_id=self.coordinator_run_id,
+                    coordinator_name=self.coordinator_name,
+                    connection_pools=self.connection_pools,
+                    journal_cache=self._journal_cache,
+                    get_or_create_journal=self._get_or_create_journal_instance,
+                    logger=self.logger,
                 )
+                self.flows.append(flow)
 
-                # Check if entities are defined
-                if flow_config.entities and len(flow_config.entities) > 0:
-                    # Create one flow per entity
-                    num_entities = len(flow_config.entities)
-                    self.logger.debug(
-                        f"Creating flows for {num_entities} entities "
-                        f"in {base_flow_name}"
-                    )
-                    for entity in flow_config.entities:
-                        # Handle simple string entities (landing zone pattern)
-                        if isinstance(entity, str):
-                            entity_name = entity
-                            entity_config = entity
-                        # Handle dict entities (project-centric pattern)
-                        elif isinstance(entity, dict):
-                            entity_name = entity.get("name")
-                            if not entity_name:
-                                raise ConfigError(
-                                    f"Entity in flow {base_flow_name} "
-                                    f"missing 'name' field"
-                                )
-                            entity_config = entity
-                        else:
-                            raise ConfigError(
-                                f"Entity must be string or dict, got {type(entity)}"
-                            )
-
-                        # Create entity-specific flow
-                        # Note: entity flows use base_flow_name for overrides
-                        entity_flow_name = f"{base_flow_name}_{entity_name}"
-
-                        # If flow filter is specified, check if this specific entity
-                        # flow should be included
-                        if self.flow_filter:
-                            # If base flow name is in filter, include all entities.
-                            # Otherwise, only include if this specific entity flow
-                            # name matches
-                            if (
-                                base_flow_name not in self.flow_filter
-                                and entity_flow_name not in self.flow_filter
-                            ):
-                                continue
-
-                        # Create entity flow using Flow.from_entity()
-                        flow = Flow.from_entity(
-                            flow_name=entity_flow_name,
-                            base_flow_name=base_flow_name,
-                            flow_config=flow_config,
-                            entity_name=entity_name,
-                            entity_config=entity_config,
-                            coordinator_run_id=self.coordinator_run_id,
-                            coordinator_name=self.coordinator_name,
-                            connection_pools=self.connection_pools,
-                            journal_cache=self._journal_cache,
-                            flow_journal_config=flow_journal_config,
-                            default_run_type=default_run_type,
-                            default_watermark=default_watermark,
-                            get_or_create_journal=self._get_or_create_journal_instance,
-                            logger=self.logger,
-                        )
-                        self.flows.append(flow)
-                else:
-                    # Create single flow without entities using Flow.from_config()
-                    # Apply CLI flow-level overrides and update config in place
-                    # (for test verification)
-                    if self.flow_overrides:
-                        flow_config = FlowFactory._apply_overrides(
-                            flow_config, base_flow_name, self.flow_overrides
-                        )
-                        # Update config in place so it's accessible later
-                        self.config.flows[base_flow_name] = flow_config
-
-                    # Create non-entity flow using Flow.from_config()
-                    # Pass None for flow_overrides since we already applied them above
-                    flow = Flow.from_config(
-                        flow_name=base_flow_name,
-                        flow_config=flow_config,
-                        coordinator_run_id=self.coordinator_run_id,
-                        coordinator_name=self.coordinator_name,
-                        connection_pools=self.connection_pools,
-                        journal_cache=self._journal_cache,
-                        flow_overrides=None,  # Already applied above
-                        get_or_create_journal=self._get_or_create_journal_instance,
-                        logger=self.logger,
-                    )
-                    self.flows.append(flow)
-
-                self.logger.debug(f"Created flow: {base_flow_name}")
+                self.logger.debug(f"Created flow: {entity.flow_name}")
 
             except Exception as e:
-                # Preserve entity context in error message if available
+                # Preserve entity context in error message
                 error_msg = str(e)
-                # entity_name might not be defined if error occurs before entity loop
-                if "entity" not in error_msg.lower():
-                    # Try to extract entity name from error or flow name
-                    if "_" in base_flow_name and "entity" not in error_msg.lower():
-                        # Flow name might be base_entity, try to extract
-                        parts = base_flow_name.split("_", 1)
-                        if len(parts) > 1:
-                            potential_entity = parts[-1]
-                            error_msg = f"Entity '{potential_entity}': {error_msg}"
-                raise ConfigError(
-                    f"Failed to create flow {base_flow_name}: {error_msg}"
+                entity_context = (
+                    f"entity '{entity.entity_name}' in flow '{entity.base_flow_name}'"
+                    if entity.entity_name
+                    else f"flow '{entity.flow_name}'"
                 )
+                raise ConfigError(
+                    f"Failed to create {entity_context}: {error_msg}"
+                ) from e
 
     async def _run_flows(self) -> None:
         """Run all flows in parallel with dbt-style logging and concurrency limiting."""
@@ -654,49 +572,31 @@ class Coordinator:
         # Don't re-raise here - let _run_flows handle exception propagation
         # based on continue_on_error setting after all flows complete
 
-    def _should_include_flow(
-        self, base_flow_name: str, flow_config: FlowConfig
-    ) -> bool:
+    def _should_include_entity(self, entity: "Entity") -> bool:  # type: ignore
         """
-        Check if a flow should be included based on flow filter.
+        Check if an entity should be included based on flow filter.
 
         Supports:
         - Exact base flow name match (e.g., "salesforce")
+          - Includes all entities for that flow
         - Exact entity flow name match (e.g., "salesforce_Involvement")
-        - Base flow name match includes all entities
-          (e.g., "salesforce" matches all salesforce_* flows)
+          - Includes only that specific entity
 
         Args:
-            base_flow_name: Base flow name from config
-            flow_config: Flow configuration
+            entity: Entity to check
 
         Returns:
-            True if flow should be included, False otherwise
+            True if entity should be included, False otherwise
         """
         if not self.flow_filter:
             return True
 
-        # Check if base flow name matches
-        if base_flow_name in self.flow_filter:
+        # Check if base flow name matches (includes all entities for that flow)
+        if entity.base_flow_name in self.flow_filter:
             return True
 
-        # Check if any entity flow name would match
-        if flow_config.entities and len(flow_config.entities) > 0:
-            for entity in flow_config.entities:
-                # Handle string entities
-                if isinstance(entity, str):
-                    entity_name = entity
-                # Handle dict entities
-                elif isinstance(entity, dict):
-                    entity_name = entity.get("name")
-                    if not entity_name:
-                        continue
-                else:
-                    continue
-
-                # Check if entity flow name matches
-                entity_flow_name = f"{base_flow_name}_{entity_name}"
-                if entity_flow_name in self.flow_filter:
-                    return True
+        # Check if entity flow name matches
+        if entity.flow_name in self.flow_filter:
+            return True
 
         return False

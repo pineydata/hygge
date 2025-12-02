@@ -161,7 +161,7 @@ class FlowFactory:
             flow_run_id=None,
             coordinator_name=coordinator_name,
             base_flow_name=flow_name,
-            entity_name=None,
+            entity_name=flow_name,
             run_type=default_run_type,
             watermark_config=flow_config.watermark,
         )

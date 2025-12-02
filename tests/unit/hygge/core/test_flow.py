@@ -623,7 +623,8 @@ class TestFlowFromConfig:
         assert flow.coordinator_run_id == "test_run_id"
         assert flow.coordinator_name == "test_coordinator"
         assert flow.base_flow_name == "test_flow"
-        assert flow.entity_name is None
+        # For non-entity flows, entity_name is set to flow_name
+        assert flow.entity_name == "test_flow"
 
     def test_from_config_with_run_type(self):
         """Test Flow.from_config() respects run_type configuration."""
