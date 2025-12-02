@@ -11,7 +11,7 @@ while sharing the common flow pattern.
 """
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from .config import FlowConfig
 
@@ -65,10 +65,9 @@ class Entity(BaseModel):
         description="Original entity configuration dict (before merging)",
     )
 
-    class Config:
-        """Pydantic configuration."""
-
-        arbitrary_types_allowed = True  # Allow FlowConfig (Pydantic model)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True  # Allow FlowConfig (Pydantic model)
+    )
 
     def __str__(self) -> str:
         """String representation of Entity."""
