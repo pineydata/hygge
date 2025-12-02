@@ -77,7 +77,17 @@ class Flow:
         self.flow_run_id = flow_run_id
         self.coordinator_name = coordinator_name
         self.base_flow_name = base_flow_name
+
+        # Entity name is always set by FlowFactory (either from Entity or flow_name)
+        # Fail fast if not provided - FlowFactory is the canonical way to create flows
+        if entity_name is None:
+            raise FlowError(
+                f"Flow '{name}' created without entity_name. "
+                "Flows must be created via FlowFactory, which always sets entity_name. "
+                "Use FlowFactory.from_config() or FlowFactory.from_entity() instead."
+            )
         self.entity_name = entity_name
+
         self.run_type = run_type or "full_drop"
         self.watermark_config = watermark_config
 
@@ -540,6 +550,13 @@ class Flow:
 
         try:
             # Entity name is always set (from Entity or flow_name for non-entity flows)
+            # Runtime validation ensures it's never None
+            if self.entity_name is None:
+                raise FlowError(
+                    f"Flow '{self.name}' has None entity_name. "
+                    "This should not happen when using FlowFactory. "
+                    "entity_name must be set when creating Flow."
+                )
             entity = self.entity_name
 
             # Determine final status

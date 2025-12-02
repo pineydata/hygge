@@ -158,7 +158,12 @@ def mock_store():
 def flow(mock_home, mock_store):
     """Create a Flow instance with mock Home and Store."""
     return Flow(
-        name="test_flow", home=mock_home, store=mock_store, options={"queue_size": 5}
+        name="test_flow",
+        home=mock_home,
+        store=mock_store,
+        options={"queue_size": 5},
+        entity_name="test_flow",
+        base_flow_name="test_flow",
     )
 
 
@@ -177,7 +182,13 @@ class TestSimplifiedFlow:
 
     def test_flow_default_options(self, mock_home, mock_store):
         """Test Flow uses default options when none provided."""
-        flow = Flow(name="test", home=mock_home, store=mock_store)
+        flow = Flow(
+            name="test",
+            home=mock_home,
+            store=mock_store,
+            entity_name="test",
+            base_flow_name="test",
+        )
         assert flow.queue_size == 10  # Default from FlowSettings
         assert flow.timeout == 300  # Default from FlowSettings
 
@@ -215,7 +226,13 @@ class TestSimplifiedFlow:
         # Given empty data
         empty_home = MockHome("empty_home", [])
         store = MockStore("test_store")
-        flow = Flow(name="empty_flow", home=empty_home, store=store)
+        flow = Flow(
+            name="empty_flow",
+            home=empty_home,
+            store=store,
+            entity_name="empty_flow",
+            base_flow_name="empty_flow",
+        )
 
         # When starting the flow
         await flow.start()
@@ -240,7 +257,13 @@ class TestSimplifiedFlow:
 
         error_home = ErrorHome("error_home", [])
         store = MockStore("test_store")
-        flow = Flow(name="error_flow", home=error_home, store=store)
+        flow = Flow(
+            name="error_flow",
+            home=error_home,
+            store=store,
+            entity_name="error_flow",
+            base_flow_name="error_flow",
+        )
 
         # When starting the flow
         with pytest.raises(FlowError) as exc_info:
@@ -333,7 +356,13 @@ class TestSimplifiedFlow:
 
         home = MockHome("test_home", sample_data)
         error_store = ErrorStore("error_store")
-        flow = Flow(name="error_flow", home=home, store=error_store)
+        flow = Flow(
+            name="error_flow",
+            home=home,
+            store=error_store,
+            entity_name="error_flow",
+            base_flow_name="error_flow",
+        )
 
         # When starting the flow
         with pytest.raises(FlowError) as exc_info:
@@ -375,7 +404,13 @@ class TestSimplifiedFlow:
 
         slow_home = SlowHome("slow_home", [])
         store = MockStore("test_store")
-        flow = Flow(name="slow_flow", home=slow_home, store=store)
+        flow = Flow(
+            name="slow_flow",
+            home=slow_home,
+            store=store,
+            entity_name="slow_flow",
+            base_flow_name="slow_flow",
+        )
 
         # Start the flow in a task
         task = asyncio.create_task(flow.start())
@@ -424,7 +459,13 @@ class TestSimplifiedFlow:
 
         home = RetryableHome("retry_home", sample_data)
         store = MockStore("retry_store")
-        flow = Flow(name="retry_flow", home=home, store=store)
+        flow = Flow(
+            name="retry_flow",
+            home=home,
+            store=store,
+            entity_name="retry_flow",
+            base_flow_name="retry_flow",
+        )
 
         # When starting the flow
         await flow.start()
@@ -457,7 +498,13 @@ class TestSimplifiedFlow:
 
         home = RetryableHome("retry_home", sample_data)
         store = MockStore("retry_store")
-        flow = Flow(name="retry_flow", home=home, store=store)
+        flow = Flow(
+            name="retry_flow",
+            home=home,
+            store=store,
+            entity_name="retry_flow",
+            base_flow_name="retry_flow",
+        )
 
         # When starting the flow
         await flow.start()
@@ -485,7 +532,13 @@ class TestSimplifiedFlow:
 
         home = FailingHome("failing_home", sample_data)
         store = MockStore("failing_store")
-        flow = Flow(name="failing_flow", home=home, store=store)
+        flow = Flow(
+            name="failing_flow",
+            home=home,
+            store=store,
+            entity_name="failing_flow",
+            base_flow_name="failing_flow",
+        )
 
         # When starting the flow
         with pytest.raises(FlowError):
@@ -514,7 +567,13 @@ class TestSimplifiedFlow:
 
         home = AlwaysFailingHome("failing_home", sample_data)
         store = MockStore("failing_store")
-        flow = Flow(name="failing_flow", home=home, store=store)
+        flow = Flow(
+            name="failing_flow",
+            home=home,
+            store=store,
+            entity_name="failing_flow",
+            base_flow_name="failing_flow",
+        )
 
         # When starting the flow
         # Tenacity wraps the exception in RetryError when retries are exhausted

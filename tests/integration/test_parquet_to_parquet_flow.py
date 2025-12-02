@@ -121,7 +121,14 @@ class TestParquetToParquetFlow:
         store = ParquetStore(store_config["name"], store_config_obj)
 
         # Create Flow
-        flow = Flow(flow_name, home, store, flow_options)
+        flow = Flow(
+            flow_name,
+            home,
+            store,
+            flow_options,
+            entity_name=flow_name,
+            base_flow_name=flow_name,
+        )
 
         # When running the flow
         await flow.start()
@@ -182,7 +189,14 @@ class TestParquetToParquetFlow:
         )
         store = ParquetStore(flow_config["store_config"]["name"], store_config_obj)
 
-        flow = Flow(flow_config["name"], home, store, flow_config["flow_options"])
+        flow = Flow(
+            flow_config["name"],
+            home,
+            store,
+            flow_config["flow_options"],
+            entity_name=flow_config["name"],
+            base_flow_name=flow_config["name"],
+        )
 
         # Should complete without errors
         await flow.start()
@@ -211,7 +225,14 @@ class TestParquetToParquetFlow:
         )
         store = ParquetStore("destination", store_config_obj)
 
-        flow = Flow("error_test", home, store, {"queue_size": 2})
+        flow = Flow(
+            "error_test",
+            home,
+            store,
+            {"queue_size": 2},
+            entity_name="error_test",
+            base_flow_name="error_test",
+        )
 
         # Should raise an error
         with pytest.raises(Exception):
@@ -236,7 +257,14 @@ class TestParquetToParquetFlow:
         )
         store = ParquetStore(flow_config["store_config"]["name"], store_config_obj)
 
-        flow = Flow(flow_config["name"], home, store, flow_config["flow_options"])
+        flow = Flow(
+            flow_config["name"],
+            home,
+            store,
+            flow_config["flow_options"],
+            entity_name=flow_config["name"],
+            base_flow_name=flow_config["name"],
+        )
 
         await flow.start()
 
@@ -274,7 +302,14 @@ class TestParquetToParquetFlow:
             path=str(store_dir), batch_size=500, options={}
         )
         store1 = ParquetStore("flow1", store1_config)
-        flow1 = Flow("flow1", home1, store1, {"queue_size": 2})
+        flow1 = Flow(
+            "flow1",
+            home1,
+            store1,
+            {"queue_size": 2},
+            entity_name="flow1",
+            base_flow_name="flow1",
+        )
 
         await flow1.start()
 
@@ -286,7 +321,14 @@ class TestParquetToParquetFlow:
             path=str(store_dir), batch_size=500, options={}
         )
         store2 = ParquetStore("flow2", store2_config)
-        flow2 = Flow("flow2", home2, store2, {"queue_size": 2})
+        flow2 = Flow(
+            "flow2",
+            home2,
+            store2,
+            {"queue_size": 2},
+            entity_name="flow2",
+            base_flow_name="flow2",
+        )
 
         await flow2.start()
 
