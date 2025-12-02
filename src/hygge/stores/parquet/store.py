@@ -9,7 +9,7 @@ from pydantic import Field, field_validator
 
 from hygge.core.polish import PolishConfig, Polisher
 from hygge.core.store import BaseStoreConfig, Store, StoreConfig
-from hygge.utility.exceptions import StoreError
+from hygge.utility.exceptions import StoreError, StoreWriteError
 from hygge.utility.path_helper import PathHelper
 
 
@@ -154,9 +154,15 @@ class ParquetStore(Store, store_type="parquet"):
             # Track path for moving to final location
             self.saved_paths.append(str(staging_path))
 
+        except StoreError:
+            # Other store errors - preserve and re-raise
+            raise
         except Exception as e:
             self.logger.error(f"Failed to write parquet to {staging_path}: {str(e)}")
-            raise StoreError(f"Failed to write parquet to {staging_path}: {str(e)}")
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise StoreWriteError(
+                f"Failed to write parquet to {staging_path}: {str(e)}"
+            ) from e
 
     async def _cleanup_temp(self, staging_path: str) -> None:
         """Clean up temporary file."""

@@ -17,7 +17,7 @@ from azure.core.credentials import AccessToken
 from azure.identity import DefaultAzureCredential
 
 from hygge.messages import get_logger
-from hygge.utility.exceptions import HomeError
+from hygge.utility.exceptions import HomeConnectionError, HomeError
 
 from .base import BaseConnection
 
@@ -118,14 +118,34 @@ class MssqlConnection(BaseConnection):
 
         except pyodbc.Error as e:
             error_msg = str(e)
+            sqlstate = getattr(e, "sqlstate", None)
+
+            # Check for ODBC driver not found error
             if "IM002" in error_msg:
                 raise HomeError(
                     f"ODBC Driver not found. Expected: {self.driver}. "
                     f"Install with: brew install msodbcsql18"
-                )
-            raise HomeError(f"Database connection failed: {error_msg}")
+                ) from e
+
+            # Use SQLSTATE for connection errors
+            # (08xxx are connection-related per SQL standard)
+            if sqlstate and sqlstate.startswith("08"):
+                # CRITICAL: Use 'from e' to preserve exception context
+                raise HomeConnectionError(f"Connection error: {error_msg}") from e
+
+            # Fallback: Check for known connection error SQLSTATE in error message
+            # (Only if SQLSTATE attribute is not available)
+            if not sqlstate and "08S01" in error_msg:
+                # CRITICAL: Use 'from e' to preserve exception context
+                raise HomeConnectionError(f"Connection error: {error_msg}") from e
+
+            # Other database errors
+            raise HomeError(f"Database connection failed: {error_msg}") from e
         except Exception as e:
-            raise HomeError(f"Failed to create MSSQL connection: {str(e)}")
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise HomeConnectionError(
+                f"Failed to create MSSQL connection: {str(e)}"
+            ) from e
 
     async def close_connection(self, conn: pyodbc.Connection) -> None:
         """

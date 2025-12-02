@@ -21,7 +21,11 @@ from hygge.connections.constants import (
     MSSQL_HOME_BATCHING_DEFAULTS,
 )
 from hygge.core.home import BaseHomeConfig, Home, HomeConfig
-from hygge.utility.exceptions import HomeError
+from hygge.utility.exceptions import (
+    HomeConnectionError,
+    HomeError,
+    HomeReadError,
+)
 
 
 class MssqlHome(Home, home_type="mssql"):
@@ -177,8 +181,16 @@ class MssqlHome(Home, home_type="mssql"):
                 # Log at debug level to reduce noise
                 self.logger.debug(f"No data returned from query: {query}")
 
+        except HomeConnectionError:
+            # Connection errors - preserve and re-raise
+            raise
+        except HomeError:
+            # Other home errors - preserve and re-raise
+            raise
         except Exception as e:
-            raise HomeError(f"Failed to read from MSSQL: {str(e)}")
+            # Unexpected errors - wrap in HomeReadError
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise HomeReadError(f"Failed to read from MSSQL: {str(e)}") from e
         finally:
             await self._cleanup_connection()
 

@@ -17,7 +17,11 @@ from hygge.connections.constants import (
     MSSQL_STORE_BATCHING_DEFAULTS,
 )
 from hygge.core.store import Store, StoreConfig
-from hygge.utility.exceptions import StoreError
+from hygge.utility.exceptions import (
+    StoreConnectionError,
+    StoreError,
+    StoreWriteError,
+)
 
 
 class MssqlStore(Store, store_type="mssql"):
@@ -135,9 +139,16 @@ class MssqlStore(Store, store_type="mssql"):
             # Always write to temp table for atomic operations
             await self._save_to_temp_table(df)
 
+        except StoreConnectionError:
+            # Connection errors - preserve and re-raise
+            raise
+        except StoreError:
+            # Other store errors - preserve and re-raise
+            raise
         except Exception as e:
             self.logger.error(f"Failed to write to MSSQL table {self.table}: {str(e)}")
-            raise StoreError(f"Failed to write to MSSQL: {str(e)}")
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise StoreWriteError(f"Failed to write to MSSQL: {str(e)}") from e
 
     async def _save_to_temp_table(self, df: pl.DataFrame) -> None:
         """
@@ -216,9 +227,18 @@ class MssqlStore(Store, store_type="mssql"):
             # Offload synchronous pyodbc operations to thread pool
             await asyncio.to_thread(self._insert_batch_to_temp, connection, df_chunk)
 
+        except StoreConnectionError:
+            # Connection errors - preserve and re-raise
+            raise
+        except StoreError:
+            # Other store errors - preserve and re-raise
+            raise
         except Exception as e:
             self.logger.error(f"Failed to write chunk to temp table: {str(e)}")
-            raise StoreError(f"Failed to write chunk to temp table: {str(e)}")
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise StoreWriteError(
+                f"Failed to write chunk to temp table: {str(e)}"
+            ) from e
 
         finally:
             # Always release connection back to pool
@@ -741,6 +761,12 @@ CREATE TABLE {target_table} (
                     await self._drop_table_atomic(connection, self.temp_table)
                     self.logger.success(f"Appended temp table data to {self.table}")
 
+        except StoreConnectionError:
+            # Connection errors - preserve and re-raise
+            raise
+        except StoreError:
+            # Other store errors - preserve and re-raise
+            raise
         except Exception as e:
             self.logger.error(f"Failed to swap temp table to production: {str(e)}")
             # Cleanup temp table on failure
@@ -749,7 +775,8 @@ CREATE TABLE {target_table} (
                     await self._drop_table_atomic(connection, self.temp_table)
                 except Exception:
                     pass  # Ignore cleanup errors
-            raise StoreError(f"Failed to finalize MSSQL store: {str(e)}")
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise StoreError(f"Failed to finalize MSSQL store: {str(e)}") from e
 
         finally:
             if connection:

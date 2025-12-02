@@ -12,7 +12,16 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
 import polars as pl
 
 from hygge.messages import get_logger
-from hygge.utility.exceptions import FlowError
+from hygge.utility.exceptions import (
+    FlowConnectionError,
+    FlowError,
+    FlowExecutionError,
+    HomeConnectionError,
+    HomeError,
+    JournalWriteError,
+    StoreConnectionError,
+    StoreError,
+)
 from hygge.utility.retry import with_retry
 
 from ..home import Home
@@ -186,6 +195,12 @@ class Flow:
                 status="success", message=self.watermark_message
             )
 
+        except FlowConnectionError:
+            # Transient connection error - will be retried, preserve exception
+            raise
+        except FlowError:
+            # Other flow errors - don't retry, preserve exception
+            raise
         except Exception as e:
             # Capture duration even on failure
             if self.start_time:
@@ -214,11 +229,14 @@ class Flow:
                 except asyncio.CancelledError:
                     pass
 
-            raise FlowError(f"Flow failed: {str(e)}")
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise FlowExecutionError(
+                f"Flow failed: {self.name}, error: {str(e)}"
+            ) from e
 
     def _should_retry_flow_error(self, exception: Exception) -> bool:
         """
-        Determine if a FlowError should be retried based on error message.
+        Determine if a FlowError should be retried based on exception type.
 
         Args:
             exception: The exception that was raised
@@ -226,16 +244,14 @@ class Flow:
         Returns:
             True if the error is transient and should be retried
         """
-        if not isinstance(exception, FlowError):
-            return False
+        # Retry on transient connection errors
+        if isinstance(
+            exception, (FlowConnectionError, HomeConnectionError, StoreConnectionError)
+        ):
+            return True
 
-        # Only retry for specific transient connection errors
-        error_str = str(exception).lower()
-        return "connection" in error_str and (
-            "forcibly closed" in error_str
-            or "communication link failure" in error_str
-            or "08s01" in error_str
-        )
+        # Don't retry on other errors
+        return False
 
     async def _cleanup_before_retry(self, retry_state) -> None:
         """
@@ -292,10 +308,17 @@ class Flow:
             await queue.put(None)
             self.logger.debug("Producer completed, sent end signal")
 
+        except HomeConnectionError:
+            # Connection errors from home - preserve and re-raise
+            raise
+        except HomeError:
+            # Other home errors - preserve and re-raise
+            raise
         except Exception as e:
             self.logger.error(f"Producer error: {str(e)}")
             producer_done.set()  # Signal done even on error
-            raise FlowError(f"Producer failed: {str(e)}")
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise FlowError(f"Producer failed: {str(e)}") from e
 
     async def _iterate_home_batches(self) -> AsyncIterator[pl.DataFrame]:
         """Yield batches from the home, applying watermark filtering when available."""
@@ -466,6 +489,12 @@ class Flow:
 
                     # Progress logging now handled by store with combined message
 
+                except StoreConnectionError:
+                    # Connection errors from store - preserve and re-raise
+                    raise
+                except StoreError:
+                    # Other store errors - preserve and re-raise
+                    raise
                 except Exception as e:
                     self.logger.error(f"Failed to process batch: {str(e)}")
                     # Signal producer to stop by putting None in queue (non-blocking)
@@ -473,14 +502,22 @@ class Flow:
                         queue.put_nowait(None)
                     except Exception:
                         pass
-                    raise FlowError(f"Batch processing failed: {str(e)}")
+                    # CRITICAL: Use 'from e' to preserve exception context
+                    raise FlowError(f"Batch processing failed: {str(e)}") from e
 
                 finally:
                     queue.task_done()
 
+        except StoreConnectionError:
+            # Connection errors from store - preserve and re-raise
+            raise
+        except StoreError:
+            # Other store errors - preserve and re-raise
+            raise
         except Exception as e:
             self.logger.error(f"Consumer error: {str(e)}")
-            raise FlowError(f"Consumer failed: {str(e)}")
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise FlowError(f"Consumer failed: {str(e)}") from e
 
     async def _record_entity_run(
         self, status: str, message: Optional[str] = None
@@ -565,9 +602,19 @@ class Flow:
                 message=final_message,
             )
 
+        except JournalWriteError as e:
+            # Log error clearly but don't break flow
+            self.logger.error(
+                f"Failed to record entity run in journal: {str(e)}. "
+                "This is non-blocking, but journal tracking may be incomplete."
+            )
         except Exception as e:
-            # Journal failures should not break flows
-            self.logger.warning(f"Failed to record entity run in journal: {str(e)}")
+            # Unexpected errors - log and wrap
+            self.logger.error(
+                f"Unexpected error recording entity run in journal: {str(e)}"
+            )
+            # Don't raise - journal failures should not break flows
+            # But log as error so it's visible
 
     def _resolve_entity_name(self) -> Optional[str]:
         """Resolve entity name for journal lookups."""
