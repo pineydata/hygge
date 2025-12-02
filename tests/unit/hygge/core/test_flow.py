@@ -10,6 +10,7 @@ Following hygge's testing principles:
 import asyncio
 from pathlib import Path
 from typing import AsyncIterator, List, Optional
+from unittest.mock import Mock
 
 import polars as pl
 import pytest
@@ -529,3 +530,491 @@ class TestSimplifiedFlow:
         assert attempt_count["count"] == 3
         # And cleanup_staging should have been called before each retry (2 times)
         assert store.cleanup_staging_call_count == 2
+
+
+class TestFlowConfigSafeAccess:
+    """Test FlowConfig safe config access methods (no side effects)."""
+
+    def test_get_store_config_from_dict(self):
+        """Test get_store_config() returns config without creating store."""
+        from hygge.core.flow import FlowConfig
+
+        config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+        )
+
+        # Should return StoreConfig without creating Store instance
+        store_config = config.get_store_config()
+        assert store_config.type == "parquet"
+        assert store_config.path == "data/dest"
+        # Verify it's a StoreConfig, not a Store instance
+        assert hasattr(store_config, "model_dump")
+        # Store has write, StoreConfig doesn't
+        assert not hasattr(store_config, "write")
+
+    def test_get_store_config_from_string(self):
+        """Test get_store_config() handles string configs."""
+        from hygge.core.flow import FlowConfig
+
+        config = FlowConfig(home="data/source", store="data/dest")
+
+        store_config = config.get_store_config()
+        assert store_config.type == "parquet"
+        assert store_config.path == "data/dest"
+
+    def test_get_home_config_from_dict(self):
+        """Test get_home_config() returns config without creating home."""
+        from hygge.core.flow import FlowConfig
+
+        config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+        )
+
+        # Should return HomeConfig without creating Home instance
+        home_config = config.get_home_config()
+        assert home_config.type == "parquet"
+        assert home_config.path == "data/source"
+        # Verify it's a HomeConfig, not a Home instance
+        assert hasattr(home_config, "model_dump")
+        assert not hasattr(home_config, "read")  # Home has read, HomeConfig doesn't
+
+    def test_get_home_config_from_string(self):
+        """Test get_home_config() handles string configs."""
+        from hygge.core.flow import FlowConfig
+
+        config = FlowConfig(home="data/source", store="data/dest")
+
+        home_config = config.get_home_config()
+        assert home_config.type == "parquet"
+        assert home_config.path == "data/source"
+
+
+class TestFlowFromConfig:
+    """Test Flow.from_config() class method."""
+
+    def test_from_config_creates_flow(self):
+        """Test Flow.from_config() creates flow from configuration."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+        )
+
+        flow = Flow.from_config(
+            flow_name="test_flow",
+            flow_config=flow_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+        )
+
+        assert flow.name == "test_flow"
+        assert flow.home is not None
+        assert flow.store is not None
+        assert flow.home.config.type == "parquet"
+        assert flow.store.config.type == "parquet"
+        assert flow.coordinator_run_id == "test_run_id"
+        assert flow.coordinator_name == "test_coordinator"
+        assert flow.base_flow_name == "test_flow"
+        assert flow.entity_name is None
+
+    def test_from_config_with_run_type(self):
+        """Test Flow.from_config() respects run_type configuration."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+            run_type="incremental",
+        )
+
+        flow = Flow.from_config(
+            flow_name="test_flow",
+            flow_config=flow_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+        )
+
+        assert flow.run_type == "incremental"
+
+    def test_from_config_with_full_drop_override(self):
+        """Test Flow.from_config() handles full_drop compatibility flag."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+            full_drop=False,  # Should override run_type to incremental
+        )
+
+        flow = Flow.from_config(
+            flow_name="test_flow",
+            flow_config=flow_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+        )
+
+        assert flow.run_type == "incremental"
+
+    def test_from_config_with_watermark(self):
+        """Test Flow.from_config() includes watermark configuration."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+            watermark={"primary_key": "id", "watermark_column": "updated_at"},
+        )
+
+        flow = Flow.from_config(
+            flow_name="test_flow",
+            flow_config=flow_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+        )
+
+        expected_watermark = {"primary_key": "id", "watermark_column": "updated_at"}
+        assert flow.watermark_config == expected_watermark
+
+    def test_from_config_with_flow_overrides(self):
+        """Test Flow.from_config() applies flow overrides."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+            run_type="full_drop",
+        )
+
+        flow_overrides = {"test_flow": {"run_type": "incremental"}}
+
+        flow = Flow.from_config(
+            flow_name="test_flow",
+            flow_config=flow_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+            flow_overrides=flow_overrides,
+        )
+
+        # Override should change run_type
+        assert flow.run_type == "incremental"
+
+    def test_from_config_open_mirroring_requires_key_columns(self):
+        """Test Flow.from_config() validates Open Mirroring key_columns."""
+        from hygge.core.flow import Flow, FlowConfig
+        from hygge.utility.exceptions import ConfigError
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={
+                "type": "open_mirroring",
+                "account_url": "https://test.dfs.fabric.microsoft.com",
+                "filesystem": "test",
+                "mirror_name": "test-db",
+                "row_marker": 0,
+                # key_columns missing - should fail
+            },
+        )
+
+        with pytest.raises(ConfigError) as exc_info:
+            Flow.from_config(
+                flow_name="test_flow",
+                flow_config=flow_config,
+                coordinator_run_id="test_run_id",
+                coordinator_name="test_coordinator",
+                connection_pools={},
+                journal_cache={},
+            )
+
+        assert "key_columns" in str(exc_info.value).lower()
+
+
+class TestFlowFromEntity:
+    """Test Flow.from_entity() class method."""
+
+    def test_from_entity_creates_flow(self):
+        """Test Flow.from_entity() creates entity flow from configuration."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+        )
+
+        entity_config = {"name": "users"}
+
+        flow = Flow.from_entity(
+            flow_name="test_flow_users",
+            base_flow_name="test_flow",
+            flow_config=flow_config,
+            entity_name="users",
+            entity_config=entity_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+        )
+
+        assert flow.name == "test_flow_users"
+        assert flow.base_flow_name == "test_flow"
+        assert flow.entity_name == "users"
+        assert flow.home is not None
+        assert flow.store is not None
+
+    def test_from_entity_merges_home_path(self):
+        """Test Flow.from_entity() merges entity home path with flow path."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+        )
+
+        entity_config = {
+            "name": "users",
+            "home": {"path": "users"},  # Should merge with flow path
+        }
+
+        flow = Flow.from_entity(
+            flow_name="test_flow_users",
+            base_flow_name="test_flow",
+            flow_config=flow_config,
+            entity_name="users",
+            entity_config=entity_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+        )
+
+        # Path should be merged: "data/source" + "users" = "data/source/users"
+        assert flow.home.config.path == "data/source/users"
+
+    def test_from_entity_merges_store_config(self):
+        """Test Flow.from_entity() merges entity store config with flow config."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={
+                "type": "parquet",
+                "path": "data/dest",
+                "options": {"compression": "snappy"},
+            },
+        )
+
+        entity_config = {
+            "name": "users",
+            "store": {"options": {"compression": "gzip"}},  # Override compression
+        }
+
+        flow = Flow.from_entity(
+            flow_name="test_flow_users",
+            base_flow_name="test_flow",
+            flow_config=flow_config,
+            entity_name="users",
+            entity_config=entity_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+        )
+
+        # Store config should have entity override
+        assert flow.store.config.options["compression"] == "gzip"
+
+    def test_from_entity_with_entity_run_type(self):
+        """Test Flow.from_entity() uses entity run_type override."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+            run_type="full_drop",  # Flow-level default
+        )
+
+        entity_config = {
+            "name": "users",
+            "run_type": "incremental",  # Entity override
+        }
+
+        flow = Flow.from_entity(
+            flow_name="test_flow_users",
+            base_flow_name="test_flow",
+            flow_config=flow_config,
+            entity_name="users",
+            entity_config=entity_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+            default_run_type="full_drop",
+        )
+
+        # Entity run_type should override flow default
+        assert flow.run_type == "incremental"
+
+    def test_from_entity_with_entity_watermark(self):
+        """Test Flow.from_entity() uses entity watermark override."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+            watermark={"primary_key": "id", "watermark_column": "created_at"},
+        )
+
+        entity_config = {
+            "name": "users",
+            "watermark": {"primary_key": "user_id", "watermark_column": "updated_at"},
+        }
+
+        flow = Flow.from_entity(
+            flow_name="test_flow_users",
+            base_flow_name="test_flow",
+            flow_config=flow_config,
+            entity_name="users",
+            entity_config=entity_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+            default_watermark={"primary_key": "id", "watermark_column": "created_at"},
+        )
+
+        # Entity watermark should override flow default
+        expected_watermark = {
+            "primary_key": "user_id",
+            "watermark_column": "updated_at",
+        }
+        assert flow.watermark_config == expected_watermark
+
+    def test_from_entity_open_mirroring_key_columns(self):
+        """Test Flow.from_entity() handles Open Mirroring key_columns from entity."""
+        from hygge.core.flow import Flow, FlowConfig
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={
+                "type": "open_mirroring",
+                "account_url": "https://test.dfs.fabric.microsoft.com",
+                "filesystem": "test",
+                "mirror_name": "test-db",
+                "row_marker": 0,
+                # key_columns not at flow level - entity should provide
+            },
+        )
+
+        entity_config = {
+            "name": "users",
+            "store": {"key_columns": ["id"]},  # Entity provides key_columns
+        }
+
+        flow = Flow.from_entity(
+            flow_name="test_flow_users",
+            base_flow_name="test_flow",
+            flow_config=flow_config,
+            entity_name="users",
+            entity_config=entity_config,
+            coordinator_run_id="test_run_id",
+            coordinator_name="test_coordinator",
+            connection_pools={},
+            journal_cache={},
+        )
+
+        # Should succeed - entity provides key_columns
+        assert flow.store.config.key_columns == ["id"]
+
+
+class TestFlowHelperMethods:
+    """Test FlowFactory helper methods (_apply_overrides, _validate_run_type_alignment)."""  # noqa: E501
+
+    def test_apply_overrides_deep_merge(self):
+        """Test _apply_overrides() performs deep merge of configs."""
+        from hygge.core.flow import FlowConfig, FlowFactory
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={
+                "type": "parquet",
+                "path": "data/dest",
+                "options": {"compression": "snappy"},
+            },
+        )
+
+        overrides = {
+            "test_flow": {
+                # Deep merge into store.options
+                "store": {"options": {"compression": "gzip"}},
+            }
+        }
+
+        updated_config = FlowFactory._apply_overrides(
+            flow_config, "test_flow", overrides
+        )
+
+        # Should merge options, not replace entire store
+        assert updated_config.store["options"]["compression"] == "gzip"
+        # Original path preserved
+        assert updated_config.store["path"] == "data/dest"
+
+    def test_apply_overrides_no_overrides(self):
+        """Test _apply_overrides() returns original config when no overrides."""
+        from hygge.core.flow import FlowConfig, FlowFactory
+
+        flow_config = FlowConfig(
+            home={"type": "parquet", "path": "data/source"},
+            store={"type": "parquet", "path": "data/dest"},
+        )
+
+        # No overrides for this flow
+        overrides = {"other_flow": {"run_type": "incremental"}}
+
+        updated_config = FlowFactory._apply_overrides(
+            flow_config, "test_flow", overrides
+        )
+
+        # Should return original config unchanged
+        assert updated_config == flow_config
+
+    def test_validate_run_type_alignment_warns_on_mismatch(self):
+        """Test _validate_run_type_alignment() warns on mismatch."""
+        from hygge.core.flow import FlowFactory
+        from hygge.core.store import StoreConfig
+
+        # Create a mock logger to capture warnings
+        mock_logger = Mock()
+
+        # Create an ADLS store config that supports incremental
+        # (Parquet stores don't have incremental field)
+        store_config = StoreConfig.create(
+            {
+                "type": "adls",
+                "account_url": "https://test.dfs.core.windows.net",
+                "filesystem": "test",
+                "path": "data/dest",
+                "incremental": True,  # Store forces incremental
+            }
+        )
+
+        # Flow run_type is full_drop - should warn
+        FlowFactory._validate_run_type_alignment(
+            store_config, "full_drop", "test_flow", None, mock_logger
+        )
+
+        # Should have logged a warning
+        mock_logger.warning.assert_called_once()
+        warning_msg = mock_logger.warning.call_args[0][0].lower()
+        assert "incremental" in warning_msg or "full_drop" in warning_msg
