@@ -22,7 +22,7 @@
 ## Reference Materials
 - **[CLAUDE.md](../CLAUDE.md)** - Complete project guide (start here)
 - **[../README.md](../README.md)** - Project documentation
-- **[../HYGGE_PROGRESS.md](../HYGGE_PROGRESS.md)** - Detailed progress assessment
+- **[../HYGGE_PROGRESS.md](../.progress/HYGGE_PROGRESS.md)** - Detailed progress assessment
 
 ## Quick Start
 1. Read [CLAUDE.md](../CLAUDE.md) for complete project understanding

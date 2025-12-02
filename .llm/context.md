@@ -25,7 +25,7 @@ hygge (pronounced "hoo-ga") is a data movement framework for solo developers/sma
 **hygge isn't just about moving data - it's about making data movement feel natural, comfortable, and reliable.**
 
 ## Current Status
-See [HYGGE_PROGRESS.md](../HYGGE_PROGRESS.md) for detailed assessment.
+See [HYGGE_PROGRESS.md](../.progress/HYGGE_PROGRESS.md) for detailed assessment.
 
 ## Technical Stack
 - Python 3.11+, Polars, PyArrow, Pydantic
