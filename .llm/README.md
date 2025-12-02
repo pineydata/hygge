@@ -4,7 +4,7 @@
 **Read [CLAUDE.md](../CLAUDE.md)** - Complete project guide with all essential information
 
 ## Critical Constraint
-- **NEVER run terminal commands** - This is a hard constraint
+- **Always ask permission before running terminal commands** - Request explicit approval before executing any commands
 
 ## Development Style
 - Be direct and candid (not deferential)
@@ -35,7 +35,7 @@
 - [ ] Have you read [CLAUDE.md](../CLAUDE.md)?
 - [ ] Do you understand hygge's philosophy and constraints?
 - [ ] Are you familiar with the Rails philosophy (all 9 principles)?
-- [ ] Are you aware of the no-terminal constraint?
+- [ ] Are you aware that terminal commands require permission?
 - [ ] Will you write tests immediately after implementing functionality?
 - [ ] Do you think like a data engineer: outcomes over perfection?
 

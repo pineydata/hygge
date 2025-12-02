@@ -4,7 +4,7 @@ A cozy, comfortable data movement framework that makes data feel at home.
 
 ## Critical Constraints
 
-**NEVER run terminal commands** - This is a hard constraint. Provide guidance and code suggestions without executing anything that could affect the system.
+**Always ask permission before running terminal commands** - Request explicit approval before executing any commands that could affect the system. Provide guidance and code suggestions, but ask before running commands.
 
 ## Project Overview
 
@@ -104,6 +104,12 @@ hygge (pronounced "hoo-ga") is a data movement framework for solo developers/sma
    - Avoid over-engineering or premature optimization
    - Add complexity only when there's a concrete need
 
+4. **Backward Compatibility**
+   - **Maintain backward compatibility unless there is a clear discussion** about breaking changes
+   - Preserve existing APIs and behavior
+   - Breaking changes require explicit discussion and justification
+   - Document and communicate breaking changes clearly
+
 **Code Review Checklist:**
 - [ ] Have I checked if similar code exists elsewhere in the codebase?
 - [ ] Am I duplicating logic that could be extracted or reused?
@@ -111,6 +117,7 @@ hygge (pronounced "hoo-ga") is a data movement framework for solo developers/sma
 - [ ] Am I adding unnecessary complexity or abstractions?
 - [ ] Does this change maintain consistency with existing patterns?
 - [ ] Have I considered how this fits into the broader architecture?
+- [ ] Does this maintain backward compatibility, or is there a clear discussion about breaking changes?
 
 **When making changes:**
 - Search the codebase for similar patterns before implementing
@@ -237,7 +244,7 @@ Before considering any feature complete:
 Before starting work, ensure:
 - [ ] You understand hygge's philosophy and constraints
 - [ ] You're familiar with the Rails-inspired principles
-- [ ] You won't run terminal commands
+- [ ] You will ask permission before running terminal commands
 - [ ] You prioritize comfort over complexity
 - [ ] You will write tests immediately after implementing functionality
 - [ ] You understand that testing is part of the development process, not optional
