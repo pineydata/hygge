@@ -1,5 +1,15 @@
 """
-Custom exceptions for hygge.
+Custom exceptions for hygge - clear, actionable error handling.
+
+hygge uses a hierarchical exception system that makes error handling
+comfortable and reliable. Exceptions are designed to be clear and actionable,
+helping you understand what went wrong and how to fix it.
+
+Following hygge's philosophy, exceptions prioritize:
+- **Comfort**: Clear error messages that help you understand what happened
+- **Reliability**: Proper exception chaining preserves context for debugging
+- **Natural flow**: Transient errors are retried automatically,
+  permanent errors fail fast
 
 Exception Hierarchy:
     HyggeError (base)

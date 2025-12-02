@@ -1,13 +1,23 @@
 """
 Lightweight, opt-in polishing utilities for last-mile Store transforms.
 
-Polisher is intentionally small and comfortable:
+Polisher makes it comfortable to apply common transformations to your data
+before it's written to the store. It's intentionally small and focused,
+handling the common cases without getting in your way.
+
+Following hygge's philosophy, Polisher prioritizes:
+- **Comfort**: Simple configuration, sensible defaults, opt-in only
+- **Reliability**: Deterministic transformations, graceful error handling
+- **Natural flow**: Applies transformations smoothly without breaking flows
+
+Polisher handles:
 - Column normalization (remove special chars, PascalCase, optional space removal)
 - Deterministic row-level hash ID generation
 - Generic constant columns (e.g., __rowMarker__)
 - Load timestamps (e.g., __LastLoadedAt__)
 
-All behavior is configured via `PolishConfig` and applied per-Store.
+All behavior is configured via `PolishConfig` and applied per-Store, so
+you can customize transformations for each destination.
 """
 from __future__ import annotations
 
@@ -176,13 +186,25 @@ class PolishConfig(BaseModel):
 @dataclass
 class Polisher:
     """
-    Lightweight, per-Store polishing helper.
+    Lightweight, per-Store polishing helper for comfortable data transforms.
 
-    Responsibilities:
-    - Apply configured column normalization
-    - Add hash IDs
-    - Add constant columns
-    - Add timestamp columns
+    Polisher makes it easy to apply common transformations to your data before
+    it's written to the store. It's intentionally small and focused, handling
+    the common cases without getting in your way.
+
+    Following hygge's philosophy, Polisher prioritizes:
+    - **Comfort**: Simple configuration, sensible defaults, opt-in only
+    - **Reliability**: Deterministic transformations, graceful error handling
+    - **Natural flow**: Applies transformations smoothly without breaking flows
+
+    Polisher handles:
+    - Column normalization (remove special chars, PascalCase, optional space removal)
+    - Deterministic row-level hash ID generation
+    - Generic constant columns (e.g., __rowMarker__)
+    - Load timestamps (e.g., __LastLoadedAt__)
+
+    All transformations are configured via `PolishConfig` and applied per-Store,
+    so you can customize transformations for each destination.
     """
 
     config: PolishConfig

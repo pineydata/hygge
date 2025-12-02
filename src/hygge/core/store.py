@@ -1,18 +1,24 @@
 """
-Base Store class and configuration for all data stores.
+Base Store class for comfortable data writing.
 
-A Store is a data destination that can receive and persist data.
-This is an abstract base class that defines the interface
-that all specific Store implementations must follow.
+A Store is where your data goes - a data destination that receives and
+persists data reliably. This abstract base class defines the interface that
+all Store implementations follow, ensuring consistent, reliable data writing.
 
-hygge is built on Polars + PyArrow for data movement.
-All stores accept Polars DataFrames for efficient, columnar data writing.
+hygge is built on Polars + PyArrow for efficient data movement. All stores
+accept Polars DataFrames for fast, columnar data writing that feels natural.
+
+Following hygge's philosophy, Stores prioritize:
+- **Comfort**: Simple, intuitive interface for writing data
+- **Reliability**: Consistent batch writing, error handling, staging for safety
+- **Natural flow**: Data writes smoothly in batches that feel right-sized
 
 Example:
     ```python
     class MyStore(Store, store_type="my_type"):
         async def write(self, data: pl.DataFrame) -> None:
-            # Implementation specific to your data destination
+            # Your implementation writes Polars DataFrames to your destination
+            # with comfortable batching and error handling
             pass
     ```
 """
@@ -29,17 +35,25 @@ from hygge.messages import get_logger
 
 class Store(ABC):
     """
-    Base class for all data stores.
+    Base class for all data stores - where your data goes.
 
-    A Store is a data destination that can receive and persist data.
-    This is an abstract base class that defines the interface
-    that all specific Store implementations must follow.
+    A Store is a data destination that receives and persists data reliably.
+    This abstract base class defines the interface that all Store implementations
+    follow, ensuring consistent, reliable data writing across different destinations.
+
+    Following hygge's philosophy, Stores make data feel at home wherever it goes.
+    They handle the complexity of writing to different destinations (parquet files,
+    databases, cloud storage) while providing a simple, consistent interface.
+
+    Stores automatically handle batching, buffering, and staging for safety,
+    so your data arrives reliably even if something goes wrong.
 
     Example:
         ```python
         class MyStore(Store, store_type="my_type"):
             async def write(self, data: pl.DataFrame) -> None:
-                # Implementation specific to your data destination
+                # Your implementation writes Polars DataFrames to your destination
+                # with comfortable batching and error handling
                 pass
         ```
     """

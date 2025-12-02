@@ -1,5 +1,10 @@
 """
-Retry decorator with exponential backoff and timeout for async functions.
+Retry decorator with exponential backoff for comfortable, reliable operations.
+
+The retry decorator makes it easy to handle transient errors gracefully,
+automatically retrying operations with exponential backoff. It follows hygge's
+philosophy of reliability over speed, ensuring operations complete successfully
+even when temporary issues occur.
 """
 import asyncio
 import logging
@@ -34,10 +39,15 @@ def with_retry(
     before_sleep_func: Optional[Callable] = None,
 ):
     """
-    Retry decorator with exponential backoff and timeout for async functions.
+    Retry decorator with exponential backoff for comfortable, reliable operations.
 
-    Retries failed operations with exponential backoff between attempts.
-    It also enforces a timeout for each attempt to prevent hanging operations.
+    The retry decorator makes it easy to handle transient errors gracefully,
+    automatically retrying operations with exponential backoff. It follows hygge's
+    philosophy of reliability over speed, ensuring operations complete successfully
+    even when temporary issues occur.
+
+    Retries failed operations with exponential backoff between attempts, and
+    enforces a timeout for each attempt to prevent hanging operations.
 
     Args:
         timeout: Maximum time in seconds for each attempt (default: 300)

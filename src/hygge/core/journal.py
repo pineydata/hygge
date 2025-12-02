@@ -1,8 +1,18 @@
 """
-Journal implementation for tracking flow execution metadata.
+Journal for tracking flow execution metadata with comfort and reliability.
 
-Single-file parquet-based journal that tracks entity runs with denormalized
-hierarchy information for efficient watermark queries.
+The journal keeps track of your flow executions, making it easy to see what
+ran when, how long it took, and what watermarks were used. It's designed
+to be simple (single parquet file) yet powerful (efficient queries).
+
+Following hygge's philosophy, the journal prioritizes:
+- **Comfort**: Simple single-file design, automatic location inference
+- **Reliability**: Atomic writes, schema versioning, error handling
+- **Natural flow**: Tracks what matters without getting in the way
+
+    The journal uses a denormalized design for efficient watermark queries,
+    making incremental loads feel natural and reliable. It supports both
+    local filesystem and remote ADLS/OneLake storage for flexibility.
 """
 import asyncio
 import io
@@ -54,36 +64,29 @@ class Journal:
     """
     Parquet-based journal for tracking flow execution metadata.
 
-    Single-file design with denormalized entity runs for efficient
-    watermark queries. Uses run-based architecture (one row per
-    completed entity run).
+    The journal keeps track of your flow executions in a simple, reliable way.
+    It uses a single-file parquet design that's easy to understand and query,
+    with a denormalized structure optimized for watermark queries.
+
+    Following hygge's philosophy, the journal makes tracking feel natural:
+    - **Comfort**: Simple single-file design, automatic location inference
+    - **Reliability**: Atomic writes, schema versioning, error handling
+    - **Natural flow**: Tracks what matters (runs, watermarks, status)
+      without complexity
+
+    The journal uses a run-based architecture (one row per completed entity run),
+    making it easy to query recent watermarks, track execution history, and understand
+    what happened in your flows.
 
     Example:
         ```python
         config = JournalConfig(path="/path/to/journal")
         journal = Journal("my_journal", config, "main_coordinator")
 
-        # Record entity run
-        await journal.record_entity_run(
-            coordinator_run_id=coordinator_run_id,
-            flow_run_id=flow_run_id,
-            coordinator="main_coordinator",
-            flow="users_flow",
-            entity="users",
-            start_time=start_time,
-            finish_time=finish_time,
-            status="success",
-            run_type="full_drop",
-            row_count=1000,
-            duration=5.0,
-            primary_key="user_id",
-            watermark_column="signup_date",
-            watermark_type="datetime",
-            watermark="2024-01-01T09:00:00Z",
-            message=None,
-        )
+        # Record entity run (automatic from Flow)
+        await journal.record_entity_run(...)
 
-        # Query watermark
+        # Query watermark for incremental loads
         watermark = await journal.get_watermark(
             "users_flow", entity="users"
         )

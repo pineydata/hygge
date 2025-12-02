@@ -1,5 +1,9 @@
 """
-Progress tracking for coordinator-level milestones.
+Progress tracking for coordinator-level milestones - comfortable visibility.
+
+Progress tracking makes it easy to see how your flows are progressing across
+multiple flows. It provides milestone-based logging that feels natural and
+informative without being overwhelming.
 """
 import asyncio
 from typing import Optional
@@ -8,7 +12,18 @@ from hygge.messages.logger import HyggeLogger, _get_event_loop_time
 
 
 class Progress:
-    """Tracks progress across multiple flows."""
+    """
+    Tracks progress across multiple flows - comfortable visibility.
+
+    Progress tracking makes it easy to see how your flows are progressing
+    across multiple flows. It provides milestone-based logging (e.g., every
+    1M rows) that feels natural and informative without being overwhelming.
+
+    Following hygge's philosophy, progress tracking prioritizes:
+    - **Comfort**: Clear milestones, not overwhelming detail
+    - **Reliability**: Thread-safe updates, accurate row counts
+    - **Natural flow**: Progress feels smooth and informative
+    """
 
     def __init__(
         self, milestone_interval: int = 1_000_000, logger: Optional[HyggeLogger] = None

@@ -1,18 +1,24 @@
 """
-Base Home class and configuration for all data homes.
+Base Home class for comfortable data reading.
 
-A Home is a data source that can provide data in batches.
-This is an abstract base class that defines the interface
-that all specific Home implementations must follow.
+A Home is where your data lives - a data source that provides data in
+comfortable batches. This abstract base class defines the interface that
+all Home implementations follow, ensuring consistent, reliable data access.
 
-hygge is built on Polars + PyArrow for data movement.
-All homes yield Polars DataFrames for efficient, columnar data processing.
+hygge is built on Polars + PyArrow for efficient data movement. All homes
+yield Polars DataFrames for fast, columnar data processing that feels natural.
+
+Following hygge's philosophy, Homes prioritize:
+- **Comfort**: Simple, intuitive interface for reading data
+- **Reliability**: Consistent batch processing, error handling, progress tracking
+- **Natural flow**: Data reads smoothly in batches that feel right-sized
 
 Example:
     ```python
     class MyHome(Home, home_type="my_type"):
         async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
-            # Implementation specific to your data source
+            # Your implementation reads from your data source
+            # and yields Polars DataFrames in comfortable batches
             pass
     ```
 """
@@ -28,17 +34,22 @@ from hygge.messages import get_logger
 
 class Home(ABC):
     """
-    Base class for all data homes.
+    Base class for all data homes - where your data lives.
 
-    A Home is a data source that can provide data in batches.
-    This is an abstract base class that defines the interface
-    that all specific Home implementations must follow.
+    A Home is a data source that provides data in comfortable batches.
+    This abstract base class defines the interface that all Home implementations
+    follow, ensuring consistent, reliable data access across different sources.
+
+    Following hygge's philosophy, Homes make data feel at home wherever it lives.
+    They handle the complexity of reading from different sources (parquet files,
+    databases, APIs) while providing a simple, consistent interface.
 
     Example:
         ```python
         class MyHome(Home, home_type="my_type"):
             async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
-                # Implementation specific to your data source
+                # Your implementation reads from your data source
+                # and yields Polars DataFrames in comfortable batches
                 pass
         ```
     """

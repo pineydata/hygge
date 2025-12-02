@@ -1,8 +1,14 @@
 """
-Flow factory for creating Flow instances from configuration.
+Flow factory for creating Flow instances with comfort and reliability.
 
-The FlowFactory provides methods to construct Flow instances from
-configuration, handling entity merging, validation, and wiring.
+The FlowFactory makes it easy to create Flow instances from configuration,
+handling all the complexity of entity merging, validation, and wiring so
+you can focus on your data flows.
+
+Following hygge's philosophy, the factory prioritizes:
+- **Comfort**: Simple creation from configuration, smart defaults
+- **Reliability**: Proper validation, connection pool injection, journal wiring
+- **Natural flow**: Handles entity merging and config resolution automatically
 """
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
@@ -25,14 +31,21 @@ STORE_DEFAULT_KEYS = ["if_exists", "batch_size", "parallel_workers", "timeout"]
 
 class FlowFactory:
     """
-    Factory for creating Flow instances from configuration.
+    Factory for creating Flow instances with comfort and reliability.
 
-    Handles the construction of Flow instances, including:
-    - Config merging (entity configs with flow configs)
-    - Home and Store instance creation
-    - Connection pool injection
-    - Journal wiring
-    - Validation
+    The FlowFactory makes it easy to create Flow instances from configuration,
+    handling all the complexity so your flows are ready to run. It merges entity
+    configs with flow configs, creates Home and Store instances, injects connection
+    pools, wires up journals, and validates everything.
+
+    Following hygge's philosophy, the factory prioritizes:
+    - **Comfort**: Simple creation from configuration, handles complexity for you
+    - **Reliability**: Proper validation, connection pool injection, journal wiring
+    - **Natural flow**: Handles entity merging and config resolution automatically
+
+    You typically don't call FlowFactory directly - the Coordinator uses it to
+    create flows from your workspace configuration. But it's available if you
+    need to create flows programmatically.
     """
 
     @staticmethod
