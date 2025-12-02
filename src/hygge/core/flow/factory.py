@@ -4,12 +4,11 @@ Flow factory for creating Flow instances from configuration.
 The FlowFactory provides methods to construct Flow instances from
 configuration, handling entity merging, validation, and wiring.
 """
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from hygge.homes.mssql import MssqlHome
 from hygge.messages import get_logger
 from hygge.utility.exceptions import ConfigError
-from hygge.utility.path_helper import PathHelper
 
 from ..home import Home
 from ..journal import Journal, JournalConfig
@@ -17,6 +16,7 @@ from ..store import Store
 
 if TYPE_CHECKING:
     from .config import FlowConfig
+    from .entity import Entity
     from .flow import Flow
 
 # Store-related configuration keys that can be applied as defaults
@@ -81,30 +81,25 @@ class FlowFactory:
             )
 
         # Determine run type
-        default_run_type = flow_config.run_type or "full_drop"
-        if flow_config.full_drop is not None:
-            default_run_type = "full_drop" if flow_config.full_drop else "incremental"
+        default_run_type = FlowFactory._extract_run_type(flow_config)
 
-        # Get home config and create home instance
+        # Get home and store configs
         home_config = flow_config.get_home_config()
-
-        # Get connection pool for home if needed (MSSQL homes only)
-        pool: Optional[Any] = None
-        if home_config.type == "mssql":
-            if hasattr(home_config, "connection") and home_config.connection:
-                pool = connection_pools.get(home_config.connection)
-                if pool is None:
-                    conn_name = home_config.connection
-                    log.warning(f"Connection '{conn_name}' referenced but not found")
-
-        # Create home instance
-        if home_config.type == "mssql":
-            home = MssqlHome(f"{flow_name}_home", home_config, pool=pool)
-        else:
-            home = Home.create(f"{flow_name}_home", home_config)
-
-        # Get store config and create store instance
         store_config = flow_config.get_store_config()
+
+        # Validate configs are accessible
+        if not home_config:
+            raise ConfigError(
+                f"Cannot create flow '{flow_name}': "
+                f"home config is missing or invalid. "
+                f"Expected dict with 'type' field, got {type(flow_config.home)}"
+            )
+        if not store_config:
+            raise ConfigError(
+                f"Cannot create flow '{flow_name}': "
+                f"store config is missing or invalid. "
+                f"Expected dict with 'type' field, got {type(flow_config.store)}"
+            )
 
         # For Open Mirroring stores without entities,
         # key_columns must be provided at flow level
@@ -120,36 +115,35 @@ class FlowFactory:
                     f"at the flow level in store config."
                 )
 
-        store = Store.create(f"{flow_name}_store", store_config, flow_name, None)
+        # Create home and store instances
+        home = FlowFactory._create_home_instance(
+            flow_name, home_config, connection_pools, None, log
+        )
+        store = FlowFactory._create_store_instance(
+            flow_name, store_config, flow_name, None, connection_pools, log
+        )
 
         # Validate run_type and store incremental alignment
         FlowFactory._validate_run_type_alignment(
             store_config, default_run_type, flow_name, None, log
         )
 
-        # Inject connection pool into stores that need it
-        FlowFactory._inject_connection_pool(store, store_config, connection_pools, log)
-
         # Get or create journal instance
-        journal_instance = None
         flow_journal_config = (
             flow_config.journal
             if isinstance(flow_config.journal, JournalConfig)
             else None
         )
-        if get_or_create_journal:
-            journal_instance = get_or_create_journal(
-                flow_journal_config, store_config, home_config, store
-            )
-
-        # Create flow with options
-        flow_options = flow_config.options.copy()
-        flow_options.update(
-            {
-                "queue_size": flow_config.queue_size,
-                "timeout": flow_config.timeout,
-            }
+        journal_instance = FlowFactory._get_or_create_journal(
+            flow_journal_config,
+            store_config,
+            home_config,
+            store,
+            get_or_create_journal,
         )
+
+        # Build flow options
+        flow_options = FlowFactory._build_flow_options(flow_config)
 
         return FlowCls(
             flow_name,
@@ -161,212 +155,129 @@ class FlowFactory:
             flow_run_id=None,
             coordinator_name=coordinator_name,
             base_flow_name=flow_name,
-            entity_name=None,
+            entity_name=flow_name,  # Always set for non-entity flows
             run_type=default_run_type,
             watermark_config=flow_config.watermark,
         )
 
     @staticmethod
     def from_entity(
-        flow_name: str,
-        base_flow_name: str,
-        flow_config: "FlowConfig",  # type: ignore
-        entity_name: str,
-        entity_config: Union[Dict[str, Any], str],
+        entity: "Entity",  # type: ignore
         coordinator_run_id: str,
         coordinator_name: str,
         connection_pools: Dict[str, Any],
         journal_cache: Dict[str, Journal],
-        flow_journal_config: Optional[JournalConfig] = None,
-        default_run_type: str = "full_drop",
-        default_watermark: Optional[Dict[str, str]] = None,
         get_or_create_journal: Optional[Callable] = None,
         logger: Optional[Any] = None,
         flow_class: Optional[type] = None,
     ) -> "Flow":  # type: ignore
         """
-        Create an entity Flow instance from configuration.
+        Create a Flow instance from an Entity (already merged and validated).
 
-        Merges entity configuration with flow configuration, creates Home and Store
-        instances with entity-specific paths, and makes everything ready to run.
+        Entity contains the fully merged FlowConfig (entity overrides applied),
+        so no config merging is needed. This method just creates Home/Store
+        instances and wires up the Flow.
 
         Args:
-            flow_name: Full flow name (base_flow_name + entity_name)
-            base_flow_name: Base flow name
-            flow_config: Flow configuration
-            entity_name: Entity name
-            entity_config: Entity configuration (dict or string)
+            entity: Entity with merged configuration (from Workspace)
             coordinator_run_id: Coordinator run ID
             coordinator_name: Coordinator name
             connection_pools: Available connection pools
             journal_cache: Journal instance cache
-            flow_journal_config: Flow-level journal config
-            default_run_type: Default run type for flow
-            default_watermark: Default watermark config for flow
             get_or_create_journal: Function to get or create journal instances
             logger: Logger instance
             flow_class: Flow class to instantiate (for dependency injection in tests)
 
         Returns:
-            Entity Flow instance ready to run
+            Flow instance ready to run
         """
         from .flow import Flow  # Avoid circular import
 
         FlowCls = flow_class or Flow
-        log = logger or get_logger(f"hygge.flow.{flow_name}")
+        log = logger or get_logger(f"hygge.flow.{entity.flow_name}")
 
-        # Get home and store configs using safe methods (no instance creation)
+        # Entity already has merged config, so use it directly
+        flow_config = entity.flow_config
+
+        # Get home and store configs from merged flow config
         home_config = flow_config.get_home_config()
         store_config = flow_config.get_store_config()
 
-        if not home_config or not store_config:
+        # Validate configs are accessible with specific error messages
+        if not home_config:
             raise ConfigError(
-                "Cannot create entity flow: home/store configs not accessible"
-            )
+                f"Cannot create flow from entity '{entity.flow_name}': "
+                f"home config is missing or invalid. "
+                f"Expected dict with 'type' field, got {type(flow_config.home)}. "
+                f"Check that home configuration in flow "
+                f"'{entity.base_flow_name}' is properly defined."
+            )  # noqa: E501
+        if not store_config:
+            raise ConfigError(
+                f"Cannot create flow from entity '{entity.flow_name}': "
+                f"store config is missing or invalid. "
+                f"Expected dict with 'type' field, got {type(flow_config.store)}. "
+                f"Check that store configuration in flow "
+                f"'{entity.base_flow_name}' is properly defined."
+            )  # noqa: E501
 
-        # Extract entity-specific config
-        entity_run_type = default_run_type
-        entity_watermark = default_watermark
-        entity_journal_config = flow_journal_config
+        # Extract run_type and watermark from merged flow config
+        entity_run_type = FlowFactory._extract_run_type(flow_config)
+        entity_watermark = flow_config.watermark
 
-        if isinstance(entity_config, dict):
-            if "run_type" in entity_config and entity_config["run_type"]:
-                entity_run_type = entity_config["run_type"]
-            if "watermark" in entity_config and entity_config["watermark"]:
-                entity_watermark = entity_config["watermark"]
-            if "journal" in entity_config and entity_config["journal"]:
-                raw_journal = entity_config["journal"]
-                if isinstance(raw_journal, JournalConfig):
-                    entity_journal_config = raw_journal
-                elif isinstance(raw_journal, dict):
-                    entity_journal_config = JournalConfig(**raw_journal)
-                else:
-                    raise ConfigError(
-                        f"Invalid journal configuration for entity {entity_name}"
-                    )
+        # Get journal config from merged flow config
+        entity_journal_config = (
+            flow_config.journal
+            if isinstance(flow_config.journal, JournalConfig)
+            else None
+        )
 
-        # Merge entity configuration with flow configuration
-        if isinstance(entity_config, dict):
-            # Merge entity home config with flow home config
-            if "home" in entity_config:
-                entity_home_config = entity_config["home"]
-                home_config_dict = (
-                    home_config.model_dump()
-                    if hasattr(home_config, "model_dump")
-                    else home_config.__dict__
-                )
-
-                # Special handling for path merging - append entity path to flow path
-                if "path" in entity_home_config and "path" in home_config_dict:
-                    flow_path = home_config_dict["path"]
-                    entity_path = entity_home_config["path"]
-                    # Combine paths properly using PathHelper
-                    merged_path = PathHelper.merge_paths(flow_path, entity_path)
-                    merged_home_config = {
-                        **home_config_dict,
-                        **entity_home_config,
-                        "path": merged_path,
-                    }
-                else:
-                    merged_home_config = {**home_config_dict, **entity_home_config}
-
-                home_config = type(home_config)(**merged_home_config)
-
-            # Merge entity store config with flow store config
-            if "store" in entity_config:
-                entity_store_config = entity_config["store"]
-                store_config_dict = (
-                    store_config.model_dump()
-                    if hasattr(store_config, "model_dump")
-                    else store_config.__dict__
-                )
-                merged_store_config = {**store_config_dict, **entity_store_config}
-                store_config = type(store_config)(**merged_store_config)
-            elif store_config.type == "open_mirroring":
-                # For Open Mirroring, if entity doesn't provide key_columns,
-                # check if flow-level has it
-                if not hasattr(store_config, "key_columns") or (
-                    store_config.key_columns is None
-                    or len(store_config.key_columns) == 0
-                ):
-                    log.warning(
-                        f"Entity '{entity_name}' does not provide store.key_columns. "
-                        f"Flow-level store config also missing key_columns. "
-                        f"This will fail at store creation."
-                    )
-
-        # Apply flow defaults to store config
-        store_defaults = {}
-        if isinstance(entity_config, dict):
-            # Extract store-related defaults that might be at the entity level
-            for key in STORE_DEFAULT_KEYS:
-                if key in entity_config:
-                    store_defaults[key] = entity_config[key]
-
-        if store_defaults:
-            store_config_dict = (
-                store_config.model_dump()
-                if hasattr(store_config, "model_dump")
-                else store_config.__dict__
-            )
-            # Merge defaults into store config
-            merged_store_config = {**store_config_dict, **store_defaults}
-            store_config = type(store_config)(**merged_store_config)
-
-        # Get connection pool for home if needed (MSSQL homes only)
-        pool: Optional[Any] = None
-        if home_config.type == "mssql":
-            if hasattr(home_config, "connection") and home_config.connection:
-                pool = connection_pools.get(home_config.connection)
-                if pool is None:
-                    conn_name = home_config.connection
-                    log.warning(f"Connection '{conn_name}' referenced but not found")
-
-        # Create home and store instances with entity_name
-        if home_config.type == "mssql":
-            home = MssqlHome(
-                f"{flow_name}_home", home_config, pool=pool, entity_name=entity_name
-            )
-        else:
-            # For parquet homes, don't pass entity_name if entity config specifies path
-            # This prevents double path appending
-            if (
-                isinstance(entity_config, dict)
-                and "home" in entity_config
-                and "path" in entity_config["home"]
-            ):
-                home = Home.create(f"{flow_name}_home", home_config)
-            else:
-                home = Home.create(f"{flow_name}_home", home_config, entity_name)
-
-        store = Store.create(f"{flow_name}_store", store_config, flow_name, entity_name)
+        # Create home and store instances
+        # For entity flows, entity_name is passed to Home/Store for path handling
+        home = FlowFactory._create_home_instance(
+            entity.flow_name,
+            home_config,
+            connection_pools,
+            entity.entity_name,
+            log,
+            entity.entity_config,
+        )
+        store = FlowFactory._create_store_instance(
+            entity.flow_name,
+            store_config,
+            entity.flow_name,
+            entity.entity_name,
+            connection_pools,
+            log,
+        )
 
         # Validate run_type and store incremental alignment
         FlowFactory._validate_run_type_alignment(
-            store_config, entity_run_type, base_flow_name, entity_name, log
+            store_config,
+            entity_run_type,
+            entity.base_flow_name,
+            entity.entity_name,
+            log,
         )
-
-        # Inject connection pool into stores that need it
-        FlowFactory._inject_connection_pool(store, store_config, connection_pools, log)
 
         # Get or create journal instance
-        journal_instance = None
-        if get_or_create_journal:
-            journal_instance = get_or_create_journal(
-                entity_journal_config, store_config, home_config, store
-            )
-
-        # Create flow with options
-        flow_options = flow_config.options.copy()
-        flow_options.update(
-            {
-                "queue_size": flow_config.queue_size,
-                "timeout": flow_config.timeout,
-            }
+        journal_instance = FlowFactory._get_or_create_journal(
+            entity_journal_config,
+            store_config,
+            home_config,
+            store,
+            get_or_create_journal,
         )
 
+        # Build flow options
+        flow_options = FlowFactory._build_flow_options(flow_config)
+
+        # Ensure entity_name is always set
+        # (use flow_name as fallback for non-entity flows)
+        entity_name = entity.entity_name or entity.flow_name
+
         return FlowCls(
-            flow_name,
+            entity.flow_name,
             home,
             store,
             flow_options,
@@ -374,11 +285,156 @@ class FlowFactory:
             coordinator_run_id=coordinator_run_id,
             flow_run_id=None,
             coordinator_name=coordinator_name,
-            base_flow_name=base_flow_name,
-            entity_name=entity_name,
+            base_flow_name=entity.base_flow_name,
+            entity_name=entity_name,  # Always set (never None)
             run_type=entity_run_type,
             watermark_config=entity_watermark,
         )
+
+    @staticmethod
+    def _extract_run_type(flow_config: "FlowConfig") -> str:  # type: ignore
+        """
+        Extract run type from flow config.
+
+        Args:
+            flow_config: Flow configuration
+
+        Returns:
+            Run type string: "full_drop" or "incremental"
+        """
+        run_type = flow_config.run_type or "full_drop"
+        if flow_config.full_drop is not None:
+            run_type = "full_drop" if flow_config.full_drop else "incremental"
+        return run_type
+
+    @staticmethod
+    def _create_home_instance(
+        flow_name: str,
+        home_config: Any,
+        connection_pools: Dict[str, Any],
+        entity_name: Optional[str],
+        logger: Any,
+        entity_config: Optional[Dict[str, Any]] = None,
+    ) -> Home:
+        """
+        Create home instance with connection pool injection.
+
+        Args:
+            flow_name: Name of the flow
+            home_config: Home configuration
+            connection_pools: Available connection pools
+            entity_name: Optional entity name for path handling
+            logger: Logger instance
+            entity_config: Optional entity config for path handling logic
+
+        Returns:
+            Home instance
+        """
+        # Get connection pool for home if needed (MSSQL homes only)
+        pool: Optional[Any] = None
+        if home_config.type == "mssql":
+            if hasattr(home_config, "connection") and home_config.connection:
+                pool = connection_pools.get(home_config.connection)
+                if pool is None:
+                    conn_name = home_config.connection
+                    logger.warning(f"Connection '{conn_name}' referenced but not found")
+
+        # Create home instance
+        if home_config.type == "mssql":
+            return MssqlHome(
+                f"{flow_name}_home", home_config, pool=pool, entity_name=entity_name
+            )
+        else:
+            # For parquet homes, check if entity config specified path
+            # (prevents double path appending)
+            if (
+                entity_config
+                and isinstance(entity_config, dict)
+                and "home" in entity_config
+                and "path" in entity_config["home"]
+            ):
+                return Home.create(f"{flow_name}_home", home_config)
+            else:
+                return Home.create(f"{flow_name}_home", home_config, entity_name)
+
+    @staticmethod
+    def _create_store_instance(
+        flow_name: str,
+        store_config: Any,
+        store_flow_name: str,
+        entity_name: Optional[str],
+        connection_pools: Dict[str, Any],
+        logger: Any,
+    ) -> Store:
+        """
+        Create store instance with connection pool injection.
+
+        Args:
+            flow_name: Name of the flow (for store name)
+            store_config: Store configuration
+            store_flow_name: Flow name to pass to Store.create
+            entity_name: Optional entity name for path handling
+            connection_pools: Available connection pools
+            logger: Logger instance
+
+        Returns:
+            Store instance
+        """
+        store = Store.create(
+            f"{flow_name}_store", store_config, store_flow_name, entity_name
+        )
+
+        # Inject connection pool into stores that need it
+        FlowFactory._inject_connection_pool(
+            store, store_config, connection_pools, logger
+        )
+
+        return store
+
+    @staticmethod
+    def _get_or_create_journal(
+        journal_config: Optional[JournalConfig],
+        store_config: Any,
+        home_config: Any,
+        store: Store,
+        get_or_create_journal: Optional[Callable],
+    ) -> Optional[Journal]:
+        """
+        Get or create journal instance.
+
+        Args:
+            journal_config: Journal configuration
+            store_config: Store configuration
+            home_config: Home configuration
+            store: Store instance
+            get_or_create_journal: Function to get or create journal instances
+
+        Returns:
+            Journal instance or None
+        """
+        if not get_or_create_journal:
+            return None
+        return get_or_create_journal(journal_config, store_config, home_config, store)
+
+    @staticmethod
+    def _build_flow_options(flow_config: "FlowConfig") -> Dict[str, Any]:  # type: ignore
+        """
+        Build flow options from flow config.
+
+        Args:
+            flow_config: Flow configuration
+
+        Returns:
+            Flow options dictionary
+        """
+        flow_options = flow_config.options.copy()
+        flow_options.update(
+            {
+                "queue_size": flow_config.queue_size,
+                "timeout": flow_config.timeout,
+            }
+        )
+        return flow_options
 
     @staticmethod
     def _apply_overrides(

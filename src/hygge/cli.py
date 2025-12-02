@@ -326,16 +326,29 @@ def go(
                         parts = flow_name.rsplit("_", 1)
                         if len(parts) == 2:
                             potential_base = parts[0]
-                            # Check if this base flow exists in config
-                            if potential_base in config.flows:
+                            # Check if this base flow exists in config entities
+                            if any(
+                                e.base_flow_name == potential_base
+                                for e in config.entities
+                            ):
                                 base_flow_names.add(potential_base)
                                 continue
                     # Not an entity flow or base flow not found, use as-is
-                    if flow_name in config.flows:
-                        base_flow_names.add(flow_name)
+                    if any(
+                        e.flow_name == flow_name or e.base_flow_name == flow_name
+                        for e in config.entities
+                    ):
+                        # Find the base flow name
+                        for entity in config.entities:
+                            if (
+                                entity.flow_name == flow_name
+                                or entity.base_flow_name == flow_name
+                            ):
+                                base_flow_names.add(entity.base_flow_name)
+                                break
             else:
-                # Apply to all flows
-                base_flow_names = set(config.flows.keys())
+                # Apply to all flows - get unique base flow names from entities
+                base_flow_names = {e.base_flow_name for e in config.entities}
 
             # Apply run_type override to all base flows
             for base_flow_name in base_flow_names:
@@ -387,14 +400,28 @@ def debug():
         click.echo("Project configuration is valid")
         click.echo("Project: {}".format(workspace.name))
         click.echo("Flows directory: {}".format(workspace.flows_dir))
-        click.echo("Number of flows: {}".format(len(config.flows)))
+        click.echo("Number of entities: {}".format(len(config.entities)))
 
-        # List flows
-        for flow_name in config.flows:
-            flow_config = config.flows[flow_name]
-            click.echo(f"   {flow_name}")
-            if flow_config.entities:
-                click.echo(f"      Entities: {len(flow_config.entities)}")
+        # Group entities by base_flow_name
+        flows_dict = {}
+        for entity in config.entities:
+            base_flow = entity.base_flow_name
+            if base_flow not in flows_dict:
+                flows_dict[base_flow] = []
+            flows_dict[base_flow].append(entity)
+
+        # List flows and their entities
+        for base_flow_name, entities in flows_dict.items():
+            click.echo(f"   {base_flow_name}")
+            if len(entities) > 1 or (len(entities) == 1 and entities[0].entity_name):
+                click.echo(f"      Entities: {len(entities)}")
+                for entity in entities:
+                    if entity.entity_name:
+                        click.echo(
+                            f"         - {entity.entity_name} ({entity.flow_name})"
+                        )
+                    else:
+                        click.echo(f"         - {entity.flow_name} (implicit)")
 
         # Test all configured connections
         connections = config.connections

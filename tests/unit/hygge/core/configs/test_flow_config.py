@@ -147,26 +147,32 @@ class TestFlowConfig:
         assert "store" in error["loc"]
 
     def test_invalid_home_config_structure(self):
-        """Test validation catches invalid home configuration."""
+        """Test validation catches invalid home configuration type."""
+        # Lenient validation: incomplete configs are allowed
+        # (entity configs will complete them)
+        # But invalid types should still fail
         with pytest.raises(ValidationError) as exc_info:
             FlowConfig(
-                home={"invalid_field": "value"},  # Missing required fields
+                home={"type": "invalid_type"},  # Invalid type
                 store="data/output",
             )
 
-        # Should have validation errors
+        # Should have validation errors for invalid type
         errors = exc_info.value.errors()
         assert len(errors) > 0
 
     def test_invalid_store_config_structure(self):
-        """Test validation catches invalid store configuration."""
+        """Test validation catches invalid store configuration type."""
+        # Lenient validation: incomplete configs are allowed
+        # (entity configs will complete them)
+        # But invalid types should still fail
         with pytest.raises(ValidationError) as exc_info:
             FlowConfig(
                 home="data/users.parquet",
-                store={"invalid_field": "value"},  # Missing required fields
+                store={"type": "invalid_type"},  # Invalid type
             )
 
-        # Should have validation errors
+        # Should have validation errors for invalid type
         errors = exc_info.value.errors()
         assert len(errors) > 0
 

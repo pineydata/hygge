@@ -12,6 +12,7 @@ The public API maintains backward compatibility:
 """
 
 from .config import FlowConfig
+from .entity import Entity
 from .factory import FlowFactory
 from .flow import Flow
 
@@ -28,4 +29,4 @@ Flow.from_entity = classmethod(
 # FlowFactory is exported for direct access to factory helpers
 # Internal helpers (_apply_overrides, _validate_run_type_alignment, etc.)
 # are in FlowFactory, not attached to Flow to maintain clean separation
-__all__ = ["Flow", "FlowConfig", "FlowFactory"]
+__all__ = ["Flow", "FlowConfig", "FlowFactory", "Entity"]
