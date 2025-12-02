@@ -255,13 +255,13 @@ Before starting work, ensure:
 
 ## Current Status
 
-See [HYGGE_PROGRESS.md](HYGGE_PROGRESS.md) for detailed assessment.
+See [HYGGE_PROGRESS.md](.progress/HYGGE_PROGRESS.md) for detailed assessment.
 
 ## Reference Materials
 
 - **[README.md](README.md)** - Project documentation
-- **[HYGGE_PROGRESS.md](HYGGE_PROGRESS.md)** - Evolving TODO tracking and progress assessment
-- **[HYGGE_DONE.md](HYGGE_DONE.md)** - Append-only celebration of completed work and achievements
+- **[HYGGE_PROGRESS.md](.progress/HYGGE_PROGRESS.md)** - Evolving TODO tracking and progress assessment
+- **[HYGGE_DONE.md](.progress/HYGGE_DONE.md)** - Append-only celebration of completed work and achievements
 - **[.llm/](.llm/)** - Original context files (kept for reference)
   - `context.md` - Project overview, ethos, and current status
   - `development.md` - Code standards and implementation guidelines
