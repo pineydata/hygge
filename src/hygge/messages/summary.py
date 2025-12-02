@@ -1,8 +1,9 @@
 """
-Hygge-style execution summaries.
+Hygge-style execution summaries - comfortable, informative summaries.
 
-Summaries that feel cozy and helpful, not just informative.
-Reflects hygge's values of comfort, clarity, and natural flow.
+Summaries that feel cozy and helpful, not just informative. They reflect
+hygge's values of comfort, clarity, and natural flow, making it easy to
+understand what happened in your flows at a glance.
 """
 from typing import Any, Dict, List, Optional
 
@@ -10,7 +11,14 @@ from hygge.messages.logger import HyggeLogger, _get_event_loop_time
 
 
 class Summary:
-    """Generates hygge-style execution summaries."""
+    """
+    Generates hygge-style execution summaries - comfortable and informative.
+
+    Summary provides cozy, helpful summaries that make it easy to understand
+    what happened in your flows. It reflects hygge's values of comfort,
+    clarity, and natural flow, showing you the important information without
+    overwhelming you with details.
+    """
 
     def __init__(self, logger: Optional[HyggeLogger] = None):
         """
@@ -74,8 +82,9 @@ class Summary:
         self.logger.info("")
 
         # Hygge-style summary line - comfortable and clear
+        flow_word = "flow" if len(flow_results) == 1 else "flows"
         self.logger.info(
-            f"Finished running {len(flow_results)} {'flow' if len(flow_results) == 1 else 'flows'} "
+            f"Finished running {len(flow_results)} {flow_word} "
             f"in {time_str} ({elapsed_time:.2f}s)."
         )
 

@@ -1,8 +1,18 @@
 """
-Robust path manipulation utilities for hygge.
+Robust path manipulation utilities for comfortable, reliable path handling.
 
-Uses pathlib internally for reliable path operations while working
-with strings for compatibility with local filesystem and cloud storage.
+PathHelper makes it easy to work with paths across different storage backends
+(local filesystem, ADLS, OneLake) with a consistent, comfortable interface.
+
+Following hygge's philosophy, PathHelper prioritizes:
+- **Comfort**: Simple, intuitive path operations that work across storage types
+- **Reliability**: Robust handling of edge cases
+  (trailing slashes, empty parts, etc.)
+- **Natural flow**: Paths work smoothly whether local or remote,
+  with or without entities
+
+Uses pathlib internally for reliable path operations while working with strings
+for compatibility with local filesystem and cloud storage.
 """
 from pathlib import Path, PurePath
 from typing import Optional, Union
@@ -12,10 +22,21 @@ from hygge.utility.exceptions import ConfigError
 
 class PathHelper:
     """
-    Path manipulation utilities for homes and stores.
+    Path manipulation utilities for comfortable, reliable path handling.
+
+    PathHelper makes it easy to work with paths across different storage backends
+    (local filesystem, ADLS, OneLake) with a consistent, comfortable interface.
+    It handles entity substitution, path joining, and staging path construction
+    automatically.
+
+    Following hygge's philosophy, PathHelper prioritizes:
+    - **Comfort**: Simple, intuitive path operations that work across storage types
+    - **Reliability**: Robust handling of edge cases
+      (trailing slashes, empty parts, etc.)
+    - **Natural flow**: Paths work smoothly whether local or remote,
+      with or without entities
 
     All methods are static - use directly without instantiation.
-    Handles entity substitution, path joining, and staging path construction.
     """
 
     STAGING_DIR = "_tmp"

@@ -1,8 +1,14 @@
 """
-Base connection interface for database connections.
+Base connection interface for comfortable, reliable database connections.
 
-Defines the contract that all database-specific connection
-factories must implement.
+Defines the contract that all database-specific connection factories must
+implement, ensuring consistent, reliable database access across different
+database types.
+
+Following hygge's philosophy, connections prioritize:
+- **Comfort**: Simple interface, automatic connection pooling
+- **Reliability**: Health checks, proper cleanup, error handling
+- **Natural flow**: Connections work smoothly without manual management
 """
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
@@ -10,14 +16,22 @@ from typing import Any, Dict, Optional
 
 class BaseConnection(ABC):
     """
-    Abstract base class for database connection factories.
+    Abstract base class for comfortable, reliable database connection factories.
 
-    Connection factories are responsible for creating and managing
-    database connections with database-specific authentication,
-    configuration, and connection string building.
+    Connection factories make it easy to work with databases by handling all
+    the complexity of connection management, authentication, and configuration.
+    Each database type (MSSQL, Postgres, etc.) implements this interface to
+    provide its specific connection logic.
 
-    Each database type (MSSQL, Postgres, etc.) implements this
-    interface to provide its specific connection logic.
+    Following hygge's philosophy, connections prioritize:
+    - **Comfort**: Simple interface, automatic connection pooling
+    - **Reliability**: Health checks, proper cleanup, error handling
+    - **Natural flow**: Connections work smoothly without manual management
+
+    Connection factories are responsible for creating and managing database
+    connections with database-specific authentication, configuration, and
+    connection string building. The Coordinator uses connection pools to
+    manage connections efficiently across multiple flows.
 
     Example:
         ```python

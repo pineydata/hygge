@@ -1,16 +1,23 @@
 """
 Workspace manages hygge project discovery and configuration loading.
 
-The workspace is responsible for:
-1. Finding hygge.yml by walking up directories
-2. Reading workspace configuration (hygge.yml)
-3. Discovering flows in the flows/ directory
-4. Reading flow configurations and entity definitions
-5. Expanding environment variables
-6. Preparing CoordinatorConfig for execution
+The workspace makes it comfortable to organize your hygge project. It discovers
+your hygge.yml configuration file, finds all your flows, and prepares everything
+for smooth execution.
 
-This separates workspace discovery and loading from the Coordinator's
-orchestration responsibilities.
+Following hygge's philosophy of convention over configuration, the workspace
+follows sensible defaults (like finding hygge.yml automatically) while still
+allowing you to customize when needed.
+
+The workspace handles:
+- Finding hygge.yml by walking up directories (convention over configuration)
+- Reading workspace configuration with environment variable expansion
+- Discovering flows in the flows/ directory automatically
+- Merging flow and entity configurations intelligently
+- Preparing everything for Coordinator execution
+
+This cleanly separates workspace discovery and loading from the Coordinator's
+orchestration responsibilities, keeping each component focused and maintainable.
 """
 import os
 import re

@@ -1,8 +1,12 @@
 """
-Flow configuration model.
+Flow configuration model for comfortable, convention-over-configuration setup.
 
-FlowConfig defines the structure for flow configurations, including
-home/store definitions, entity configurations, and flow-level settings.
+FlowConfig defines the structure for flow configurations, following hygge's
+philosophy of convention over configuration. Simple configs "just work" with
+smart defaults, while advanced configs give you full control when needed.
+
+FlowConfig includes home/store definitions, entity configurations, and flow-level
+settings, all designed to feel natural and comfortable to use.
 """
 from typing import Any, Dict, List, Optional, Union
 
@@ -18,13 +22,17 @@ DEFAULT_CONFIG_TYPE = "parquet"
 
 class FlowConfig(BaseModel):
     """
-    Configuration for a data flow.
+    Configuration for a data flow - simple by default, powerful when needed.
+
+    FlowConfig follows hygge's philosophy of convention over configuration.
+    Simple configs "just work" with smart defaults, while advanced configs
+    give you full control when needed.
 
     Flow configurations are defined in `flows/<flow_name>/flow.yml` files
     as part of the workspace pattern. Each flow defines its home (source)
     and store (destination).
 
-    Simple (Rails spirit - convention over configuration):
+    Simple (convention over configuration - just works):
     ```yaml
     # flows/users_to_lake/flow.yml
     name: users_to_lake
@@ -36,7 +44,7 @@ class FlowConfig(BaseModel):
       path: data/lake/users
     ```
 
-    Advanced (full control):
+    Advanced (full control when you need it):
     ```yaml
     # flows/users_to_lake/flow.yml
     name: users_to_lake

@@ -1,8 +1,13 @@
 """
-Entity represents a fully configured flow (FlowConfig + EntityConfig merged).
+Entity represents a fully configured flow ready for execution.
 
-Entity is created after entity configuration has been merged with
-flow configuration, making it ready for validation and execution.
+An Entity is a flow that has been configured for a specific dataset/table.
+It represents the merging of FlowConfig (template) with EntityConfig (specific
+overrides), making it ready for validation and execution.
+
+Following hygge's philosophy, entities make it comfortable to work with multiple
+datasets using the same flow template. Each entity gets its own configuration
+while sharing the common flow pattern.
 """
 from typing import Any, Dict, Optional
 
@@ -13,20 +18,26 @@ from .config import FlowConfig
 
 class Entity(BaseModel):
     """
-    Fully configured entity (FlowConfig + EntityConfig merged).
+    Fully configured entity ready for execution.
 
-    Entity represents a flow that has been configured for a specific
-    dataset/table. It contains:
+    An Entity represents a flow that has been configured for a specific
+    dataset/table. It's the result of merging a FlowConfig (template) with
+    an EntityConfig (specific overrides), making it ready to run.
+
+    Following hygge's philosophy, entities make it comfortable to work with
+    multiple datasets using the same flow template. Each entity gets its own
+    configuration (paths, watermarks, etc.) while sharing the common flow pattern.
+
+    Entity contains:
     - The merged FlowConfig (entity overrides applied)
     - Entity metadata (name, original config)
-    - Flow name information
+    - Flow name information (base_flow_name, flow_name)
 
-    Entity is created by Workspace during entity expansion and is
-    ready for validation and execution. FlowFactory uses Entity to
-    create Flow objects.
+    Entity is created by Workspace during entity expansion and is ready for
+    validation and execution. FlowFactory uses Entity to create Flow objects.
 
-    The name "Entity" reflects that this is the core concept - the
-    dataset/table being moved through the flow pattern (adapter).
+    The name "Entity" reflects that this is the core concept - the dataset/table
+    being moved through the flow pattern.
     """
 
     # Flow identification

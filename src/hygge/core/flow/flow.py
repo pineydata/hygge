@@ -1,9 +1,15 @@
 """
-Core Flow class for data movement.
+Core Flow class for comfortable, reliable data movement.
 
-Flow orchestrates the movement of data from a Home to a Store using
-a producer-consumer pattern with proper error handling, retries, and
-state management.
+Flow orchestrates the movement of data from a Home to a Store, making
+data feel at home wherever it lives. It uses a producer-consumer pattern
+to move data smoothly in batches, with automatic retries for transient
+errors and clear progress tracking.
+
+Following hygge's philosophy, Flow prioritizes:
+- **Comfort**: Data moves naturally without friction
+- **Reliability**: Automatic retries, graceful error handling, state management
+- **Flow over force**: Smooth batch processing that adapts to your data
 """
 import asyncio
 from datetime import datetime, timezone
@@ -30,21 +36,29 @@ from ..journal import Journal
 
 class Flow:
     """
-    Flow orchestrates data movement between a Home and Store.
+    Orchestrates comfortable, reliable data movement from Home to Store.
 
-    Responsibilities:
-    - Manages producer-consumer pattern for data movement
-    - Coordinates batch processing and state
-    - Handles retries and error recovery
-    - Tracks progress and performance
+    Flow makes data movement feel natural and smooth. It reads data from
+    your Home in batches, writes it to your Store efficiently, and handles
+    all the complexity of retries, error recovery, and progress tracking.
+
+    Following hygge's philosophy:
+    - **Comfort**: Data moves smoothly without you worrying about the details
+    - **Reliability**: Automatic retries for transient errors, graceful failure handling
+    - **Natural flow**: Producer-consumer pattern that adapts to your data volume
+
+    Flow manages the producer-consumer pattern internally, coordinating batch
+    processing, handling retries automatically, and tracking progress so you
+    can see how things are going. It's designed to work reliably in production
+    while feeling simple and comfortable to use.
 
     Args:
-        name (str): Name of this flow
-        home (Home): Source to read data from
-        store (Store): Destination to write data to
-        options (Dict[str, Any], optional): Configuration options
-            - queue_size (int): Size of batch queue (default: 10)
-            - timeout (int): Operation timeout in seconds (default: 300)
+        name: Name of this flow (for logging and identification)
+        home: Source to read data from (any Home implementation)
+        store: Destination to write data to (any Store implementation)
+        options: Optional configuration options:
+            - queue_size: Size of batch queue (default: 10)
+            - timeout: Operation timeout in seconds (default: 300)
     """
 
     def __init__(

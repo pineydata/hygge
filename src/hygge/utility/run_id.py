@@ -1,8 +1,14 @@
 """
-Run ID generation utility for journal tracking.
+Run ID generation utility for comfortable, reliable journal tracking.
 
-Generates deterministic, hash-based run IDs for coordinator, flow,
-and entity runs.
+Generates deterministic, hash-based run IDs for coordinator, flow, and
+entity runs. These IDs are used throughout hygge to track execution
+history and enable incremental loads with watermarks.
+
+Following hygge's philosophy, run IDs prioritize:
+- **Comfort**: Deterministic IDs that are easy to understand and reproduce
+- **Reliability**: Hash-based IDs ensure uniqueness and consistency
+- **Natural flow**: IDs are generated automatically, you don't need to think about them
 """
 import hashlib
 from typing import List

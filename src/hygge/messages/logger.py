@@ -1,5 +1,9 @@
 """
-Logging configuration for hygge.
+Logging configuration for hygge - comfortable, informative output.
+
+HyggeLogger provides human-readable, color-coded logging that makes it easy
+to see what's happening in your flows. It follows hygge's philosophy of comfort
+and clarity, providing informative output without overwhelming you with details.
 """
 import asyncio
 import logging
@@ -80,7 +84,17 @@ class ColorFormatter(logging.Formatter):
 
 
 class HyggeLogger:
-    """Central logging class for hygge"""
+    """
+    Central logging class for hygge - comfortable, informative output.
+
+    HyggeLogger provides human-readable, color-coded logging that makes it easy
+    to see what's happening in your flows. It follows hygge's philosophy of
+    comfort and clarity, providing informative output without overwhelming you
+    with details.
+
+    The logger automatically formats flow names, uses colors for different log
+    levels, and writes to both console and log files for easy debugging.
+    """
 
     class Style:
         """ANSI color codes for paths"""

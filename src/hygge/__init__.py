@@ -1,5 +1,13 @@
 """
-A cozy, comfortable data movement framework.
+hygge - A cozy, comfortable data movement framework.
+
+hygge (pronounced "hoo-ga") makes data movement feel natural and reliable.
+It follows the philosophy of comfort over complexity, convention over
+configuration, and reliability over speed.
+
+hygge is built on Polars + PyArrow for efficient data movement, with a
+simple, intuitive API that makes it easy to move data from any source
+(Home) to any destination (Store) with confidence.
 """
 from .core import Coordinator, Flow, Home, HomeConfig, Store, StoreConfig
 

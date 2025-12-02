@@ -1,13 +1,17 @@
 """
-Coordinator orchestrates data flows based on configuration.
+Coordinator orchestrates multiple data flows with comfort and reliability.
 
-The coordinator's single responsibility is to:
-1. Read and parse configuration templates
-2. Manage connection pools for database sources
-3. Orchestrate flows in parallel
-4. Handle flow-level error management
+The coordinator brings together all the pieces needed for smooth data movement:
+- Discovers and loads workspace configuration (hygge.yml)
+- Manages connection pools for efficient database access
+- Orchestrates flows in parallel with smart concurrency control
+- Provides hygge-style progress tracking and summaries
+- Handles errors gracefully with clear, actionable messages
 
-Home and Store instantiation is delegated to Flow.
+Following hygge's philosophy of comfort over complexity, the coordinator
+handles the orchestration details so you can focus on your data flows.
+Home and Store instantiation is delegated to Flow, keeping responsibilities
+clear and maintainable.
 """
 import asyncio
 import json
@@ -43,13 +47,29 @@ def validate_config(config: Dict[str, Any]) -> List[str]:
 
 class Coordinator:
     """
-    Orchestrates multiple data flows based on configuration.
+    Orchestrates multiple data flows with comfort and reliability.
 
-    The coordinator:
-    - Reads configuration from YAML files
-    - Validates configuration using Pydantic models
-    - Orchestrates flows in parallel
-    - Handles flow-level error management
+    The coordinator makes it easy to run many flows together, handling
+    all the orchestration details so your data moves smoothly. It discovers
+    your workspace configuration, manages connections efficiently, and runs
+    flows in parallel with smart resource management.
+
+    Following hygge's philosophy, the coordinator prioritizes:
+    - **Comfort**: Simple configuration, clear progress, helpful summaries
+    - **Reliability**: Robust error handling, connection pooling, retry logic
+    - **Natural flow**: Parallel execution that feels smooth, not forced
+
+    Example:
+        ```python
+        # Coordinator discovers hygge.yml automatically
+        coordinator = Coordinator()
+        await coordinator.run()
+        ```
+
+    The coordinator reads configuration from your workspace (hygge.yml),
+    validates it using Pydantic models for clear error messages, orchestrates
+    flows in parallel with concurrency limits, and provides hygge-style
+    progress tracking and execution summaries.
     """
 
     def __init__(
