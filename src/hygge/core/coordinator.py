@@ -21,7 +21,7 @@ from hygge.connections import (
     MssqlConnection,
 )
 from hygge.messages import Progress, Summary, get_logger
-from hygge.utility.exceptions import ConfigError
+from hygge.utility.exceptions import ConfigError, FlowError
 from hygge.utility.run_id import generate_run_id
 
 from .flow import Entity, Flow, FlowFactory
@@ -521,7 +521,13 @@ class Coordinator:
         flow.coordinator_run_id = self.coordinator_run_id
         flow.coordinator_name = self.coordinator_name
 
-        base_flow = flow.base_flow_name or flow.name
+        # base_flow_name is always set by FlowFactory - fail fast if missing
+        if flow.base_flow_name is None:
+            raise FlowError(
+                f"Flow '{flow.name}' missing base_flow_name. "
+                "This indicates a bug in FlowFactory."
+            )
+        base_flow = flow.base_flow_name
         if base_flow not in self.flow_run_ids:
             flow_start_time = datetime.now(timezone.utc)
             self.flow_run_ids[base_flow] = generate_run_id(
