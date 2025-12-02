@@ -12,6 +12,9 @@ from ..home import Home, HomeConfig
 from ..journal import JournalConfig
 from ..store import Store, StoreConfig
 
+# Default configuration type for string-based home/store paths
+DEFAULT_CONFIG_TYPE = "parquet"
+
 
 class FlowConfig(BaseModel):
     """
@@ -210,7 +213,7 @@ class FlowConfig(BaseModel):
         if isinstance(self.store, dict):
             return StoreConfig.create(self.store)
         elif isinstance(self.store, str):
-            return StoreConfig.create({"type": "parquet", "path": self.store})
+            return StoreConfig.create({"type": DEFAULT_CONFIG_TYPE, "path": self.store})
         elif hasattr(self.store, "model_dump"):
             # Already a StoreConfig
             return self.store
@@ -234,7 +237,7 @@ class FlowConfig(BaseModel):
         if isinstance(self.home, dict):
             return HomeConfig.create(self.home)
         elif isinstance(self.home, str):
-            return HomeConfig.create({"type": "parquet", "path": self.home})
+            return HomeConfig.create({"type": DEFAULT_CONFIG_TYPE, "path": self.home})
         elif hasattr(self.home, "model_dump"):
             # Already a HomeConfig
             return self.home
