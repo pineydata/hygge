@@ -131,6 +131,10 @@ Focus areas for improvement:
 - Store optional methods
 - Journal error handling
 - Watermark tracking logic
+- **Large data volumes** - Test flows with 100M+ rows (approaching midmarket limits)
+- **Concurrent execution** - Test 10+ concurrent flows stress scenarios
+- **Connection pool exhaustion** - Test behavior when connection pools are exhausted
+- **Edge cases in error handling** - Test exception chaining, retry logic with different exception types
 
 ### Phase 5: Add Missing Tests
 
@@ -217,6 +221,20 @@ Add tests for identified gaps:
 - See `watermark-tracker-extraction.md` for related watermark testing
 - See `error-handling-standardization.md` for related error handling testing
 
+## Technical Review Findings
+
+**From Technical Review (2025):**
+- Current test coverage is good (1200+ tests), but some edge cases may be under-tested
+- Integration tests exist but could benefit from stress testing at midmarket scale
+- Large data volume tests (100M+ rows) would increase confidence
+- Concurrent flow execution stress tests would verify Coordinator behavior under load
+- Connection pool exhaustion scenarios should be tested
+
+**Impact at Midmarket Scale:**
+- Midmarket orgs need confidence that hygge handles their data volumes reliably
+- Stress tests verify the framework works at scale without over-engineering for global enterprise
+- Edge case testing prevents production surprises
+
 ## Priority
 
-**High** - This is foundational work that will help maintain code quality and identify gaps in test coverage. It should be done early to establish a baseline.
+**High** - This is foundational work that will help maintain code quality and identify gaps in test coverage. It should be done early to establish a baseline. The technical review identified specific gaps (large volumes, concurrency, connection pools) that should be prioritized.

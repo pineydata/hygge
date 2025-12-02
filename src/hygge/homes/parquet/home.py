@@ -8,7 +8,7 @@ import polars as pl
 from pydantic import Field, field_validator
 
 from hygge.core.home import BaseHomeConfig, Home, HomeConfig
-from hygge.utility.exceptions import HomeError
+from hygge.utility.exceptions import HomeError, HomeReadError
 from hygge.utility.path_helper import PathHelper
 
 
@@ -124,8 +124,15 @@ class ParquetHome(Home, home_type="parquet"):
                     self.logger.debug(f"Yielding batch {batch_idx + 1})")
                     yield batch_df
 
+        except HomeError:
+            # Other home errors - preserve and re-raise
+            raise
         except Exception as e:
-            raise HomeError(f"Failed to read parquet from {self.data_path}: {str(e)}")
+            # Unexpected errors - wrap in HomeReadError
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise HomeReadError(
+                f"Failed to read parquet from {self.data_path}: {str(e)}"
+            ) from e
 
 
 class ParquetHomeConfig(HomeConfig, BaseHomeConfig, config_type="parquet"):

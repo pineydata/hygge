@@ -18,7 +18,7 @@ import pytest
 from hygge.core.flow import Flow
 from hygge.core.home import Home
 from hygge.core.store import Store
-from hygge.utility.exceptions import FlowError
+from hygge.utility.exceptions import FlowError, HomeConnectionError
 
 
 class MockHome(Home):
@@ -412,9 +412,8 @@ class TestSimplifiedFlow:
                 attempt_count["count"] += 1
                 if attempt_count["count"] == 1:
                     # First attempt: fail with transient connection error
-                    # This will be wrapped as "Producer failed: ..." by Flow
-                    raise Exception(
-                        "Failed to read from MSSQL: ('08S01', "
+                    raise HomeConnectionError(
+                        "Connection error: ('08S01', "
                         "'[08S01] [Microsoft][ODBC Driver 18 for SQL Server]"
                         "TCP Provider: An existing connection was forcibly closed "
                         "by the remote host. (10054)')"
@@ -449,8 +448,8 @@ class TestSimplifiedFlow:
                 if attempt_count["count"] == 1:
                     # First attempt: fail after writing some data
                     yield pl.DataFrame({"id": [1, 2, 3], "value": ["test"] * 3})
-                    raise Exception(
-                        "Failed to read from MSSQL: connection forcibly closed"
+                    raise HomeConnectionError(
+                        "Connection error: connection forcibly closed"
                     )
                 # Second attempt: succeed
                 async for df in super()._get_batches():
@@ -506,9 +505,11 @@ class TestSimplifiedFlow:
         class AlwaysFailingHome(MockHome):
             async def _get_batches(self) -> AsyncIterator[pl.DataFrame]:
                 attempt_count["count"] += 1
-                # Always fail with transient error
+                # Always fail with transient connection error
                 # Must be an async generator, so we raise before any yield
-                raise Exception("Failed to read from MSSQL: connection forcibly closed")
+                raise HomeConnectionError(
+                    "Connection error: connection forcibly closed"
+                )
                 yield  # Unreachable, but makes it an async generator
 
         home = AlwaysFailingHome("failing_home", sample_data)
@@ -520,11 +521,13 @@ class TestSimplifiedFlow:
         with pytest.raises(Exception) as exc_info:
             await flow.start()
 
-        # Should raise either FlowError or RetryError wrapping FlowError
-        assert isinstance(exc_info.value, FlowError) or (
-            hasattr(exc_info.value, "last_attempt")
-            and isinstance(exc_info.value.last_attempt.exception(), FlowError)
-        )
+        # Should raise either FlowError/HomeConnectionError or RetryError wrapping them
+        last_exception = exc_info.value
+        if hasattr(exc_info.value, "last_attempt"):
+            last_exception = exc_info.value.last_attempt.exception()
+
+        # Accept FlowError or HomeConnectionError (connection errors are preserved)
+        assert isinstance(last_exception, (FlowError, HomeConnectionError))
 
         # Then should have tried 3 times (initial + 2 retries)
         assert attempt_count["count"] == 3

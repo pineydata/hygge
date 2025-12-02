@@ -8,8 +8,10 @@ Custom exception hierarchy exists (`HyggeError`, `FlowError`, `HomeError`, `Stor
 - Retry logic uses string matching on error messages (brittle)
 - Journal failures are logged as warnings but don't surface clearly
 - Some errors are swallowed silently
+- **Exception context is lost when re-raising** - original stack traces are not preserved
+- **97 instances of `except Exception`** found across codebase - most are appropriate for error boundaries, but some could be more specific
 
-This makes error handling unpredictable and debugging difficult.
+This makes error handling unpredictable and debugging difficult, especially in production at midmarket org scale where clear error messages are critical for troubleshooting.
 
 ## Current Behavior
 
@@ -158,8 +160,11 @@ except FlowError as e:
     raise
 except Exception as e:
     # Unexpected errors - wrap in FlowError
+    # CRITICAL: Use 'from e' to preserve exception context
     raise FlowExecutionError(f"Unexpected error in flow {self.name}: {str(e)}") from e
 ```
+
+**Key Improvement:** Always use exception chaining (`from e`) when re-raising exceptions to preserve original stack traces. This is critical for debugging production issues at midmarket scale.
 
 ### Phase 4: Surface Journal Errors Clearly
 
@@ -227,6 +232,7 @@ except pyodbc.Error as e:
 
 3. **Update error handling** (medium impact)
    - Update `src/hygge/core/flow.py` to replace generic `Exception` catches with specific exceptions
+   - **CRITICAL: Add exception chaining (`from e`) when re-raising** - preserves stack traces for production debugging
    - Update error messages to be clear and actionable
    - Add unit tests in `tests/unit/hygge/core/test_flow.py` for error handling
 
@@ -254,6 +260,19 @@ except pyodbc.Error as e:
 - See `coordinator-refactoring.md` for related error handling in Coordinator
 - See `watermark-tracker-extraction.md` for related error handling in Flow
 
+## Technical Review Findings
+
+**From Technical Review (2025):**
+- Found 97 instances of `except Exception` - most are appropriate for error boundaries (Flow, Coordinator), but some could be more specific
+- Exception context is lost when re-raising - original stack traces not preserved (e.g., `flow.py:222`)
+- Connection errors should use specific exception types instead of string matching
+- Error handling is functional but could be more precise for better production debugging
+
+**Impact at Midmarket Scale:**
+- Clear error messages are critical when debugging production issues at 2am
+- Exception chaining (`from e`) is essential for preserving context
+- Specific exceptions make retry logic more reliable and predictable
+
 ## Priority
 
-**Medium** - This will improve error handling and debugging, but it's not blocking critical functionality. However, it should be done before adding more features that rely on error handling.
+**High** - This directly addresses technical review findings and significantly improves production debugging. Should be prioritized before adding more features that rely on error handling. Exception chaining should be implemented immediately as it's a simple change with high impact.

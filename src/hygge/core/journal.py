@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from hygge.messages import get_logger
 from hygge.utility.azure_onelake import ADLSOperations
-from hygge.utility.exceptions import ConfigError
+from hygge.utility.exceptions import ConfigError, JournalWriteError
 from hygge.utility.path_helper import PathHelper
 from hygge.utility.run_id import generate_run_id
 
@@ -564,7 +564,10 @@ class Journal:
 
         except Exception as e:
             self.logger.error(f"Failed to append to journal: {str(e)}")
-            raise
+            # CRITICAL: Use 'from e' to preserve exception context
+            raise JournalWriteError(
+                f"Failed to append to local journal: {str(e)}"
+            ) from e
         finally:
             try:
                 if "temp_path" in locals() and temp_path.exists():
