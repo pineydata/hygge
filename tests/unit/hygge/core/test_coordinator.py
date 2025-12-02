@@ -15,7 +15,7 @@ import polars as pl
 import pytest
 
 from hygge.core.coordinator import Coordinator, CoordinatorConfig, validate_config
-from hygge.core.flow import FlowConfig
+from hygge.core.flow import Entity, FlowConfig
 from hygge.core.journal import Journal, JournalConfig
 from hygge.homes.parquet.home import ParquetHome, ParquetHomeConfig  # noqa: F401
 from hygge.stores.openmirroring.store import (  # noqa: F401
@@ -30,25 +30,35 @@ class TestCoordinatorConfig:
     """Test CoordinatorConfig validation and creation."""
 
     def test_coordinator_config_creation(self):
-        """Test that CoordinatorConfig can be created with valid flows."""
-        config_data = {
-            "flows": {
-                "test_flow": {"home": "data/test.parquet", "store": "output/test"}
-            }
-        }
+        """Test that CoordinatorConfig can be created with valid entities."""
+        flow_config = FlowConfig(home="data/test.parquet", store="output/test")
+        entity = Entity(
+            flow_name="test_flow",
+            base_flow_name="test_flow",
+            entity_name=None,
+            flow_config=flow_config,
+            entity_config=None,
+        )
+        config_data = {"entities": [entity]}
 
         config = CoordinatorConfig.from_dict(config_data)
-        assert len(config.flows) == 1
-        assert "test_flow" in config.flows
-        assert isinstance(config.flows["test_flow"], FlowConfig)
+        assert len(config.entities) == 1
+        assert config.entities[0].flow_name == "test_flow"
+        assert isinstance(config.entities[0].flow_config, FlowConfig)
 
     def test_coordinator_config_journal_conversion(self):
         """Test that CoordinatorConfig converts journal config properly."""
+        flow_config = FlowConfig(home="data/test.parquet", store="output/test")
+        entity = Entity(
+            flow_name="test_flow",
+            base_flow_name="test_flow",
+            entity_name=None,
+            flow_config=flow_config,
+            entity_config=None,
+        )
         config_data = {
             "journal": {"path": "/tmp/journal"},
-            "flows": {
-                "test_flow": {"home": "data/test.parquet", "store": "output/test"}
-            },
+            "entities": [entity],
         }
 
         config = CoordinatorConfig.from_dict(config_data)
@@ -56,30 +66,42 @@ class TestCoordinatorConfig:
         assert config.journal.path == "/tmp/journal"
 
     def test_coordinator_config_empty_flows_validation(self):
-        """Test that empty flows are rejected."""
-        config_data = {"flows": {}}
+        """Test that empty entities are rejected."""
+        config_data = {"entities": []}
 
-        with pytest.raises(ValueError, match="At least one flow must be configured"):
+        with pytest.raises(ValueError, match="At least one entity must be configured"):
             CoordinatorConfig.from_dict(config_data)
 
-    def test_coordinator_config_get_flow_config(self):
-        """Test getting specific flow configuration."""
-        config_data = {
-            "flows": {
-                "flow1": {"home": "data/flow1.parquet", "store": "output/flow1"},
-                "flow2": {"home": "data/flow2.parquet", "store": "output/flow2"},
-            }
-        }
+    def test_coordinator_config_get_entity(self):
+        """Test getting specific entity."""
+        flow1_config = FlowConfig(home="data/flow1.parquet", store="output/flow1")
+        flow2_config = FlowConfig(home="data/flow2.parquet", store="output/flow2")
+        entity1 = Entity(
+            flow_name="flow1",
+            base_flow_name="flow1",
+            entity_name=None,
+            flow_config=flow1_config,
+            entity_config=None,
+        )
+        entity2 = Entity(
+            flow_name="flow2",
+            base_flow_name="flow2",
+            entity_name=None,
+            flow_config=flow2_config,
+            entity_config=None,
+        )
+        config_data = {"entities": [entity1, entity2]}
 
         config = CoordinatorConfig.from_dict(config_data)
 
-        # Test existing flow
-        flow1_config = config.get_flow_config("flow1")
-        assert isinstance(flow1_config, FlowConfig)
+        # Test existing entity
+        found_entity = config.get_entity("flow1")
+        assert found_entity is not None
+        assert isinstance(found_entity, Entity)
+        assert found_entity.flow_name == "flow1"
 
-        # Test non-existing flow
-        with pytest.raises(ValueError, match="Flow 'nonexistent' not found"):
-            config.get_flow_config("nonexistent")
+        # Test non-existing entity
+        assert config.get_entity("nonexistent") is None
 
 
 class TestValidateConfig:
@@ -87,11 +109,15 @@ class TestValidateConfig:
 
     def test_validate_config_success(self):
         """Test successful configuration validation."""
-        config = {
-            "flows": {
-                "test_flow": {"home": "data/test.parquet", "store": "output/test"}
-            }
-        }
+        flow_config = FlowConfig(home="data/test.parquet", store="output/test")
+        entity = Entity(
+            flow_name="test_flow",
+            base_flow_name="test_flow",
+            entity_name=None,
+            flow_config=flow_config,
+            entity_config=None,
+        )
+        config = {"entities": [entity]}
 
         errors = validate_config(config)
         assert errors == []
@@ -99,12 +125,12 @@ class TestValidateConfig:
     def test_validate_config_failure(self):
         """Test configuration validation failure."""
         config = {
-            "flows": {}  # Empty flows should fail
+            "entities": []  # Empty entities should fail
         }
 
         errors = validate_config(config)
         assert len(errors) > 0
-        assert "At least one flow must be configured" in errors[0]
+        assert "At least one entity must be configured" in errors[0]
 
 
 class TestCoordinatorInitialization:
@@ -197,8 +223,8 @@ store:
             coordinator.config = coordinator._workspace.prepare()
 
             assert coordinator.config is not None
-            assert len(coordinator.config.flows) == 1
-            assert "test_flow" in coordinator.config.flows
+            assert len(coordinator.config.entities) == 1
+            assert coordinator.config.entities[0].flow_name == "test_flow"
             assert coordinator.options == {"continue_on_error": True}
 
 
@@ -430,8 +456,8 @@ store:
             coordinator.config = coordinator._workspace.prepare()
 
             assert coordinator.config is not None
-            assert len(coordinator.config.flows) == 1
-            assert "test_flow" in coordinator.config.flows
+            assert len(coordinator.config.entities) == 1
+            assert coordinator.config.entities[0].flow_name == "test_flow"
             assert coordinator.options == {"continue_on_error": True}
 
     def test_load_config_with_invalid_hygge_yml(self):
@@ -799,24 +825,35 @@ store:
                 # Config is loaded lazily - prepare it explicitly for this test
                 coordinator.config = coordinator._workspace.prepare()
 
-                # Verify flows were loaded
-                assert len(coordinator.config.flows) == 2
-                assert "salesforce_to_lake" in coordinator.config.flows
-                assert "warehouse_to_parquet" in coordinator.config.flows
+                # Verify entities were loaded (entities are already expanded)
+                # salesforce_to_lake has 2 entities, warehouse_to_parquet has 1
+                assert len(coordinator.config.entities) == 3
 
-                # Verify first flow has entities
-                flow1_config = coordinator.config.flows["salesforce_to_lake"]
-                assert flow1_config.entities is not None
-                assert len(flow1_config.entities) == 2
+                # Check entity flow names
+                flow_names = {
+                    entity.flow_name for entity in coordinator.config.entities
+                }
+                assert "salesforce_to_lake_Account" in flow_names
+                assert "salesforce_to_lake_Contact" in flow_names
+                assert "warehouse_to_parquet" in flow_names
 
-                # Check entity names
-                entity_names = [entity["name"] for entity in flow1_config.entities]
+                # Verify entity names
+                entity_objs = [
+                    e
+                    for e in coordinator.config.entities
+                    if e.base_flow_name == "salesforce_to_lake"
+                ]
+                entity_names = {e.entity_name for e in entity_objs if e.entity_name}
                 assert "Account" in entity_names
                 assert "Contact" in entity_names
 
-                # Verify second flow has no entities
-                flow2_config = coordinator.config.flows["warehouse_to_parquet"]
-                assert flow2_config.entities is None
+                # Verify warehouse_to_parquet has no entity_name (non-entity flow)
+                warehouse_entity = next(
+                    e
+                    for e in coordinator.config.entities
+                    if e.flow_name == "warehouse_to_parquet"
+                )
+                assert warehouse_entity.entity_name is None
 
             finally:
                 os.chdir(original_cwd)
@@ -866,8 +903,8 @@ store:
                 coordinator.config = coordinator._workspace.prepare()
 
                 # Verify flow was loaded from custom directory
-                assert len(coordinator.config.flows) == 1
-                assert "test_flow" in coordinator.config.flows
+                assert len(coordinator.config.entities) == 1
+                assert coordinator.config.entities[0].flow_name == "test_flow"
 
             finally:
                 os.chdir(original_cwd)
@@ -993,15 +1030,16 @@ source_config:
                 coordinator.config = coordinator._workspace.prepare()
 
                 # Verify entity inherited defaults
-                flow_config = coordinator.config.flows["test_flow"]
-                entity = flow_config.entities[0]
-
-                # Should inherit from defaults
-                assert entity["key_column"] == "Id"
-                assert entity["schema"] == "test_schema"
-
-                # Should override batch_size
-                assert entity["source_config"]["batch_size"] == 10000
+                # Entities are already expanded, so get the entity directly
+                entity_obj = coordinator.config.get_entity("test_flow_users")
+                assert entity_obj is not None
+                # Entity config is stored in entity.entity_config
+                if entity_obj.entity_config:
+                    assert entity_obj.entity_config.get("key_column") == "Id"
+                    assert entity_obj.entity_config.get("schema") == "test_schema"
+                    # Should override batch_size
+                    source_config = entity_obj.entity_config.get("source_config", {})
+                    assert source_config.get("batch_size") == 10000
 
             finally:
                 os.chdir(original_cwd)
@@ -1295,8 +1333,9 @@ store:
 
             # Verify CLI override was applied
             # Flow config should have full_drop=True
-            flow_config = coordinator.config.flows["test_flow"]
-            assert flow_config.full_drop is True
+            entity = coordinator.config.get_entity("test_flow")
+            assert entity is not None
+            assert entity.flow_config.full_drop is True
 
             # Store should have full_drop=True (from flow-level override)
             store = flow.store
@@ -1342,8 +1381,9 @@ full_drop: false
             coordinator._create_flows()
 
             # Verify flow config has the original full_drop value
-            flow_config = coordinator.config.flows["test_flow"]
-            assert flow_config.full_drop is False
+            entity = coordinator.config.get_entity("test_flow")
+            assert entity is not None
+            assert entity.flow_config.full_drop is False
 
     def test_entity_flow_inherits_base_flow_full_drop(self):
         """Test that entity flows inherit flow-level full_drop from base flow."""

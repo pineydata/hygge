@@ -22,15 +22,18 @@ from pydantic import BaseModel, Field, field_validator
 
 from hygge.messages import get_logger
 from hygge.utility.exceptions import ConfigError
+from hygge.utility.path_helper import PathHelper
 
-from .flow import FlowConfig
+from .flow import Entity, FlowConfig
 from .journal import JournalConfig
 
 
 class WorkspaceConfig(BaseModel):
     """Configuration model for a hygge workspace/project."""
 
-    flows: Dict[str, FlowConfig] = Field(..., description="Flow configurations")
+    entities: List[Entity] = Field(
+        ..., description="Fully configured entities (FlowConfig + EntityConfig merged)"
+    )
     connections: Dict[str, Dict[str, Any]] = Field(
         default_factory=dict, description="Named connection pool configurations"
     )
@@ -39,12 +42,12 @@ class WorkspaceConfig(BaseModel):
         description="Journal configuration for tracking execution metadata",
     )
 
-    @field_validator("flows")
+    @field_validator("entities")
     @classmethod
-    def validate_flows_not_empty(cls, v):
-        """Validate flows section is not empty."""
+    def validate_entities_not_empty(cls, v):
+        """Validate entities section is not empty."""
         if not v:
-            raise ValueError("At least one flow must be configured")
+            raise ValueError("At least one entity must be configured")
         return v
 
     @field_validator("journal", mode="before")
@@ -66,11 +69,12 @@ class WorkspaceConfig(BaseModel):
         """Create configuration from dictionary."""
         return cls(**data)
 
-    def get_flow_config(self, flow_name: str) -> FlowConfig:
-        """Get configuration for a specific flow."""
-        if flow_name not in self.flows:
-            raise ValueError(f"Flow '{flow_name}' not found in configuration")
-        return self.flows[flow_name]
+    def get_entity(self, flow_name: str) -> Optional[Entity]:
+        """Get entity for a specific flow name."""
+        for entity in self.entities:
+            if entity.flow_name == flow_name:
+                return entity
+        return None
 
 
 class Workspace:
@@ -328,11 +332,12 @@ To get started, run:
         """
         Prepare workspace configuration for Coordinator execution.
 
-        Reads hygge.yml, discovers flows, and returns a validated
-        WorkspaceConfig ready for execution.
+        Reads hygge.yml, discovers flows, expands entities (FlowConfig + EntityConfig),
+        and returns a validated WorkspaceConfig ready for execution.
 
         Returns:
-            WorkspaceConfig with flows, connections, and journal config
+            WorkspaceConfig with entities (FlowConfig + EntityConfig merged),
+            connections, and journal config
 
         Raises:
             ConfigError: If configuration cannot be loaded
@@ -340,18 +345,175 @@ To get started, run:
         # Read workspace config
         self._read_workspace_config()
 
-        # Find all flows
+        # Find all flows (templates)
         flows = self._find_flows()
+
+        # Expand entities: FlowConfig + EntityConfig → Entity
+        entities = []
+        for base_flow_name, flow_config in flows.items():
+            if flow_config.entities and len(flow_config.entities) > 0:
+                # Expand entities: create one Entity per entity config
+                for entity_config in flow_config.entities:
+                    # Extract entity name
+                    if isinstance(entity_config, str):
+                        entity_name = entity_config
+                        entity_config_dict = entity_config
+                    elif isinstance(entity_config, dict):
+                        entity_name = entity_config.get("name")
+                        if not entity_name:
+                            raise ConfigError(
+                                f"Entity in flow {base_flow_name} missing 'name' field"
+                            )
+                        entity_config_dict = entity_config
+                    else:
+                        raise ConfigError(
+                            f"Entity must be string or dict, got {type(entity_config)}"
+                        )
+
+                    # Create Entity with merged config
+                    entity = self._create_entity(
+                        base_flow_name, flow_config, entity_name, entity_config_dict
+                    )
+                    entities.append(entity)
+            else:
+                # No entities: create single Entity (implicit entity)
+                entity = self._create_entity(base_flow_name, flow_config, None, None)
+                entities.append(entity)
 
         # Create workspace config with connections and journal if present
         journal_config = self.config.get("journal")
         config = WorkspaceConfig(
-            flows=flows, connections=self.connections, journal=journal_config
+            entities=entities,
+            connections=self.connections,
+            journal=journal_config,
         )
 
         self.logger.info(
-            f"Prepared workspace '{self.name}' with {len(flows)} flows "
-            f"from {self.flows_path}"
+            f"Prepared workspace '{self.name}' with {len(entities)} entities "
+            f"from {len(flows)} flow templates"
         )
 
         return config
+
+    def _create_entity(
+        self,
+        base_flow_name: str,
+        flow_config: FlowConfig,
+        entity_name: Optional[str],
+        entity_config: Optional[Union[Dict[str, Any], str]],
+    ) -> Entity:
+        """
+        Create an Entity by merging entity config with flow config.
+
+        Args:
+            base_flow_name: Base flow name (template name)
+            flow_config: Flow configuration template
+            entity_name: Entity name if this is an entity flow, None otherwise
+            entity_config: Entity configuration (dict or string), None if no entity
+
+        Returns:
+            Entity with merged configuration
+        """
+        # Determine flow name
+        if entity_name:
+            flow_name = f"{base_flow_name}_{entity_name}"
+        else:
+            flow_name = base_flow_name
+
+        # Start with flow config as base
+        merged_config_dict = flow_config.model_dump()
+
+        # Merge entity config if provided
+        if entity_name and isinstance(entity_config, dict):
+            # Merge entity config into flow config
+            merged_config_dict = self._merge_entity_config(
+                merged_config_dict, entity_config, base_flow_name
+            )
+
+        # Create merged FlowConfig (validates completeness now)
+        merged_flow_config = FlowConfig(**merged_config_dict)
+
+        # Create Entity
+        return Entity(
+            flow_name=flow_name,
+            base_flow_name=base_flow_name,
+            entity_name=entity_name,
+            flow_config=merged_flow_config,
+            entity_config=entity_config if isinstance(entity_config, dict) else None,
+        )
+
+    def _merge_entity_config(
+        self,
+        flow_config_dict: Dict[str, Any],
+        entity_config: Dict[str, Any],
+        base_flow_name: str,
+    ) -> Dict[str, Any]:
+        """
+        Merge entity configuration with flow configuration.
+
+        Handles:
+        - Entity home config merging (with path merging)
+        - Entity store config merging
+        - Entity-level overrides (run_type, watermark, journal)
+        - Store defaults from entity config
+
+        Args:
+            flow_config_dict: Flow configuration as dict
+            entity_config: Entity configuration dict
+            base_flow_name: Base flow name (for error messages)
+
+        Returns:
+            Merged configuration dict
+        """
+        merged = flow_config_dict.copy()
+
+        # Merge entity-level overrides
+        if "run_type" in entity_config:
+            merged["run_type"] = entity_config["run_type"]
+        if "watermark" in entity_config:
+            merged["watermark"] = entity_config["watermark"]
+        if "journal" in entity_config:
+            merged["journal"] = entity_config["journal"]
+
+        # Merge entity home config with flow home config
+        if "home" in entity_config:
+            entity_home_config = entity_config["home"]
+            flow_home_config = merged.get("home", {})
+
+            if isinstance(flow_home_config, dict):
+                # Special handling for path merging
+                if "path" in entity_home_config and "path" in flow_home_config:
+                    flow_path = flow_home_config["path"]
+                    entity_path = entity_home_config["path"]
+                    # Combine paths properly using PathHelper
+                    merged_path = PathHelper.merge_paths(flow_path, entity_path)
+                    merged_home = {
+                        **flow_home_config,
+                        **entity_home_config,
+                        "path": merged_path,
+                    }
+                else:
+                    merged_home = {**flow_home_config, **entity_home_config}
+                merged["home"] = merged_home
+
+        # Merge entity store config with flow store config
+        if "store" in entity_config:
+            entity_store_config = entity_config["store"]
+            flow_store_config = merged.get("store", {})
+
+            if isinstance(flow_store_config, dict):
+                merged_store = {**flow_store_config, **entity_store_config}
+                merged["store"] = merged_store
+
+        # Apply store defaults from entity config
+        store_defaults = {}
+        store_default_keys = ["if_exists", "batch_size", "parallel_workers", "timeout"]
+        for key in store_default_keys:
+            if key in entity_config:
+                store_defaults[key] = entity_config[key]
+
+        if store_defaults and "store" in merged:
+            if isinstance(merged["store"], dict):
+                merged["store"] = {**merged["store"], **store_defaults}
+
+        return merged

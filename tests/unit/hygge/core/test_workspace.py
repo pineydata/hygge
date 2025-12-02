@@ -639,8 +639,8 @@ store:
         config = workspace.prepare()
 
         assert isinstance(config, WorkspaceConfig)
-        assert len(config.flows) == 1
-        assert "test_flow" in config.flows
+        assert len(config.entities) == 1
+        assert config.entities[0].flow_name == "test_flow"
         assert len(config.connections) == 1
         assert "db1" in config.connections
 
@@ -671,10 +671,11 @@ store:
         workspace = Workspace.find(start_path=tmp_path)
         config = workspace.prepare()
 
-        assert len(config.flows) == 3
-        assert "flow1" in config.flows
-        assert "flow2" in config.flows
-        assert "flow3" in config.flows
+        assert len(config.entities) == 3
+        flow_names = {entity.flow_name for entity in config.entities}
+        assert "flow1" in flow_names
+        assert "flow2" in flow_names
+        assert "flow3" in flow_names
 
     def test_prepare_includes_journal_config(self, tmp_path):
         """Test that prepare() includes journal configuration."""
@@ -740,7 +741,7 @@ store:
         workspace = Workspace.find(start_path=tmp_path)
         config = workspace.prepare()
 
-        assert len(config.flows) == 1
+        assert len(config.entities) == 1
         assert workspace.flows_dir == "my_flows"
 
     def test_workspace_handles_missing_optional_fields(self, tmp_path):
@@ -769,6 +770,6 @@ store:
         config = workspace.prepare()
 
         # Should work even without connections or options
-        assert len(config.flows) == 1
+        assert len(config.entities) == 1
         assert config.connections == {}
         assert workspace.options == {}

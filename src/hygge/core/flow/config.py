@@ -102,7 +102,14 @@ class FlowConfig(BaseModel):
     @field_validator("home", mode="before")
     @classmethod
     def validate_home(cls, v):
-        """Validate home configuration structure."""
+        """
+        Validate home configuration structure (lenient - structure only).
+
+        FlowConfig is a template that may have incomplete configs waiting for
+        entity overrides. This validator checks structure (type exists, valid type)
+        but allows incomplete configs to pass through. Full validation happens
+        when Entity is created (after entity merging).
+        """
         if isinstance(v, str):
             # For strings, validate by trying to create HomeConfig
             try:
@@ -113,18 +120,30 @@ class FlowConfig(BaseModel):
         elif isinstance(v, dict):
             if not v:
                 raise ValueError("Home configuration cannot be empty")
-            # Validate the structure by trying to create HomeConfig
-            try:
-                HomeConfig.create(v)
-            except Exception as e:
-                # Re-raise the original ValidationError
-                raise e
+            # Lenient validation: only check structure (type exists and is valid)
+            # Allow incomplete configs to pass through
+            # (entity configs will complete them)
+            config_type = v.get("type", "parquet")  # Default to parquet
+            if config_type not in HomeConfig._registry:
+                raise ValueError(f"Unknown home config type: {config_type}")
+            # Don't validate completeness - that happens when FlowInstance is created
         return v
 
     @field_validator("store", mode="before")
     @classmethod
     def validate_store(cls, v):
-        """Validate store configuration structure."""
+        """
+        Validate store configuration structure (lenient - structure only).
+
+        FlowConfig is a template that may have incomplete configs waiting for
+        entity overrides. This validator checks structure (type exists, valid type)
+        but allows incomplete configs to pass through. Full validation happens
+        when Entity is created (after entity merging).
+
+        This allows flow-level store configs to be incomplete (e.g., missing
+        key_columns for Open Mirroring) if entities will provide them via
+        entity.store.key_columns.
+        """
         if isinstance(v, str):
             # For strings, validate by trying to create StoreConfig
             try:
@@ -135,12 +154,13 @@ class FlowConfig(BaseModel):
         elif isinstance(v, dict):
             if not v:
                 raise ValueError("Store configuration cannot be empty")
-            # Validate the structure by trying to create StoreConfig
-            try:
-                StoreConfig.create(v)
-            except Exception as e:
-                # Re-raise the original ValidationError
-                raise e
+            # Lenient validation: only check structure (type exists and is valid)
+            # Allow incomplete configs to pass through
+            # (entity configs will complete them)
+            config_type = v.get("type", "parquet")  # Default to parquet
+            if config_type not in StoreConfig._registry:
+                raise ValueError(f"Unknown store config type: {config_type}")
+            # Don't validate completeness - that happens when FlowInstance is created
         return v
 
     @field_validator("journal", mode="before")

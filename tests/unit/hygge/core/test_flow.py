@@ -748,9 +748,10 @@ class TestFlowFromEntity:
     """Test Flow.from_entity() class method."""
 
     def test_from_entity_creates_flow(self):
-        """Test Flow.from_entity() creates entity flow from configuration."""
-        from hygge.core.flow import Flow, FlowConfig
+        """Test Flow.from_entity() creates entity flow from Entity."""
+        from hygge.core.flow import Entity, Flow, FlowConfig
 
+        # Create merged FlowConfig (simulating what Workspace does)
         flow_config = FlowConfig(
             home={"type": "parquet", "path": "data/source"},
             store={"type": "parquet", "path": "data/dest"},
@@ -758,12 +759,17 @@ class TestFlowFromEntity:
 
         entity_config = {"name": "users"}
 
-        flow = Flow.from_entity(
+        # Create Entity with merged config
+        entity = Entity(
             flow_name="test_flow_users",
             base_flow_name="test_flow",
-            flow_config=flow_config,
             entity_name="users",
+            flow_config=flow_config,
             entity_config=entity_config,
+        )
+
+        flow = Flow.from_entity(
+            entity,
             coordinator_run_id="test_run_id",
             coordinator_name="test_coordinator",
             connection_pools={},
@@ -777,25 +783,33 @@ class TestFlowFromEntity:
         assert flow.store is not None
 
     def test_from_entity_merges_home_path(self):
-        """Test Flow.from_entity() merges entity home path with flow path."""
-        from hygge.core.flow import Flow, FlowConfig
+        """Test Flow.from_entity() uses merged entity home path."""
+        from hygge.core.flow import Entity, Flow, FlowConfig
+        from hygge.utility.path_helper import PathHelper
 
+        # Create merged FlowConfig with path already merged (simulating Workspace)
+        merged_path = PathHelper.merge_paths("data/source", "users")
         flow_config = FlowConfig(
-            home={"type": "parquet", "path": "data/source"},
+            home={"type": "parquet", "path": merged_path},
             store={"type": "parquet", "path": "data/dest"},
         )
 
         entity_config = {
             "name": "users",
-            "home": {"path": "users"},  # Should merge with flow path
+            "home": {"path": "users"},
         }
 
-        flow = Flow.from_entity(
+        # Create Entity with merged config
+        entity = Entity(
             flow_name="test_flow_users",
             base_flow_name="test_flow",
-            flow_config=flow_config,
             entity_name="users",
+            flow_config=flow_config,
             entity_config=entity_config,
+        )
+
+        flow = Flow.from_entity(
+            entity,
             coordinator_run_id="test_run_id",
             coordinator_name="test_coordinator",
             connection_pools={},
@@ -806,29 +820,35 @@ class TestFlowFromEntity:
         assert flow.home.config.path == "data/source/users"
 
     def test_from_entity_merges_store_config(self):
-        """Test Flow.from_entity() merges entity store config with flow config."""
-        from hygge.core.flow import Flow, FlowConfig
+        """Test Flow.from_entity() uses merged entity store config."""
+        from hygge.core.flow import Entity, Flow, FlowConfig
 
+        # Create merged FlowConfig with store override already applied
         flow_config = FlowConfig(
             home={"type": "parquet", "path": "data/source"},
             store={
                 "type": "parquet",
                 "path": "data/dest",
-                "options": {"compression": "snappy"},
+                "options": {"compression": "gzip"},  # Entity override applied
             },
         )
 
         entity_config = {
             "name": "users",
-            "store": {"options": {"compression": "gzip"}},  # Override compression
+            "store": {"options": {"compression": "gzip"}},
         }
 
-        flow = Flow.from_entity(
+        # Create Entity with merged config
+        entity = Entity(
             flow_name="test_flow_users",
             base_flow_name="test_flow",
-            flow_config=flow_config,
             entity_name="users",
+            flow_config=flow_config,
             entity_config=entity_config,
+        )
+
+        flow = Flow.from_entity(
+            entity,
             coordinator_run_id="test_run_id",
             coordinator_name="test_coordinator",
             connection_pools={},
@@ -840,30 +860,35 @@ class TestFlowFromEntity:
 
     def test_from_entity_with_entity_run_type(self):
         """Test Flow.from_entity() uses entity run_type override."""
-        from hygge.core.flow import Flow, FlowConfig
+        from hygge.core.flow import Entity, Flow, FlowConfig
 
+        # Create merged FlowConfig with entity run_type override already applied
         flow_config = FlowConfig(
             home={"type": "parquet", "path": "data/source"},
             store={"type": "parquet", "path": "data/dest"},
-            run_type="full_drop",  # Flow-level default
+            run_type="incremental",  # Entity override applied
         )
 
         entity_config = {
             "name": "users",
-            "run_type": "incremental",  # Entity override
+            "run_type": "incremental",
         }
 
-        flow = Flow.from_entity(
+        # Create Entity with merged config
+        entity = Entity(
             flow_name="test_flow_users",
             base_flow_name="test_flow",
-            flow_config=flow_config,
             entity_name="users",
+            flow_config=flow_config,
             entity_config=entity_config,
+        )
+
+        flow = Flow.from_entity(
+            entity,
             coordinator_run_id="test_run_id",
             coordinator_name="test_coordinator",
             connection_pools={},
             journal_cache={},
-            default_run_type="full_drop",
         )
 
         # Entity run_type should override flow default
@@ -871,12 +896,13 @@ class TestFlowFromEntity:
 
     def test_from_entity_with_entity_watermark(self):
         """Test Flow.from_entity() uses entity watermark override."""
-        from hygge.core.flow import Flow, FlowConfig
+        from hygge.core.flow import Entity, Flow, FlowConfig
 
+        # Create merged FlowConfig with entity watermark override already applied
         flow_config = FlowConfig(
             home={"type": "parquet", "path": "data/source"},
             store={"type": "parquet", "path": "data/dest"},
-            watermark={"primary_key": "id", "watermark_column": "created_at"},
+            watermark={"primary_key": "user_id", "watermark_column": "updated_at"},
         )
 
         entity_config = {
@@ -884,17 +910,21 @@ class TestFlowFromEntity:
             "watermark": {"primary_key": "user_id", "watermark_column": "updated_at"},
         }
 
-        flow = Flow.from_entity(
+        # Create Entity with merged config
+        entity = Entity(
             flow_name="test_flow_users",
             base_flow_name="test_flow",
-            flow_config=flow_config,
             entity_name="users",
+            flow_config=flow_config,
             entity_config=entity_config,
+        )
+
+        flow = Flow.from_entity(
+            entity,
             coordinator_run_id="test_run_id",
             coordinator_name="test_coordinator",
             connection_pools={},
             journal_cache={},
-            default_watermark={"primary_key": "id", "watermark_column": "created_at"},
         )
 
         # Entity watermark should override flow default
@@ -906,8 +936,9 @@ class TestFlowFromEntity:
 
     def test_from_entity_open_mirroring_key_columns(self):
         """Test Flow.from_entity() handles Open Mirroring key_columns from entity."""
-        from hygge.core.flow import Flow, FlowConfig
+        from hygge.core.flow import Entity, Flow, FlowConfig
 
+        # Create merged FlowConfig with entity key_columns already merged
         flow_config = FlowConfig(
             home={"type": "parquet", "path": "data/source"},
             store={
@@ -916,21 +947,26 @@ class TestFlowFromEntity:
                 "filesystem": "test",
                 "mirror_name": "test-db",
                 "row_marker": 0,
-                # key_columns not at flow level - entity should provide
+                "key_columns": ["id"],  # Entity provides key_columns (merged)
             },
         )
 
         entity_config = {
             "name": "users",
-            "store": {"key_columns": ["id"]},  # Entity provides key_columns
+            "store": {"key_columns": ["id"]},
         }
 
-        flow = Flow.from_entity(
+        # Create Entity with merged config
+        entity = Entity(
             flow_name="test_flow_users",
             base_flow_name="test_flow",
-            flow_config=flow_config,
             entity_name="users",
+            flow_config=flow_config,
             entity_config=entity_config,
+        )
+
+        flow = Flow.from_entity(
+            entity,
             coordinator_run_id="test_run_id",
             coordinator_name="test_coordinator",
             connection_pools={},
