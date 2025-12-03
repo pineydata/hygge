@@ -66,6 +66,7 @@ Thumbs.db
 .tox/
 .nox/
 coverage.xml
+htmlcov/
 *.cover
 *.py,cover
 .hypothesis/
