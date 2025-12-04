@@ -63,6 +63,13 @@ This roadmap tracks hygge's development progress, current priorities, and planne
    - Visibility into coverage gaps enables targeted test improvements
    - Coverage reports available as CI artifacts for ongoing review
 
+7. **Watermark Filter Consistency Fix**
+   - Fixed integer watermark filtering to always use `watermark_column` for WHERE clauses
+   - Removed incorrect `primary_key` preference logic that caused issues with composite keys, non-integer primary keys, and non-sequential primary keys
+   - Made behavior consistent across all watermark types (datetime, string, int)
+   - Updated tests to validate correct filtering behavior
+   - Discovered during test coverage improvements - validates the value of comprehensive testing
+
 ---
 
 ## Active Issues 🔄
@@ -80,15 +87,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Medium Priority
 
-2. **[Watermark Filter Fallback](watermark-filter-fallback.md)**
-   - **Goal:** Fix incorrect fallback behavior in MSSQL Home watermark filtering
-   - **Current:** Integer watermarks fall back to `watermark_column` when `primary_key` is missing, contradicting documented requirements
-   - **Proposed:** Require `primary_key` for integer watermarks and fail fast if missing
-   - **Why:** Correctness issue that could lead to incorrect incremental loads; masks configuration errors
-   - **Estimated Effort:** 1 day (fix implementation and test)
-   - **Impact:** Discovered during test coverage improvements - validates the value of comprehensive testing
-
-3. **[Store Interface Standardization](store-interface-standardization.md)**
+1. **[Store Interface Standardization](store-interface-standardization.md)**
    - **Goal:** Make optional store methods explicit with default implementations
    - **Current:** Stores use `hasattr()` checks for optional methods (configure_for_run, cleanup_staging, etc.)
    - **Proposed:** Base Store class provides default no-op implementations
@@ -96,7 +95,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
    - **Estimated Effort:** 1-2 days
    - **Impact:** Should be done before adding more store implementations
 
-4. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
+2. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
    - **Goal:** Separate watermark tracking logic from flow execution
    - **Current:** Watermark logic is mixed with Flow's batch processing
    - **Proposed:** Dedicated `Watermark` class with upfront schema validation
@@ -134,13 +133,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Immediate Next Steps (Next 1-2 Weeks)
 
-1. **[Fix Watermark Filter Fallback](watermark-filter-fallback.md)**
-   - Fix incorrect fallback behavior in MSSQL Home watermark filtering
-   - Update test to verify fail-fast behavior instead of fallback
-   - Verify consistency with Flow tracking requirements
-   - **Why:** Correctness issue discovered during test coverage improvements - should be fixed promptly
-
-2. **Verify Resolved Issues**
+1. **Verify Resolved Issues**
    - Confirm Store Config Entity Inference is fully resolved
    - Confirm Flow Entity Separation is fully resolved
    - Close issues if verification passes
@@ -202,7 +195,6 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 **Remaining Complexity:**
 - Watermark logic mixed with Flow execution ([extraction planned](watermark-tracker-extraction.md))
 - Store interface uses `hasattr()` checks ([standardization planned](store-interface-standardization.md))
-- Watermark filter fallback behavior contradicts requirements ([fix planned](watermark-filter-fallback.md))
 
 ---
 
@@ -235,7 +227,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 **Next Review Focus:**
 1. ✅ Test coverage baseline established and gaps identified
-2. Watermark filter fallback fix status
+2. ✅ Watermark filter consistency fix completed
 3. Store interface standardization progress
 4. Watermark tracker extraction status
 5. Large data volume stress testing progress
@@ -252,5 +244,5 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ---
 
-**Last Updated:** Post-Test Coverage Improvements
+**Last Updated:** Post-Watermark Filter Fix
 **Status:** Production-ready, actively improving
