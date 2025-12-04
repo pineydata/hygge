@@ -278,7 +278,6 @@ class MssqlHome(Home, home_type="mssql"):
         watermark_value = watermark.get("watermark")
         watermark_type = watermark.get("watermark_type")
         watermark_column = watermark.get("watermark_column")
-        primary_key = watermark.get("primary_key")
 
         if not watermark_value or not watermark_type or not watermark_column:
             return None
@@ -302,15 +301,12 @@ class MssqlHome(Home, home_type="mssql"):
                 )
                 return None
 
-            safe_primary_key = (
-                self._validate_identifier(primary_key, "primary_key")
-                if primary_key
-                else None
-            )
-            column = safe_primary_key or safe_watermark_column
-            if not column:
-                return None
-            return f"{column} > {numeric_value}"
+            # Always use watermark_column for filtering
+            # (consistent with datetime/string)
+            # primary_key is still required for Flow tracking (validation,
+            # deduplication) but the WHERE clause filter always uses the column we
+            # tracked
+            return f"{safe_watermark_column} > {numeric_value}"
 
         if watermark_type == "string":
             safe_value = watermark_value.replace("'", "''")
