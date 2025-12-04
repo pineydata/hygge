@@ -94,23 +94,6 @@ exclude_lines = [
 ]
 ```
 
-### Phase 3: Add Coverage to CI
-
-Add coverage reporting to CI (when CI is set up):
-
-```yaml
-# In .github/workflows/test.yml (example)
-- name: Run tests with coverage
-  run: |
-    pytest --cov=src/hygge --cov-report=xml --cov-report=term
-
-- name: Upload coverage to Codecov
-  uses: codecov/codecov-action@v3
-  with:
-    file: ./coverage.xml
-    flags: unittests
-    name: codecov-umbrella
-```
 
 ### Phase 4: Identify Coverage Gaps
 
