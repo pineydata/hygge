@@ -1,6 +1,6 @@
 # hygge Roadmap: Current Status & Next Steps
 
-**Last Updated:** Post-Entity Lifecycle Refactoring
+**Last Updated:** Post-Test Coverage Improvements
 **Status:** Production-ready for midmarket scale, actively improving
 
 ---
@@ -11,10 +11,11 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 **Current State:**
 - Core architecture is clean and production-ready
-- 610+ tests passing with comprehensive coverage
+- 3,000+ new test lines added, comprehensive coverage reporting in place
 - Clear separation of concerns across all components
 - Exception handling provides clear, actionable error messages
 - Polisher feature enables lightweight data finishing
+- Test coverage visibility established with CI integration
 
 ---
 
@@ -54,25 +55,39 @@ This roadmap tracks hygge's development progress, current priorities, and planne
    - Generic constant columns and load timestamps
    - Integrated seamlessly into all store types with Open Mirroring compatibility
 
+6. **Test Coverage Infrastructure**
+   - Comprehensive test coverage reporting with pytest-cov configuration
+   - CI integration generates HTML, XML, and term-missing coverage reports
+   - Added 3,000+ lines of new tests for Journal, MSSQL Home, ADLS Store, OpenMirroring Store, and Azure OneLake utilities
+   - Coverage reporting focuses on source code while excluding test files and common patterns
+   - Visibility into coverage gaps enables targeted test improvements
+   - Coverage reports available as CI artifacts for ongoing review
+
+7. **Watermark Filter Consistency Fix**
+   - Fixed integer watermark filtering to always use `watermark_column` for WHERE clauses
+   - Removed incorrect `primary_key` preference logic that caused issues with composite keys, non-integer primary keys, and non-sequential primary keys
+   - Made behavior consistent across all watermark types (datetime, string, int)
+   - Updated tests to validate correct filtering behavior
+   - Discovered during test coverage improvements - validates the value of comprehensive testing
+
 ---
 
 ## Active Issues 🔄
 
 ### High Priority
 
-1. **[Test Coverage Improvements](test-coverage-improvements.md)**
-   - **Goal:** Establish visibility into test coverage and identify gaps
+1. **Large Data Volume & Stress Testing** (Remaining from test coverage work)
+   - **Goal:** Add stress tests for midmarket scale scenarios
    - **Needs:**
-     - Coverage reporting infrastructure (pytest-cov)
      - Large data volume tests approaching midmarket limits (100M+ rows)
      - Concurrent flow stress tests (10+ flows running simultaneously)
      - Connection pool exhaustion scenarios
-   - **Why:** Foundational work for maintaining code quality as the framework grows
-   - **Estimated Effort:** 1 day initial setup + incremental test additions
+   - **Why:** Verify framework reliability at midmarket scale
+   - **Estimated Effort:** 2-3 days for comprehensive stress test suite
 
 ### Medium Priority
 
-3. **[Store Interface Standardization](store-interface-standardization.md)**
+1. **[Store Interface Standardization](store-interface-standardization.md)**
    - **Goal:** Make optional store methods explicit with default implementations
    - **Current:** Stores use `hasattr()` checks for optional methods (configure_for_run, cleanup_staging, etc.)
    - **Proposed:** Base Store class provides default no-op implementations
@@ -80,7 +95,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
    - **Estimated Effort:** 1-2 days
    - **Impact:** Should be done before adding more store implementations
 
-4. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
+2. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
    - **Goal:** Separate watermark tracking logic from flow execution
    - **Current:** Watermark logic is mixed with Flow's batch processing
    - **Proposed:** Dedicated `Watermark` class with upfront schema validation
@@ -118,13 +133,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Immediate Next Steps (Next 1-2 Weeks)
 
-1. **[Add Test Coverage Reporting](test-coverage-improvements.md)**
-   - Establish baseline coverage metrics to understand current state
-   - Identify gaps in test coverage, especially edge cases and error paths
-   - Add CI coverage reporting to prevent regressions
-   - **Why:** Foundational for maintaining quality as the codebase grows
-
-2. **Verify Resolved Issues**
+1. **Verify Resolved Issues**
    - Confirm Store Config Entity Inference is fully resolved
    - Confirm Flow Entity Separation is fully resolved
    - Close issues if verification passes
@@ -132,19 +141,23 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Short-Term (Next 1-2 Months)
 
-2. **[Store Interface Standardization](store-interface-standardization.md)**
+1. **[Store Interface Standardization](store-interface-standardization.md)**
    - Improve type safety and developer experience for store implementers
    - Should be completed before adding more store implementations
    - **Why:** Code quality improvement that makes the framework easier to extend
 
-4. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
+2. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
    - Improve testability and maintainability of watermark logic
    - Better error experience with upfront validation instead of reactive warnings
    - **Why:** Code quality improvement that makes the framework easier to maintain
 
+3. **Large Data Volume & Stress Testing**
+   - Add stress tests for midmarket scale scenarios (100M+ rows, concurrent flows, connection pool exhaustion)
+   - **Why:** Verify framework reliability at production scale
+
 ### Long-Term (Next 3-6 Months)
 
-4. **Small Improvements** (As Needed)
+1. **Small Improvements** (As Needed)
    - [Mirror Journal Batching](mirror-journal-batching.md) for performance
    - [Schema Manifest Improvements](schema-manifest-improvements.md) for code reuse
    - **Why:** Incremental improvements that enhance the framework
@@ -174,9 +187,10 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 - All identified code quality improvements have been completed
 
 **Test Coverage:**
-- No visibility into coverage gaps or untested code paths
-- Missing stress tests for midmarket scale scenarios
-- Need baseline metrics to track coverage over time
+- ✅ Coverage reporting infrastructure in place with CI integration
+- ✅ 3,000+ new test lines added for previously under-tested components
+- ⚠️ Missing stress tests for midmarket scale scenarios (100M+ rows, concurrent flows, connection pool exhaustion)
+- ✅ Coverage reports available as CI artifacts for ongoing review
 
 **Remaining Complexity:**
 - Watermark logic mixed with Flow execution ([extraction planned](watermark-tracker-extraction.md))
@@ -187,10 +201,11 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 ## Success Metrics
 
 ### Code Quality
-- 610+ tests passing with good coverage of core functionality
+- 3,000+ new test lines added, comprehensive coverage reporting in place
 - Clear architecture with well-defined separation of concerns
 - Exception handling provides actionable error messages
-- Test coverage baseline (in progress)
+- ✅ Test coverage visibility established with CI integration
+- Coverage reports identify gaps and guide targeted improvements
 
 ### Production Readiness
 - Handles midmarket org data volumes reliably (millions to low billions of rows)
@@ -211,10 +226,12 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 **Recommended Review Cycle:** Quarterly
 
 **Next Review Focus:**
-1. Test coverage baseline established and gaps identified
-2. Store interface standardization progress
-3. Watermark tracker extraction status
-4. Any new issues or priorities that emerge
+1. ✅ Test coverage baseline established and gaps identified
+2. ✅ Watermark filter consistency fix completed
+3. Store interface standardization progress
+4. Watermark tracker extraction status
+5. Large data volume stress testing progress
+6. Any new issues or priorities that emerge
 
 ---
 
@@ -227,5 +244,5 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ---
 
-**Last Updated:** Post-Entity Lifecycle Refactoring
+**Last Updated:** Post-Watermark Filter Fix
 **Status:** Production-ready, actively improving

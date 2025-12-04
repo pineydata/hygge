@@ -277,7 +277,7 @@ class TestMssqlHomeWatermark:
         assert "WHERE updated_at > '2024-01-02T09:00:00Z'" in captured_queries[0]
 
     @pytest.mark.asyncio
-    async def test_read_with_watermark_integer_uses_primary_key(self, monkeypatch):
+    async def test_read_with_watermark_integer_uses_watermark_column(self, monkeypatch):
         config = MssqlHomeConfig(type="mssql", connection="test_db", table="dbo.users")
         home = MssqlHome("test", config)
 
@@ -293,7 +293,7 @@ class TestMssqlHomeWatermark:
         watermark = {
             "watermark": "1050",
             "watermark_type": "int",
-            "watermark_column": "updated_at",
+            "watermark_column": "sequence_id",
             "primary_key": "id",
         }
 
@@ -301,7 +301,9 @@ class TestMssqlHomeWatermark:
             pass
 
         assert captured_queries
-        assert "WHERE id > 1050" in captured_queries[0]
+        # Should always use watermark_column for filtering
+        # (consistent with datetime/string)
+        assert "WHERE sequence_id > 1050" in captured_queries[0]
 
     @pytest.mark.asyncio
     async def test_read_with_watermark_custom_query_fallback(self, monkeypatch):
@@ -357,6 +359,7 @@ class TestMssqlHomeWatermark:
         assert any("Unsafe watermark_column" in msg for msg in warnings)
 
     def test_build_watermark_filter_invalid_primary_key(self, monkeypatch):
+        """Test invalid primary_key doesn't affect filter (uses watermark_column)."""
         config = MssqlHomeConfig(type="mssql", connection="test_db", table="dbo.users")
         home = MssqlHome("test", config)
 
@@ -367,13 +370,15 @@ class TestMssqlHomeWatermark:
             "watermark": "1050",
             "watermark_type": "int",
             "watermark_column": "updated_at",
+            # Invalid, but not used for filtering
             "primary_key": "id; DROP TABLE users",
         }
 
         filter_clause = home._build_watermark_filter(watermark)
 
+        # Filter should still work correctly using watermark_column
+        # primary_key validation happens in Flow tracking, not filter building
         assert filter_clause == "updated_at > 1050"
-        assert any("Unsafe primary_key" in msg for msg in warnings)
 
 
 class TestMssqlHomeInitialization:

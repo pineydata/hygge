@@ -360,17 +360,18 @@ class TestMssqlHomeWatermarkFilterBuilding:
         watermark = {
             "watermark": "1050",
             "watermark_type": "int",
-            "watermark_column": "updated_at",
+            "watermark_column": "sequence_id",
             "primary_key": "id",
         }
 
         filter_clause = home._build_watermark_filter(watermark)
 
-        # Should use primary_key for integer watermarks
-        assert filter_clause == "id > 1050"
+        # Should always use watermark_column for filtering
+        # (consistent with datetime/string)
+        assert filter_clause == "sequence_id > 1050"
 
-    def test_build_watermark_filter_integer_falls_back_to_watermark_column(self):
-        """Test integer filter falls back to watermark_column if no primary_key."""
+    def test_build_watermark_filter_integer_uses_watermark_column(self):
+        """Test integer filter always uses watermark_column."""
         config = MssqlHomeConfig(
             type="mssql",
             server="test.database.windows.net",
@@ -383,12 +384,12 @@ class TestMssqlHomeWatermarkFilterBuilding:
             "watermark": "1050",
             "watermark_type": "int",
             "watermark_column": "sequence_id",
-            # No primary_key
+            # primary_key not used for filtering, but still required for Flow tracking
         }
 
         filter_clause = home._build_watermark_filter(watermark)
 
-        # Should use watermark_column
+        # Should always use watermark_column for filtering
         assert filter_clause == "sequence_id > 1050"
 
     def test_build_watermark_filter_integer_invalid_value(self):
