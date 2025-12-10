@@ -1,6 +1,6 @@
 # hygge Roadmap: Current Status & Next Steps
 
-**Last Updated:** Post-Test Coverage Improvements
+**Last Updated:** Post-Store Interface Standardization
 **Status:** Production-ready for midmarket scale, actively improving
 
 ---
@@ -70,6 +70,13 @@ This roadmap tracks hygge's development progress, current priorities, and planne
    - Updated tests to validate correct filtering behavior
    - Discovered during test coverage improvements - validates the value of comprehensive testing
 
+8. **Store Interface Standardization**
+   - Made store interface explicit by adding default implementations for all optional methods (`configure_for_run`, `cleanup_staging`, `reset_retry_sensitive_state`, `set_pool`)
+   - Removed fragile `hasattr()` checks in favor of direct method calls with safe defaults
+   - Improved type safety and developer experience for store implementers with clear required vs optional method contracts
+   - All existing stores remain fully compatible with no breaking changes
+   - Added comprehensive tests for optional method default implementations
+
 ---
 
 ## Active Issues 🔄
@@ -87,15 +94,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Medium Priority
 
-1. **[Store Interface Standardization](store-interface-standardization.md)**
-   - **Goal:** Make optional store methods explicit with default implementations
-   - **Current:** Stores use `hasattr()` checks for optional methods (configure_for_run, cleanup_staging, etc.)
-   - **Proposed:** Base Store class provides default no-op implementations
-   - **Why:** Improves type safety, developer experience, and API clarity
-   - **Estimated Effort:** 1-2 days
-   - **Impact:** Should be done before adding more store implementations
-
-2. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
+1. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
    - **Goal:** Separate watermark tracking logic from flow execution
    - **Current:** Watermark logic is mixed with Flow's batch processing
    - **Proposed:** Dedicated `Watermark` class with upfront schema validation
@@ -105,14 +104,14 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Low Priority
 
-5. **[Mirror Journal Batching](mirror-journal-batching.md)**
+2. **[Mirror Journal Batching](mirror-journal-batching.md)**
    - **Goal:** Batch journal mirror writes to reduce Fabric churn
    - **Current:** Mirrored journal reloads after every entity completion
    - **Proposed:** Accumulate entity run notifications, publish once per flow run
    - **Why:** Performance optimization for flows with multiple entities
    - **Estimated Effort:** 1 day
 
-6. **[Schema Manifest Improvements](schema-manifest-improvements.md)**
+3. **[Schema Manifest Improvements](schema-manifest-improvements.md)**
    - **Goal:** Extract reusable schema generation logic from OpenMirroringStore
    - **Current:** Schema generation tightly coupled to Open Mirroring store
    - **Proposed:** Shared helper for Polars dtype → Fabric schema mapping
@@ -121,7 +120,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Deferred/Evaluation
 
-7. **[MSSQL Python Migration](mssql-python-migration.md)**
+4. **[MSSQL Python Migration](mssql-python-migration.md)**
    - **Status:** Decision to stay with `pyodbc`
    - **Rationale:** `mssql-python` lacks bulk copy operations critical for Store writes, provides no async advantage
    - **Action:** Monitor `mssql-python` development for bulk copy support
@@ -133,25 +132,20 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Immediate Next Steps (Next 1-2 Weeks)
 
-1. **Verify Resolved Issues**
-   - Confirm Store Config Entity Inference is fully resolved
-   - Confirm Flow Entity Separation is fully resolved
-   - Close issues if verification passes
-   - **Why:** Keep issue tracker clean and accurate
+1. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
+   - Extract watermark tracking logic from Flow into dedicated Watermark class
+   - Add upfront schema validation for better error experience
+   - Improve testability and maintainability of watermark logic
+   - **Why:** Better separation of concerns, easier to test edge cases, fail fast with clear errors
 
 ### Short-Term (Next 1-2 Months)
 
-1. **[Store Interface Standardization](store-interface-standardization.md)**
-   - Improve type safety and developer experience for store implementers
-   - Should be completed before adding more store implementations
-   - **Why:** Code quality improvement that makes the framework easier to extend
-
-2. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
+1. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
    - Improve testability and maintainability of watermark logic
    - Better error experience with upfront validation instead of reactive warnings
    - **Why:** Code quality improvement that makes the framework easier to maintain
 
-3. **Large Data Volume & Stress Testing**
+2. **Large Data Volume & Stress Testing**
    - Add stress tests for midmarket scale scenarios (100M+ rows, concurrent flows, connection pool exhaustion)
    - **Why:** Verify framework reliability at production scale
 
@@ -194,7 +188,6 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 **Remaining Complexity:**
 - Watermark logic mixed with Flow execution ([extraction planned](watermark-tracker-extraction.md))
-- Store interface uses `hasattr()` checks ([standardization planned](store-interface-standardization.md))
 
 ---
 
@@ -228,7 +221,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 **Next Review Focus:**
 1. ✅ Test coverage baseline established and gaps identified
 2. ✅ Watermark filter consistency fix completed
-3. Store interface standardization progress
+3. ✅ Store interface standardization completed
 4. Watermark tracker extraction status
 5. Large data volume stress testing progress
 6. Any new issues or priorities that emerge
@@ -244,5 +237,5 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ---
 
-**Last Updated:** Post-Watermark Filter Fix
+**Last Updated:** Post-Store Interface Standardization
 **Status:** Production-ready, actively improving
