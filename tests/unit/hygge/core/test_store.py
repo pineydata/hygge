@@ -417,3 +417,65 @@ class TestStoreConcurrency:
 
         # Then should be safe (no error)
         assert True  # Success if we get here
+
+
+class TestStoreOptionalMethods:
+    """Test optional store methods with default implementations."""
+
+    def test_configure_for_run_default_is_noop(self):
+        """Test configure_for_run default implementation is no-op."""
+        store = SimpleStore("test")
+        # Should not raise - default is no-op
+        store.configure_for_run("full_drop")
+        store.configure_for_run("incremental")
+        assert True  # Success if we get here
+
+    @pytest.mark.asyncio
+    async def test_cleanup_staging_default_is_noop(self):
+        """Test cleanup_staging default implementation is no-op."""
+        store = SimpleStore("test")
+        # Should not raise - default is no-op
+        await store.cleanup_staging()
+        assert True  # Success if we get here
+
+    @pytest.mark.asyncio
+    async def test_reset_retry_sensitive_state_default_resets_base_state(self):
+        """Test reset_retry_sensitive_state default implementation resets base state."""
+        store = SimpleStore("test")
+        # Set some state
+        store.data_buffer = [pl.DataFrame({"a": [1, 2, 3]})]
+        store.buffer_size = 3
+        store.total_rows = 3
+        store.rows_written = 3
+
+        # Reset should clear base state
+        await store.reset_retry_sensitive_state()
+
+        assert store.data_buffer == []
+        assert store.buffer_size == 0
+        assert store.total_rows == 0
+        assert store.rows_written == 0
+
+    def test_set_pool_default_is_noop(self):
+        """Test set_pool default implementation is no-op."""
+        store = SimpleStore("test")
+        # Should not raise - default is no-op
+        # Using None as pool since default doesn't use it
+        store.set_pool(None)
+        assert True  # Success if we get here
+
+    def test_optional_methods_can_be_called_without_hasattr(self):
+        """Test that optional methods can be called directly without hasattr checks."""
+        store = SimpleStore("test")
+        # All optional methods should be callable without checking first
+        store.configure_for_run("full_drop")
+        store.set_pool(None)
+        # Async methods need await
+        import asyncio
+
+        async def test_async():
+            await store.cleanup_staging()
+            await store.reset_retry_sensitive_state()
+
+        asyncio.run(test_async())
+        assert True  # Success if we get here

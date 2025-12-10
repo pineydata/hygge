@@ -13,6 +13,18 @@ Following hygge's philosophy, Stores prioritize:
 - **Reliability**: Consistent batch writing, error handling, staging for safety
 - **Natural flow**: Data writes smoothly in batches that feel right-sized
 
+Stores must implement:
+- `write()`: Write data to the store
+- `finish()`: Finish writing data to the store
+- `_save()`: Save data to the underlying store (abstract method)
+
+Stores can optionally override:
+- `configure_for_run()`: Configure store for run type (default: no-op)
+- `cleanup_staging()`: Clean up staging directories (default: no-op)
+- `reset_retry_sensitive_state()`: Reset retry-sensitive state
+  (default: resets base state)
+- `set_pool()`: Set connection pool for database stores (default: no-op)
+
 Example:
     ```python
     class MyStore(Store, store_type="my_type"):
@@ -25,12 +37,15 @@ Example:
 import asyncio
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, Optional, Type, Union
 
 import polars as pl
 from pydantic import BaseModel, Field, field_validator
 
 from hygge.messages import get_logger
+
+if TYPE_CHECKING:
+    from hygge.connections import ConnectionPool
 
 
 class Store(ABC):
@@ -132,11 +147,17 @@ class Store(ABC):
         """
         Configure the store for the upcoming run type.
 
+        This is an optional method that stores can override to adjust
+        their strategy based on flow run_type. Default implementation
+        is a no-op.
+
         Stores that need special handling (e.g., truncate vs append strategies)
-        can override this hook. The base implementation is a no-op so existing
-        stores remain unaffected.
+        can override this method.
+
+        Args:
+            run_type: Run type ('full_drop' or 'incremental')
         """
-        return None
+        pass
 
     async def write(self, data: pl.DataFrame) -> None:
         """
@@ -397,17 +418,25 @@ class Store(ABC):
         """
         Clean up staging/tmp directory before retrying a flow.
 
-        This ensures we start with a clean state on retry.
+        This is an optional method that stores can override to clean up
+        staging directories before retrying. Default implementation
+        is a no-op.
+
         File-based stores should override this to clean their staging directories.
         Database stores can use the default no-op implementation.
+
+        Raises:
+            StoreError: If cleanup fails (stores can raise this)
         """
-        # Default implementation is no-op for database stores
-        # File-based stores should override to clean their staging directories
         pass
 
     async def reset_retry_sensitive_state(self) -> None:
         """
         Reset retry-sensitive state before retrying a flow.
+
+        This is an optional method that stores can override to reset
+        state that should be cleared before retrying (e.g., sequence
+        counters). Default implementation resets base store state.
 
         This method is called before each retry to ensure stores start with
         a clean state. Resets both general store state (buffers, counters) and
@@ -415,6 +444,9 @@ class Store(ABC):
 
         Stores can override this to add additional reset logic, but should
         call super() to ensure base state is reset.
+
+        Raises:
+            StoreError: If reset fails (stores can raise this)
         """
         # Reset general store state that accumulates during execution
         self.data_buffer.clear()
@@ -428,6 +460,21 @@ class Store(ABC):
 
         # Store-specific state reset (e.g., saved_paths) should be handled
         # by subclasses overriding this method
+
+    def set_pool(self, pool: "ConnectionPool") -> None:
+        """
+        Set connection pool for stores that need it.
+
+        This is an optional method that stores can override to receive
+        a connection pool. Default implementation is a no-op.
+
+        Database stores (MSSQL, etc.) should override this to store the
+        connection pool for use during writes.
+
+        Args:
+            pool: Connection pool to use
+        """
+        pass
 
     async def _stage(self) -> None:
         """

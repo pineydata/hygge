@@ -2,6 +2,7 @@
 Tests for Progress tracking class.
 """
 import asyncio
+import time
 from unittest.mock import Mock, patch
 
 import pytest
@@ -35,7 +36,7 @@ class TestProgress:
     def test_progress_start(self):
         """Test starting progress tracking."""
         progress = Progress()
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         progress.start(start_time)
 
         assert progress.run_start_time == start_time
@@ -56,13 +57,13 @@ class TestProgress:
     def test_progress_start_resets_counters(self):
         """Test that start() resets counters when called multiple times."""
         progress = Progress()
-        start_time1 = asyncio.get_event_loop().time()
+        start_time1 = time.monotonic()
         progress.start(start_time1)
         progress.total_rows_progress = 500_000
         progress.last_milestone_rows = 500_000
 
         # Call start again
-        start_time2 = asyncio.get_event_loop().time()
+        start_time2 = time.monotonic()
         progress.start(start_time2)
 
         # Should reset counters
@@ -74,7 +75,7 @@ class TestProgress:
     async def test_progress_update_no_milestone(self):
         """Test progress update that doesn't reach milestone."""
         progress = Progress(milestone_interval=1_000_000)
-        progress.start(asyncio.get_event_loop().time())
+        progress.start(time.monotonic())
 
         with patch.object(progress.logger, "info") as mock_info:
             await progress.update(500_000)
@@ -87,7 +88,7 @@ class TestProgress:
     async def test_progress_update_zero_rows(self):
         """Test progress update with zero rows."""
         progress = Progress(milestone_interval=1_000_000)
-        progress.start(asyncio.get_event_loop().time())
+        progress.start(time.monotonic())
 
         with patch.object(progress.logger, "info") as mock_info:
             await progress.update(0)
@@ -100,7 +101,7 @@ class TestProgress:
     async def test_progress_update_reaches_milestone(self):
         """Test progress update that reaches a milestone."""
         progress = Progress(milestone_interval=1_000_000)
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         progress.start(start_time)
 
         with patch.object(progress.logger, "info") as mock_info:
@@ -119,7 +120,7 @@ class TestProgress:
     async def test_progress_update_multiple_milestones(self):
         """Test progress update that crosses multiple milestones."""
         progress = Progress(milestone_interval=1_000_000)
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         progress.start(start_time)
 
         with patch.object(progress.logger, "info") as mock_info:
@@ -135,7 +136,7 @@ class TestProgress:
     async def test_progress_update_concurrent_updates(self):
         """Test that concurrent progress updates are handled correctly."""
         progress = Progress(milestone_interval=1_000_000)
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         progress.start(start_time)
 
         # Create multiple concurrent updates
@@ -167,7 +168,7 @@ class TestProgress:
     async def test_progress_update_rate_calculation(self):
         """Test that progress update calculates rate correctly."""
         progress = Progress(milestone_interval=1_000_000)
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         progress.start(start_time)
 
         # Wait a bit to get non-zero elapsed time
@@ -185,7 +186,7 @@ class TestProgress:
     async def test_progress_update_exact_milestone_boundary(self):
         """Test progress update exactly at milestone boundary."""
         progress = Progress(milestone_interval=1_000_000)
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         progress.start(start_time)
 
         with patch.object(progress.logger, "info") as mock_info:

@@ -1,7 +1,7 @@
 """
 Tests for Summary generation class.
 """
-import asyncio
+import time
 from unittest.mock import Mock
 
 from hygge.messages import Summary
@@ -46,7 +46,7 @@ class TestSummary:
             }
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should log summary information
@@ -68,7 +68,7 @@ class TestSummary:
             {"name": "flow3", "status": "skip", "rows": 0, "duration": 0.0},
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should log summary with correct counts
@@ -100,7 +100,7 @@ class TestSummary:
             },
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should log error status
@@ -135,7 +135,7 @@ class TestSummary:
             {"name": "test_flow", "status": "pass", "rows": 1000, "duration": 5.0}
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should include time string in summary
@@ -153,7 +153,7 @@ class TestSummary:
         ]
 
         # Use a start time that's 90 seconds ago
-        start_time = asyncio.get_event_loop().time() - 90.0
+        start_time = time.monotonic() - 90.0
         summary.generate_summary(flow_results, start_time)
 
         # Should include both minutes and seconds
@@ -171,7 +171,7 @@ class TestSummary:
             {"name": "flow2", "status": "pass", "rows": 2000, "duration": 10.0},
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should log total rows
@@ -190,7 +190,7 @@ class TestSummary:
         ]
 
         # Use a start time that gives us a measurable duration
-        start_time = asyncio.get_event_loop().time() - 5.0
+        start_time = time.monotonic() - 5.0
         summary.generate_summary(flow_results, start_time)
 
         # Should log overall rate
@@ -206,7 +206,7 @@ class TestSummary:
 
         flow_results = [{"name": "flow1", "status": "skip", "rows": 0, "duration": 0.0}]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should not log total rows or rate when no rows processed
@@ -223,7 +223,7 @@ class TestSummary:
             {"name": "test_flow", "status": "pass", "rows": 1000, "duration": 5.0}
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should have blank lines for spacing
@@ -253,7 +253,7 @@ class TestSummary:
             },
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should show error status
@@ -287,7 +287,7 @@ class TestSummary:
             {"name": "flow2", "status": "skip", "rows": 0, "duration": 0.0},
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should show success status (no failures)
@@ -318,7 +318,7 @@ class TestSummary:
             {"name": "flow3", "status": "skip", "rows": 0, "duration": 0.0},
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should show all three states
@@ -343,7 +343,7 @@ class TestSummary:
         ]
 
         # Use a start time that's 2 hours ago
-        start_time = asyncio.get_event_loop().time() - 7200.0
+        start_time = time.monotonic() - 7200.0
         summary.generate_summary(flow_results, start_time)
 
         # Should include hours, minutes, and seconds
@@ -380,7 +380,7 @@ class TestSummary:
             {"name": "test_flow", "status": "pass", "rows": 1000, "duration": 5.0}
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should use singular "flow" for single flow
@@ -401,7 +401,7 @@ class TestSummary:
         ]
 
         # Use current time as start time (zero elapsed)
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should handle zero duration gracefully
@@ -428,7 +428,7 @@ class TestSummary:
             }
         ]
 
-        start_time = asyncio.get_event_loop().time()
+        start_time = time.monotonic()
         summary.generate_summary(flow_results, start_time)
 
         # Should still show failed flow details with "Unknown error"
@@ -450,7 +450,7 @@ class TestSummary:
             {"name": "flow1", "status": "pass", "rows": 12_345_678, "duration": 5.0}
         ]
 
-        start_time = asyncio.get_event_loop().time() - 5.0
+        start_time = time.monotonic() - 5.0
         summary.generate_summary(flow_results, start_time)
 
         # Should format large numbers with commas
@@ -469,7 +469,7 @@ class TestSummary:
         ]
 
         # 1 hour, 1 minute, 1 second
-        start_time = asyncio.get_event_loop().time() - 3661.0
+        start_time = time.monotonic() - 3661.0
         summary.generate_summary(flow_results, start_time)
 
         # Should use singular forms

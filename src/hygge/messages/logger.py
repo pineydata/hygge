@@ -8,6 +8,7 @@ and clarity, providing informative output without overwhelming you with details.
 import asyncio
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -22,20 +23,26 @@ def _get_event_loop_time() -> float:
     Get current event loop time, handling both async and sync contexts.
 
     Tries to get the running loop first (Python 3.7+), falls back to
-    getting the event loop if no running loop exists.
+    getting the event loop if no running loop exists. If no event loop
+    is available at all (e.g., in sync contexts or tests), falls back
+    to time.monotonic() which provides similar monotonic time behavior.
 
     Returns:
-        Current event loop time in seconds
+        Current event loop time in seconds (or monotonic time if no loop)
     """
     try:
         # Try to get running loop first (preferred in Python 3.7+)
         loop = asyncio.get_running_loop()
         return loop.time()
     except RuntimeError:
-        # No running loop - fall back to get_event_loop()
-        # This is safe for backwards compatibility
-        loop = asyncio.get_event_loop()
-        return loop.time()
+        # No running loop - try to get event loop
+        try:
+            loop = asyncio.get_event_loop()
+            return loop.time()
+        except RuntimeError:
+            # No event loop available - fall back to monotonic time
+            # This works in sync contexts and tests
+            return time.monotonic()
 
 
 class ColorFormatter(logging.Formatter):

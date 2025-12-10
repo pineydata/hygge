@@ -548,9 +548,7 @@ class FlowFactory:
         logger: Any,
     ) -> None:
         """Inject connection pool into stores that need it."""
-        if not hasattr(store, "set_pool"):
-            return
-
+        # Default implementation is no-op, so always safe to call
         if not hasattr(store_config, "connection"):
             return
 
