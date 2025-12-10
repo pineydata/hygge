@@ -18,7 +18,7 @@ import pytest
 from hygge.core.flow import Flow
 from hygge.core.home import Home
 from hygge.core.store import Store
-from hygge.utility.exceptions import FlowError, HomeConnectionError
+from hygge.utility.exceptions import ConfigError, FlowError, HomeConnectionError
 
 
 class MockHome(Home):
@@ -135,10 +135,30 @@ class MockStore(Store):
 @pytest.fixture
 def sample_data():
     """Create sample data for testing."""
+    from datetime import datetime, timezone
+
     return [
-        pl.DataFrame({"id": range(100), "value": ["test"] * 100}),
-        pl.DataFrame({"id": range(100, 200), "value": ["test"] * 100}),
-        pl.DataFrame({"id": range(200, 250), "value": ["test"] * 50}),
+        pl.DataFrame(
+            {
+                "id": range(100),
+                "value": ["test"] * 100,
+                "updated_at": [datetime(2024, 1, 1, tzinfo=timezone.utc)] * 100,
+            }
+        ),
+        pl.DataFrame(
+            {
+                "id": range(100, 200),
+                "value": ["test"] * 100,
+                "updated_at": [datetime(2024, 1, 2, tzinfo=timezone.utc)] * 100,
+            }
+        ),
+        pl.DataFrame(
+            {
+                "id": range(200, 250),
+                "value": ["test"] * 50,
+                "updated_at": [datetime(2024, 1, 3, tzinfo=timezone.utc)] * 50,
+            }
+        ),
     ]
 
 
@@ -344,6 +364,31 @@ class TestSimplifiedFlow:
         recorded_message = journal.records[-1]["message"]
         assert recorded_message == flow.watermark_message
         assert flow.watermark_message is not None
+
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(10)
+    async def test_flow_watermark_validation_fails_fast(self, sample_data):
+        """Flow should validate watermark schema on first batch and fail fast."""
+        # Create data without the watermark column
+        invalid_data = [
+            pl.DataFrame({"id": range(100), "value": ["test"] * 100}),
+        ]
+        home = MockHome("users_home", invalid_data, batch_size=100)
+        store = MockStore("test_store")
+
+        flow = Flow(
+            name="users_flow_users",
+            home=home,
+            store=store,
+            options={"queue_size": 5},
+            entity_name="users",
+            watermark_config={"primary_key": "id", "watermark_column": "updated_at"},
+        )
+
+        # Should fail on first batch with FlowError wrapping ConfigError
+        # The ConfigError is raised during validation and wrapped by the consumer
+        with pytest.raises(FlowError, match="Watermark column 'updated_at' not found"):
+            await flow.start()
 
     @pytest.mark.asyncio
     @pytest.mark.timeout(10)
@@ -777,7 +822,6 @@ class TestFlowFromConfig:
     def test_from_config_open_mirroring_requires_key_columns(self):
         """Test Flow.from_config() validates Open Mirroring key_columns."""
         from hygge.core.flow import Flow, FlowConfig
-        from hygge.utility.exceptions import ConfigError
 
         flow_config = FlowConfig(
             home={"type": "parquet", "path": "data/source"},

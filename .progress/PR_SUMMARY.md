@@ -1,47 +1,51 @@
 ---
-title: PR Summary - Store Interface Standardization: Explicit Optional Methods
-tags: [enhancement, feature]
+title: PR Summary - Watermark Tracker Extraction: Separate Watermark Logic from Flow
+tags: [enhancement, refactoring]
 ---
 
 ## Overview
 
-- Made store interface explicit by adding default implementations for all optional methods (`configure_for_run`, `cleanup_staging`, `reset_retry_sensitive_state`, `set_pool`)
-- Removed fragile `hasattr()` checks in favor of direct method calls with safe defaults
-- Improved type safety and developer experience for store implementers with clear required vs optional method contracts
+- Extracted watermark tracking logic from Flow into dedicated `Watermark` class for better separation of concerns and testability
+- Added upfront schema validation to fail fast with clear error messages instead of reactive warnings during processing
+- Improved maintainability by isolating watermark logic, making it easier to test and extend
 
 ## Key Changes
 
-### Store Interface Standardization
+### Watermark Class Extraction
 
-- `src/hygge/core/store.py`:
-  - Added `set_pool()` default implementation (no-op) for database stores
-  - Fixed `configure_for_run()` to use `pass` instead of `return None`
-  - Updated docstrings to clearly document required vs optional methods
-  - Added class-level documentation explaining the store interface contract
+- `src/hygge/core/watermark.py` (new file):
+  - Created dedicated `Watermark` class to track watermark values across batches
+  - Added `validate_schema()` method for upfront validation of watermark columns and types
+  - Extracted watermark update, serialization, and reset logic from Flow
+  - Supports datetime, integer, and string watermark types with type consistency checks
 
 - `src/hygge/core/flow/flow.py`:
-  - Removed `hasattr()` check for `configure_for_run()` - now calls directly
-  - Methods are always safe to call thanks to default implementations
+  - Replaced scattered watermark tracking code with `Watermark` class instance
+  - Removed `_update_watermark_tracker()` and `_reset_watermark_tracker()` methods
+  - Added upfront schema validation on first batch (fail fast before processing)
+  - Simplified watermark serialization in `_record_entity_run()` to use `watermark.serialize_watermark()`
+  - Updated retry cleanup to reset watermark state properly
 
-- `src/hygge/core/flow/factory.py`:
-  - Removed `hasattr()` check for `set_pool()` - now calls directly after config validation
-  - Simplified connection pool injection logic
+### Testing
 
-- `src/hygge/core/journal.py`:
-  - Removed `hasattr()` check for `configure_for_run()` - now calls directly
+- `tests/unit/hygge/core/test_watermark.py` (new file):
+  - Added 22 comprehensive tests covering initialization, schema validation, watermark tracking, serialization, and edge cases
+  - Tests verify fail-fast validation, type detection, multi-batch tracking, and error handling
 
-### Tests
+- `tests/unit/hygge/core/test_flow.py`:
+  - Updated `sample_data` fixture to include `updated_at` column for watermark tests
+  - Added `test_flow_watermark_validation_fails_fast()` to verify upfront validation
+  - All existing Flow tests continue to work with new Watermark class
 
-- `tests/unit/hygge/core/test_store.py`:
-  - Added `TestStoreOptionalMethods` test class with 5 new tests
-  - Verifies default implementations are no-ops and methods can be called without `hasattr()` checks
+- `pytest.ini`:
+  - Registered `timeout` mark to eliminate pytest warnings
 
 ## Testing
 
-- All tests passing: `pytest` (56 tests in core store/flow modules, all passing)
-- Verified stores that override optional methods (ADLS, OneLake, OpenMirroring) continue to work correctly
-- No breaking changes - existing stores remain fully compatible
+- All tests passing: `pytest` (22 watermark tests + 35 Flow tests, all passing)
+- Verified fail-fast validation catches missing columns before processing starts
+- No breaking changes - existing flows with watermark configs continue to work identically
 
 ---
 
-**Note**: Remember to add appropriate GitHub labels to this PR (`enhancement` or `feature`) for proper categorization in release notes.
+**Note**: Remember to add appropriate GitHub labels to this PR (`enhancement` and `refactoring`) for proper categorization in release notes.

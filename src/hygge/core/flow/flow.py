@@ -32,6 +32,7 @@ from hygge.utility.retry import with_retry
 
 from ..home import Home
 from ..journal import Journal
+from ..watermark import Watermark
 
 
 class Flow:
@@ -112,6 +113,9 @@ class Flow:
         self.initial_watermark_info: Optional[Dict[str, Any]] = None
         self.watermark_message: Optional[str] = None
 
+        # Track if watermark schema has been validated
+        self._watermark_schema_validated = False
+
         # State tracking
         self.total_rows = 0
         self.batches_processed = 0
@@ -119,10 +123,6 @@ class Flow:
         self.end_time = None
         self.duration: float = 0.0
         self.entity_start_time: Optional[datetime] = None
-        self._watermark_candidate: Optional[Any] = None
-        self._watermark_type: Optional[str] = None
-        self._watermark_primary_key_warned = False
-        self._watermark_column_warned = False
 
         # Progress callback for coordinator-level tracking
         self.progress_callback = None
@@ -133,6 +133,12 @@ class Flow:
         # Assign child loggers to home and store for clear log attribution
         self.home.logger = get_logger(f"hygge.flow.{name}.home")
         self.store.logger = get_logger(f"hygge.flow.{name}.store")
+
+        # Create watermark tracker if config provided (after logger is set up)
+        if self.watermark_config:
+            self.watermark = Watermark(self.watermark_config, self.logger)
+        else:
+            self.watermark = None
 
     def set_progress_callback(
         self, callback: Optional[Callable[[int], Awaitable[None]]]
@@ -173,7 +179,11 @@ class Flow:
             queue = asyncio.Queue(maxsize=self.queue_size)
             producer_done = asyncio.Event()
 
-            self._reset_watermark_tracker()
+            # Reset watermark tracker for new run
+            if self.watermark:
+                self.watermark.reset()
+                self._watermark_schema_validated = False
+
             await self._prepare_incremental_context()
 
             # Start producer and consumer tasks
@@ -312,6 +322,11 @@ class Flow:
         self.rows_written = 0
         self.batches_processed = 0
 
+        # Reset watermark state for retry
+        if self.watermark:
+            self.watermark.reset()
+            self._watermark_schema_validated = False
+
     async def _producer(
         self, queue: asyncio.Queue, producer_done: asyncio.Event
     ) -> None:
@@ -361,86 +376,6 @@ class Flow:
                 )
             async for batch in self.home.read():
                 yield batch
-
-    def _reset_watermark_tracker(self) -> None:
-        """Reset watermark aggregation state for a new run."""
-        self._watermark_candidate = None
-        self._watermark_type = None
-        self._watermark_primary_key_warned = False
-        self._watermark_column_warned = False
-
-    def _update_watermark_tracker(self, batch: pl.DataFrame) -> None:
-        """Update tracked watermark value based on a batch."""
-        if not self.watermark_config:
-            return
-
-        primary_key = self.watermark_config.get("primary_key")
-        watermark_column = self.watermark_config.get("watermark_column")
-
-        if not primary_key or not watermark_column:
-            return
-
-        if primary_key not in batch.columns and not self._watermark_primary_key_warned:
-            self.logger.warning(f"Primary key '{primary_key}' not found in data")
-            self._watermark_primary_key_warned = True
-
-        if watermark_column not in batch.columns:
-            if not self._watermark_column_warned:
-                self.logger.warning(
-                    f"Watermark column '{watermark_column}' not found in data"
-                )
-                self._watermark_column_warned = True
-            return
-
-        column_series = batch[watermark_column]
-        if column_series.is_null().all():
-            return
-
-        dtype = column_series.dtype
-        candidate_type: Optional[str] = None
-        candidate_value: Optional[Any] = None
-
-        if dtype == pl.Datetime:
-            candidate_type = "datetime"
-            candidate_value = column_series.max()
-        elif dtype in (
-            pl.Int8,
-            pl.Int16,
-            pl.Int32,
-            pl.Int64,
-            pl.UInt8,
-            pl.UInt16,
-            pl.UInt32,
-            pl.UInt64,
-        ):
-            candidate_type = "int"
-            candidate_value = int(column_series.max())
-        elif dtype == pl.Utf8:
-            candidate_type = "string"
-            candidate_value = str(column_series.max())
-        else:
-            if not self._watermark_column_warned:
-                self.logger.warning(f"Unsupported watermark type: {dtype}")
-                self._watermark_column_warned = True
-            return
-
-        if candidate_value is None:
-            return
-
-        if self._watermark_candidate is None:
-            self._watermark_candidate = candidate_value
-            self._watermark_type = candidate_type
-            return
-
-        if self._watermark_type != candidate_type:
-            self.logger.warning(
-                f"Inconsistent watermark types across batches: "
-                f"{self._watermark_type} vs {candidate_type}"
-            )
-            return
-
-        if candidate_value > self._watermark_candidate:
-            self._watermark_candidate = candidate_value
 
     async def _prepare_incremental_context(self) -> None:
         """Resolve watermark context for incremental runs."""
@@ -497,10 +432,17 @@ class Flow:
                     break
 
                 try:
+                    # Validate watermark schema on first batch (fail fast)
+                    if self.watermark and not self._watermark_schema_validated:
+                        self.watermark.validate_schema(batch.schema)
+                        self._watermark_schema_validated = True
+
                     # Write to store
                     await self.store.write(batch)
 
-                    self._update_watermark_tracker(batch)
+                    # Update watermark tracker if configured
+                    if self.watermark:
+                        self.watermark.update(batch)
 
                     # Update metrics
                     batch_rows = len(batch)
@@ -589,28 +531,13 @@ class Flow:
 
             if (
                 final_status == "success"
-                and self.watermark_config
-                and self._watermark_candidate is not None
+                and self.watermark
+                and self.watermark.get_watermark_value() is not None
             ):
                 primary_key = self.watermark_config.get("primary_key")
                 watermark_column = self.watermark_config.get("watermark_column")
-
-                if primary_key and watermark_column:
-                    watermark_type = self._watermark_type
-                    candidate = self._watermark_candidate
-
-                    if watermark_type == "datetime":
-                        watermark_value = candidate.isoformat()
-                    elif watermark_type == "int":
-                        watermark_value = str(candidate)
-                    elif watermark_type == "string":
-                        watermark_value = candidate
-                    else:
-                        self.logger.warning(
-                            "Unable to serialize watermark value "
-                            f"of type {watermark_type}"
-                        )
-                        watermark_value = None
+                watermark_type = self.watermark.get_watermark_type()
+                watermark_value = self.watermark.serialize_watermark()
 
             # Record in journal
             finish_time = datetime.now(timezone.utc)

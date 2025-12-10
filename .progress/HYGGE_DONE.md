@@ -19,3 +19,5 @@
 - 2025-11-11: Reworked the mirrored journal writer to reload the canonical `.hygge_journal/journal.parquet` snapshot (full-drop rewrite) so Fabric tables stay in sync without per-row schema drift.
 
 - 2025-11-11: Forced mirrored journal telemetry into `__hygge.schema` and emitted `_schema.json` alongside `_metadata.json` so Fabric preserves column order/types during every snapshot publish.
+
+- 2025-01-XX: **Store Interface Standardization complete** - Made store interface explicit by adding default implementations for all optional methods (`configure_for_run`, `cleanup_staging`, `reset_retry_sensitive_state`, `set_pool`). Removed fragile `hasattr()` checks in favor of direct method calls with safe defaults. Improved type safety and developer experience for store implementers. All existing stores remain fully compatible with no breaking changes. All tests passing (740 passed, 13 skipped).

@@ -78,6 +78,7 @@ hygge (pronounced "hoo-ga") is a data movement framework for solo developers/sma
 
 ### Code Standards
 - **Rails-inspired**: Convention over configuration
+- **Pythonic**: Follow Zen of Python principles and Pythonic patterns
 - **Clean separation**: Configs in `configs/` subdirectories
 - **Type safety**: Pydantic validation throughout
 - **Async patterns**: Use async/await for I/O operations
@@ -124,6 +125,67 @@ hygge (pronounced "hoo-ga") is a data movement framework for solo developers/sma
 - Look for opportunities to reuse existing methods or extract helpers
 - Question every line of code - does it need to be there?
 - Refactor during review, not after - fix issues as you find them
+
+### Pythonic Development Principles
+
+hygge code should be **Pythonic** - following Python's idioms, conventions, and philosophy. Pythonic code feels natural to Python developers and reads like well-written English.
+
+#### Core Zen of Python Principles
+
+1. **Beautiful is Better Than Ugly**: Code should be aesthetically pleasing (`flow.run()` not `FlowExecutor.execute()`)
+2. **Explicit is Better Than Implicit**: Make intentions clear (`home: path` explicitly declares source)
+3. **Simple is Better Than Complex**: Prefer straightforward solutions with smart defaults
+4. **Complex is Better Than Complicated**: Some problems require complexity, but keep it organized (Polars + PyArrow integration)
+5. **Flat is Better Than Nested**: Keep structures flat (`configs/` subdirectories, not deep nesting)
+6. **Sparse is Better Than Dense**: Use whitespace and clear formatting
+7. **Readability Counts**: Code is read more often than written (`Home`, `Store`, `Flow` are self-documenting)
+8. **Special Cases Aren't Special Enough**: Unified interfaces work for all types, not special cases
+9. **Practicality Beats Purity**: Async where needed, sync where simpler, not dogmatic
+10. **Errors Should Never Pass Silently**: Fail fast with clear messages (`HomeError`, `StoreError`, `FlowError`)
+11. **In the Face of Ambiguity, Refuse to Guess**: Pydantic validation rejects ambiguous configs
+12. **One Obvious Way**: `flow.run()` is the obvious way, not multiple execution methods
+13. **If Hard to Explain, it's a Bad Idea**: Core logic should be explainable
+14. **Namespaces are One Honking Great Idea**: `hygge.core`, `hygge.homes`, `hygge.stores` provide clear namespaces
+
+#### Pythonic Patterns for hygge
+
+- **Type Hints**: Full type hints on all public APIs and configs
+- **f-strings**: Use f-strings for all string formatting (not `.format()` or `%`)
+- **pathlib.Path**: Use `Path` objects for file paths, not string paths
+- **Context Managers**: Use `async with` for resource management (`async with home:`, `async with store:`)
+- **EAFP (Easier to Ask for Forgiveness)**: Try operations, handle specific exceptions, provide helpful messages
+- **Duck Typing**: Use protocols for interfaces (`Home`, `Store`), not `isinstance()` checks
+- **Comprehensions & Generators**: Use for transformations and streaming data batches
+- **Pydantic Models**: Use for all configuration with automatic validation
+- **Enums**: Use for constants (store types, compression options, etc.)
+- **Property Decorators**: Use `@property` for computed attributes (`flow.status`, `store.size`)
+- **Dataclasses**: Use for simple data containers, Pydantic for configs
+
+#### Pythonic Anti-Patterns to Avoid
+
+- Overusing `isinstance()` checks - use duck typing and protocols instead
+- Manual iteration with indices - use `enumerate()` or direct iteration
+- String concatenation with `+` - use f-strings or `.join()`
+- Catching bare `Exception` - catch specific exceptions
+- Using `== None` or `!= None` - use `is None` or `is not None`
+- Mutable default arguments - use `None` and assign in function body
+- Importing with `*` - use explicit imports
+- Not using context managers - always use `with` for resources
+- Premature optimization - write clear code first, optimize if needed
+- Ignoring type hints - use type hints for clarity and tooling
+
+#### Pythonic + Rails Philosophy Alignment
+
+Many Pythonic principles align beautifully with Rails philosophy:
+
+- **Beautiful code** (Python) ↔ **Exalt Beautiful Code** (Rails)
+- **Simple is better** (Python) ↔ **Convention over Configuration** (Rails)
+- **One obvious way** (Python) ↔ **The Menu is Omakase** (Rails)
+- **Readability counts** (Python) ↔ **Optimize for Programmer Happiness** (Rails)
+- **Practicality beats purity** (Python) ↔ **No One Paradigm** (Rails)
+- **Namespaces** (Python) ↔ **Value Integrated Systems** (Rails)
+
+hygge benefits from both philosophies: Pythonic clarity and Rails-inspired comfort.
 
 ### Configuration System
 - Centralized defaults in individual config classes
@@ -266,5 +328,6 @@ See [HYGGE_PROGRESS.md](.progress/HYGGE_PROGRESS.md) for detailed assessment.
   - `context.md` - Project overview, ethos, and current status
   - `development.md` - Code standards and implementation guidelines
   - `rails_philosophy.md` - Condensed Rails principles for hygge
+  - `python_philosophy.md` - Pythonic principles and patterns for hygge
 
 See the `samples/` directory for working examples and the `examples/` directory for programmatic usage.
