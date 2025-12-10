@@ -106,8 +106,8 @@ class Flow:
         self.watermark_config = watermark_config
 
         # Allow stores to adjust their strategy (truncate vs append) per run
-        if hasattr(self.store, "configure_for_run"):
-            self.store.configure_for_run(self.run_type)
+        # Default implementation is no-op, so always safe to call
+        self.store.configure_for_run(self.run_type)
 
         self.initial_watermark_info: Optional[Dict[str, Any]] = None
         self.watermark_message: Optional[str] = None

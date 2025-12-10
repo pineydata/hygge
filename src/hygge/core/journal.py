@@ -846,7 +846,7 @@ class MirroredJournalWriter:
                 return
 
             # Replace the mirrored table with the latest journal snapshot.
-            if hasattr(self.store, "configure_for_run"):
-                self.store.configure_for_run("full_drop")
+            # Default implementation is no-op, so always safe to call
+            self.store.configure_for_run("full_drop")
             await self.store.write(journal_df)
             await self.store.finish()
