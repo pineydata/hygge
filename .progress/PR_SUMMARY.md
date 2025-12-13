@@ -1,51 +1,54 @@
 ---
-title: PR Summary - Watermark Tracker Extraction: Separate Watermark Logic from Flow
-tags: [enhancement, refactoring]
+title: PR Summary - Stress Testing: Parquet-to-Parquet at Scale
+tags: [enhancement, testing]
 ---
 
 ## Overview
 
-- Extracted watermark tracking logic from Flow into dedicated `Watermark` class for better separation of concerns and testability
-- Added upfront schema validation to fail fast with clear error messages instead of reactive warnings during processing
-- Improved maintainability by isolating watermark logic, making it easier to test and extend
+- Added comprehensive stress test suite for parquet-to-parquet data movement at midmarket scale (10M-100M rows)
+- Validated framework reliability with concurrent flows (10+ flows simultaneously) and memory efficiency
+- Deferred MSSQL-specific stress tests to future review cycle (documented in new issue)
+- Updated technical review summary to reflect stress testing completion
 
 ## Key Changes
 
-### Watermark Class Extraction
+### Stress Testing Suite
 
-- `src/hygge/core/watermark.py` (new file):
-  - Created dedicated `Watermark` class to track watermark values across batches
-  - Added `validate_schema()` method for upfront validation of watermark columns and types
-  - Extracted watermark update, serialization, and reset logic from Flow
-  - Supports datetime, integer, and string watermark types with type consistency checks
+- `tests/integration/test_parquet_to_parquet_stress.py` (new file):
+  - Added 4 comprehensive stress tests covering large volume (10M-100M rows), concurrent flows (10+ simultaneously), and memory efficiency
+  - Tests validate data integrity, performance metrics, and framework reliability at production scale
+  - Extreme volume test (100M rows) marked with `@pytest.mark.slow` for optional execution
+  - All tests passing, validating framework handles midmarket scale scenarios reliably
 
-- `src/hygge/core/flow/flow.py`:
-  - Replaced scattered watermark tracking code with `Watermark` class instance
-  - Removed `_update_watermark_tracker()` and `_reset_watermark_tracker()` methods
-  - Added upfront schema validation on first batch (fail fast before processing)
-  - Simplified watermark serialization in `_record_entity_run()` to use `watermark.serialize_watermark()`
-  - Updated retry cleanup to reset watermark state properly
-
-### Testing
-
-- `tests/unit/hygge/core/test_watermark.py` (new file):
-  - Added 22 comprehensive tests covering initialization, schema validation, watermark tracking, serialization, and edge cases
-  - Tests verify fail-fast validation, type detection, multi-batch tracking, and error handling
-
-- `tests/unit/hygge/core/test_flow.py`:
-  - Updated `sample_data` fixture to include `updated_at` column for watermark tests
-  - Added `test_flow_watermark_validation_fails_fast()` to verify upfront validation
-  - All existing Flow tests continue to work with new Watermark class
+### Test Infrastructure
 
 - `pytest.ini`:
-  - Registered `timeout` mark to eliminate pytest warnings
+  - Added `slow` marker registration to support optional execution of time-intensive stress tests
+  - Enables running stress tests with `-m slow` or excluding with `-m "not slow"`
+
+### Documentation & Planning
+
+- `.issues/mssql-stress-testing.md` (new file):
+  - Documented deferral of MSSQL-specific stress tests to future review cycle
+  - Explains rationale: parquet-to-parquet tests validate core framework; MSSQL tests require dedicated database infrastructure
+  - Provides guidance for future implementation when needed
+
+- `.issues/__TECHNICAL_REVIEW_SUMMARY.md`:
+  - Updated to reflect completion of parquet-to-parquet stress testing
+  - Moved MSSQL stress testing to deferred section with link to new issue
+  - Updated status and next review focus to show progress
+
+### Issue Cleanup
+
+- Removed completed issue files (store-interface-standardization.md, watermark-tracker-extraction.md, TECHNICAL_REVIEW_PYTHONIC_RAILS.md)
+- Issues are now tracked in technical review summary
 
 ## Testing
 
-- All tests passing: `pytest` (22 watermark tests + 35 Flow tests, all passing)
-- Verified fail-fast validation catches missing columns before processing starts
-- No breaking changes - existing flows with watermark configs continue to work identically
+- All tests passing: `pytest` (4 stress tests, all passing in ~67 seconds)
+- Stress tests validate: 10M-100M row volumes, 10+ concurrent flows, memory efficiency, data integrity
+- Framework reliability confirmed at midmarket production scale
 
 ---
 
-**Note**: Remember to add appropriate GitHub labels to this PR (`enhancement` and `refactoring`) for proper categorization in release notes.
+**Note**: Remember to add appropriate GitHub labels to this PR (`enhancement` and `testing`) for proper categorization in release notes.

@@ -1,0 +1,39 @@
+name: Stress Tests
+
+on:
+  workflow_dispatch:  # Allow manual triggering
+  push:
+    branches: [ main ]
+    paths:
+      - 'tests/integration/test_parquet_to_parquet_stress.py'
+      - 'src/hygge/core/flow/**'
+      - 'src/hygge/core/store/**'
+      - 'src/hygge/homes/**'
+      - 'src/hygge/stores/**'
+
+jobs:
+  stress-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60  # Allow up to 60 minutes for stress tests
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        uv venv
+        uv pip install -e ".[dev,all]"
+
+    - name: Run stress tests
+      run: |
+        uv run pytest tests/integration/test_parquet_to_parquet_stress.py -v -m "slow"

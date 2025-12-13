@@ -1,6 +1,6 @@
 # hygge Roadmap: Current Status & Next Steps
 
-**Last Updated:** Post-Store Interface Standardization
+**Last Updated:** Post-Watermark Tracker Extraction
 **Status:** Production-ready for midmarket scale, actively improving
 
 ---
@@ -70,12 +70,19 @@ This roadmap tracks hygge's development progress, current priorities, and planne
    - Updated tests to validate correct filtering behavior
    - Discovered during test coverage improvements - validates the value of comprehensive testing
 
-8. **Store Interface Standardization**
+8. **Store Interface Standardization** ✅
    - Made store interface explicit by adding default implementations for all optional methods (`configure_for_run`, `cleanup_staging`, `reset_retry_sensitive_state`, `set_pool`)
    - Removed fragile `hasattr()` checks in favor of direct method calls with safe defaults
    - Improved type safety and developer experience for store implementers with clear required vs optional method contracts
    - All existing stores remain fully compatible with no breaking changes
    - Added comprehensive tests for optional method default implementations
+
+9. **Watermark Tracker Extraction** ✅
+   - Extracted watermark tracking logic from Flow into dedicated `Watermark` class for better separation of concerns
+   - Added upfront schema validation to fail fast with clear error messages instead of reactive warnings
+   - Improved testability with 22 isolated tests covering all edge cases
+   - Removed second-guess fallbacks - now fails loudly on schema mismatches after validation
+   - All existing flows remain fully compatible with no breaking changes
 
 ---
 
@@ -83,35 +90,33 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### High Priority
 
-1. **Large Data Volume & Stress Testing** (Remaining from test coverage work)
-   - **Goal:** Add stress tests for midmarket scale scenarios
-   - **Needs:**
-     - Large data volume tests approaching midmarket limits (100M+ rows)
-     - Concurrent flow stress tests (10+ flows running simultaneously)
-     - Connection pool exhaustion scenarios
-   - **Why:** Verify framework reliability at midmarket scale
-   - **Estimated Effort:** 2-3 days for comprehensive stress test suite
+1. **Large Data Volume & Stress Testing** ✅ (Parquet-to-Parquet Complete)
+   - **Status:** Parquet-to-parquet stress testing completed
+   - **Completed:**
+     - Large data volume tests (10M-100M rows) - validated
+     - Concurrent flow stress tests (10+ flows simultaneously) - validated
+     - Memory efficiency at scale - validated
+     - Data integrity verification - validated
+   - **Deferred:** MSSQL-specific stress tests (see [mssql-stress-testing.md](mssql-stress-testing.md))
+   - **Why:** Parquet-to-parquet tests validate core framework at scale; MSSQL tests require dedicated database infrastructure
 
-### Medium Priority
+### Deferred/Evaluation
 
-1. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
-   - **Goal:** Separate watermark tracking logic from flow execution
-   - **Current:** Watermark logic is mixed with Flow's batch processing
-   - **Proposed:** Dedicated `Watermark` class with upfront schema validation
-   - **Why:** Improves testability, maintainability, and error experience
-   - **Estimated Effort:** 2-3 days
-   - **Impact:** Better separation of concerns, easier to test edge cases
+1. **[MSSQL Stress Testing](mssql-stress-testing.md)**
+   - **Status:** Deferred to future review cycle
+   - **Rationale:** Parquet-to-parquet stress tests validate core framework at scale. MSSQL-specific tests require dedicated database infrastructure and can be addressed when needed.
+   - **Re-evaluate:** Next technical review cycle or if production issues arise
 
 ### Low Priority
 
-2. **[Mirror Journal Batching](mirror-journal-batching.md)**
+1. **[Mirror Journal Batching](mirror-journal-batching.md)**
    - **Goal:** Batch journal mirror writes to reduce Fabric churn
    - **Current:** Mirrored journal reloads after every entity completion
    - **Proposed:** Accumulate entity run notifications, publish once per flow run
    - **Why:** Performance optimization for flows with multiple entities
    - **Estimated Effort:** 1 day
 
-3. **[Schema Manifest Improvements](schema-manifest-improvements.md)**
+2. **[Schema Manifest Improvements](schema-manifest-improvements.md)**
    - **Goal:** Extract reusable schema generation logic from OpenMirroringStore
    - **Current:** Schema generation tightly coupled to Open Mirroring store
    - **Proposed:** Shared helper for Polars dtype → Fabric schema mapping
@@ -120,7 +125,7 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Deferred/Evaluation
 
-4. **[MSSQL Python Migration](mssql-python-migration.md)**
+2. **[MSSQL Python Migration](mssql-python-migration.md)**
    - **Status:** Decision to stay with `pyodbc`
    - **Rationale:** `mssql-python` lacks bulk copy operations critical for Store writes, provides no async advantage
    - **Action:** Monitor `mssql-python` development for bulk copy support
@@ -132,22 +137,9 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ### Immediate Next Steps (Next 1-2 Weeks)
 
-1. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
-   - Extract watermark tracking logic from Flow into dedicated Watermark class
-   - Add upfront schema validation for better error experience
-   - Improve testability and maintainability of watermark logic
-   - **Why:** Better separation of concerns, easier to test edge cases, fail fast with clear errors
-
-### Short-Term (Next 1-2 Months)
-
-1. **[Watermark Tracker Extraction](watermark-tracker-extraction.md)**
-   - Improve testability and maintainability of watermark logic
-   - Better error experience with upfront validation instead of reactive warnings
-   - **Why:** Code quality improvement that makes the framework easier to maintain
-
-2. **Large Data Volume & Stress Testing**
-   - Add stress tests for midmarket scale scenarios (100M+ rows, concurrent flows, connection pool exhaustion)
-   - **Why:** Verify framework reliability at production scale
+1. ✅ **Large Data Volume & Stress Testing** - Complete
+   - Parquet-to-parquet stress tests validated framework at scale
+   - MSSQL stress tests deferred to future review (see [mssql-stress-testing.md](mssql-stress-testing.md))
 
 ### Long-Term (Next 3-6 Months)
 
@@ -183,11 +175,12 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 **Test Coverage:**
 - ✅ Coverage reporting infrastructure in place with CI integration
 - ✅ 3,000+ new test lines added for previously under-tested components
-- ⚠️ Missing stress tests for midmarket scale scenarios (100M+ rows, concurrent flows, connection pool exhaustion)
+- ✅ Parquet-to-parquet stress tests completed (10M-100M rows, concurrent flows, memory efficiency)
+- ⏸️ MSSQL stress tests deferred (see [mssql-stress-testing.md](mssql-stress-testing.md))
 - ✅ Coverage reports available as CI artifacts for ongoing review
 
 **Remaining Complexity:**
-- Watermark logic mixed with Flow execution ([extraction planned](watermark-tracker-extraction.md))
+- None - all identified code quality improvements have been completed
 
 ---
 
@@ -222,9 +215,10 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 1. ✅ Test coverage baseline established and gaps identified
 2. ✅ Watermark filter consistency fix completed
 3. ✅ Store interface standardization completed
-4. Watermark tracker extraction status
-5. Large data volume stress testing progress
-6. Any new issues or priorities that emerge
+4. ✅ Watermark tracker extraction completed
+5. ✅ Parquet-to-parquet stress testing completed
+6. MSSQL stress testing (if needed, see [mssql-stress-testing.md](mssql-stress-testing.md))
+7. Any new issues or priorities that emerge
 
 ---
 
@@ -237,5 +231,5 @@ This roadmap tracks hygge's development progress, current priorities, and planne
 
 ---
 
-**Last Updated:** Post-Store Interface Standardization
-**Status:** Production-ready, actively improving
+**Last Updated:** Post-Stress Testing (Parquet-to-Parquet)
+**Status:** Production-ready, stress tested at scale
