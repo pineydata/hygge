@@ -495,8 +495,8 @@ class TestOpenMirroringStoreErrorHandling:
         assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Float64) == "double"
         assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Datetime) == "datetime"
         assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Date) == "datetime"
-        # Unknown type defaults to string
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Boolean) == "string"
+        # Boolean is now mapped explicitly instead of falling back to string
+        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Boolean) == "boolean"
 
     @pytest.mark.asyncio
     async def test_write_handles_table_folder_preparation(self):

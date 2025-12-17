@@ -772,6 +772,9 @@ class TestOpenMirroringStoreSchemaManifest:
         assert column_map["row_count"] == "long"
         assert column_map["duration"] == "double"
 
+        # All schema entries should be marked nullable in the manifest for safety
+        assert all(col.get("nullable") is True for col in schema_payload["columns"])
+
     @pytest.mark.asyncio
     async def test_write_schema_json_to_tmp(self):
         """Test writing schema JSON to _tmp in full_drop mode."""
@@ -829,30 +832,6 @@ class TestOpenMirroringStoreSchemaManifest:
             await store._write_schema_json(to_tmp=True)
 
         assert "LandingZone" in str(exc_info.value)
-
-    def test_map_polars_dtype_to_fabric(self):
-        """Test Polars dtype to Fabric type mapping."""
-        from hygge.stores.openmirroring.store import OpenMirroringStore
-
-        # Test string types
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Utf8) == "string"
-
-        # Test integer types
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Int8) == "long"
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Int64) == "long"
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.UInt32) == "long"
-
-        # Test float types
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Float32) == "double"
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Float64) == "double"
-
-        # Test datetime types
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Datetime) == "datetime"
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Date) == "datetime"
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Time) == "datetime"
-
-        # Test unknown type defaults to string
-        assert OpenMirroringStore._map_polars_dtype_to_fabric(pl.Boolean) == "string"
 
 
 class TestOpenMirroringStoreFullDropAtomicOperations:
