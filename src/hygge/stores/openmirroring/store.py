@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 import polars as pl
 from pydantic import Field, field_validator, model_validator
 
+from hygge.core.journal import Journal
 from hygge.core.polish import PolishConfig, Polisher
 from hygge.stores.onelake import OneLakeStore, OneLakeStoreConfig
 from hygge.utility.azure_onelake import ADLSOperations
@@ -837,8 +838,6 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         Write `_schema.json` file describing column order/types so Fabric mirrors
         the journal parquet without relying on inference.
         """
-        from hygge.core.journal import Journal
-
         # Use shared helper so other Fabric destinations can reuse the same
         # Polars → Fabric mapping without copy/paste.
         schema_columns = build_fabric_schema_columns(Journal.JOURNAL_SCHEMA)

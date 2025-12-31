@@ -21,9 +21,12 @@ Design goals:
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Iterable, List, Mapping
 
 import polars as pl
+
+logger = logging.getLogger(__name__)
 
 
 def map_polars_dtype_to_fabric(dtype: pl.DataType) -> str:
@@ -82,6 +85,9 @@ def map_polars_dtype_to_fabric(dtype: pl.DataType) -> str:
     # previous behaviour and is the safest cross-engine representation.
     # This also covers pl.Null and pl.Object, which frequently show up in
     # "all null" or mixed-type columns.
+    logger.debug(
+        f"Unknown Polars dtype {dtype}, falling back to 'string' for Fabric schema"
+    )
     return "string"
 
 
