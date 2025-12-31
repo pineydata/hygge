@@ -229,6 +229,12 @@ class Flow:
                 status="success", message=self.watermark_message
             )
 
+            # Publish mirrored journal snapshot after successful entity completion
+            # This batches entity runs within a flow, but publishes once per
+            # successful entity
+            if self.journal:
+                await self.journal.publish_mirror()
+
         except FlowConnectionError:
             # Transient connection error - will be retried, preserve exception
             raise

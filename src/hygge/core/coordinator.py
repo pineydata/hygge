@@ -508,6 +508,10 @@ class Coordinator:
         # This ensures the summary is always shown, even when flows fail
         self.summary.generate_summary(self.flow_results, self.run_start_time)
 
+        # Note: Mirror publishing happens per successful entity in Flow._execute_flow()
+        # No coordinator-level publish needed - each successful entity publishes
+        # its own snapshot
+
         # Check for failed flows based on continue_on_error setting
         # Since _run_flow no longer re-raises, we check flow_results instead
         failed_flows = [r for r in self.flow_results if r.get("status") == "fail"]
