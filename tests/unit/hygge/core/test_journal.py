@@ -766,3 +766,144 @@ class TestJournalAggregations:
 
         assert summary["n_flows"] == 0
         assert summary["n_entities"] == 0
+
+
+class TestMirroredJournalBatching:
+    """Test suite for mirrored journal batching behavior."""
+
+    @pytest.mark.asyncio
+    async def test_mirrored_journal_batches_appends(self, journal, monkeypatch):
+        """Test that mirrored journal batches multiple append() calls into a
+        single publish().
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from hygge.core.journal import MirroredJournalWriter
+
+        # Create a mock store
+        mock_store = MagicMock()
+        mock_store.configure_for_run = MagicMock()
+        mock_store.write = AsyncMock()
+        mock_store.finish = AsyncMock()
+
+        # Create MirroredJournalWriter and attach to journal
+        mirror_writer = MirroredJournalWriter(mock_store, journal)
+        journal._mirror_sink = mirror_writer
+
+        # Record multiple entity runs (this calls append() multiple times)
+        start_time = datetime.now(timezone.utc)
+        finish_time = datetime.now(timezone.utc)
+
+        for i in range(3):
+            await journal.record_entity_run(
+                coordinator_run_id=generate_run_id(
+                    ["test_coordinator", start_time.isoformat()]
+                ),
+                flow_run_id=generate_run_id(
+                    ["test_coordinator", "users_flow", start_time.isoformat()]
+                ),
+                coordinator="test_coordinator",
+                flow="users_flow",
+                entity=f"users_{i}",
+                start_time=start_time,
+                finish_time=finish_time,
+                status="success",
+                run_type="full_drop",
+                row_count=100,
+                duration=5.0,
+            )
+
+        # Verify append() was called but publish() was not yet called
+        # (append() just sets dirty flag, doesn't actually write)
+        assert mirror_writer._dirty is True
+        mock_store.write.assert_not_called()
+        mock_store.finish.assert_not_called()
+
+        # Now publish the mirror
+        await journal.publish_mirror()
+
+        # Verify publish() was called exactly once with the full journal snapshot
+        assert mock_store.write.call_count == 1
+        assert mock_store.finish.call_count == 1
+        assert mirror_writer._dirty is False
+
+        # Verify the written data contains all 3 entity runs
+        written_df = mock_store.write.call_args[0][0]
+        assert len(written_df) == 3
+        assert set(written_df["entity"].to_list()) == {"users_0", "users_1", "users_2"}
+
+    @pytest.mark.asyncio
+    async def test_mirrored_journal_publish_idempotent(self, journal, monkeypatch):
+        """Test that publish() is idempotent - doesn't publish again if not dirty."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from hygge.core.journal import MirroredJournalWriter
+
+        # Create a mock store
+        mock_store = MagicMock()
+        mock_store.configure_for_run = MagicMock()
+        mock_store.write = AsyncMock()
+        mock_store.finish = AsyncMock()
+
+        # Create MirroredJournalWriter and attach to journal
+        mirror_writer = MirroredJournalWriter(mock_store, journal)
+        journal._mirror_sink = mirror_writer
+
+        # Record one entity run
+        start_time = datetime.now(timezone.utc)
+        finish_time = datetime.now(timezone.utc)
+        await journal.record_entity_run(
+            coordinator_run_id=generate_run_id(
+                ["test_coordinator", start_time.isoformat()]
+            ),
+            flow_run_id=generate_run_id(
+                ["test_coordinator", "users_flow", start_time.isoformat()]
+            ),
+            coordinator="test_coordinator",
+            flow="users_flow",
+            entity="users",
+            start_time=start_time,
+            finish_time=finish_time,
+            status="success",
+            run_type="full_drop",
+            row_count=100,
+            duration=5.0,
+        )
+
+        # Publish once
+        await journal.publish_mirror()
+        assert mock_store.write.call_count == 1
+        assert mock_store.finish.call_count == 1
+        assert mirror_writer._dirty is False
+
+        # Publish again (should be no-op since not dirty)
+        await journal.publish_mirror()
+        assert mock_store.write.call_count == 1  # Still 1, not 2
+        assert mock_store.finish.call_count == 1  # Still 1, not 2
+
+    @pytest.mark.asyncio
+    async def test_mirrored_journal_publish_empty_journal(self, journal, monkeypatch):
+        """Test that publish() handles empty journal gracefully."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from hygge.core.journal import MirroredJournalWriter
+
+        # Create a mock store
+        mock_store = MagicMock()
+        mock_store.configure_for_run = MagicMock()
+        mock_store.write = AsyncMock()
+        mock_store.finish = AsyncMock()
+
+        # Create MirroredJournalWriter
+        mirror_writer = MirroredJournalWriter(mock_store, journal)
+
+        # Mark as dirty without any journal entries
+        mirror_writer._dirty = True
+
+        # Publish should handle empty journal gracefully
+        await mirror_writer.publish()
+
+        # Should not write anything
+        mock_store.write.assert_not_called()
+        mock_store.finish.assert_not_called()
+        assert mirror_writer._dirty is False

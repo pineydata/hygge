@@ -84,6 +84,10 @@ class StubJournal:
         self.records.append(kwargs)
         return "entity_run_id"
 
+    async def publish_mirror(self) -> None:
+        """Stub method for mirror publishing - no-op for tests."""
+        pass
+
 
 class MockStore(Store):
     """Mock Store for testing Flow orchestration."""

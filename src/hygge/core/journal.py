@@ -532,6 +532,7 @@ class Journal:
                 await self._append_remote_journal(new_row_df)
 
             if self._mirror_sink:
+                # Mark mirror as dirty (deferred publish)
                 await self._mirror_sink.append(new_row_df)
 
         self.logger.debug(
@@ -540,6 +541,20 @@ class Journal:
         )  # noqa: E501
 
         return entity_run_id
+
+    async def publish_mirror(self) -> None:
+        """
+        Publish the mirrored journal snapshot to Fabric.
+
+        This method should be called after all entity runs in a flow (or
+        coordinator run) have completed, allowing multiple entity runs to be
+        batched into a single mirror update. This reduces churn in the landing
+        zone and avoids transient empty snapshots.
+
+        Safe to call even if mirroring is not enabled (no-op in that case).
+        """
+        if self._mirror_sink:
+            await self._mirror_sink.publish()
 
     def _append_local_journal(self, new_row_df: pl.DataFrame) -> None:
         """
@@ -823,30 +838,61 @@ class MirroredJournalWriter:
         self.store = store
         self._journal = journal
         self._lock = asyncio.Lock()
+        self._dirty = False  # Flag to track if mirror needs to be published
 
     async def append(self, _df: pl.DataFrame) -> None:
         """
-        Synchronize the mirrored table with the canonical journal parquet.
+        Mark the mirror as dirty when an entity run is recorded.
 
-        Instead of streaming individual rows (which led to schema inference issues
-        inside Fabric), we reload the authoritative parquet and publish it as a full
-        drop so the mirrored table exactly matches `.hygge_journal/journal.parquet`.
+        The actual mirror publish is deferred until publish() is called,
+        allowing multiple entity runs to be batched into a single mirror update.
 
         Args:
             _df: Unused parameter kept for API compatibility. The actual data is
-                read from the canonical journal parquet file, not from this parameter.
+                read from the canonical journal parquet file during publish(),
+                not from this parameter.
         """
-
         async with self._lock:
+            self._dirty = True
+
+    async def publish(self) -> None:
+        """
+        Publish the mirrored table with the canonical journal parquet snapshot.
+
+        This method performs the actual mirror operation, reloading the authoritative
+        parquet and publishing it as a full drop so the mirrored table exactly matches
+        `.hygge_journal/journal.parquet`. Only publishes if the mirror is dirty.
+
+        This batching approach reduces churn in the landing zone for flows with
+        multiple entities, avoiding transient empty snapshots in Fabric.
+        """
+        async with self._lock:
+            # Only publish if dirty
+            if not self._dirty:
+                return
+
             journal_df = await self._journal._read_journal_df()
             if journal_df is None or len(journal_df) == 0:
                 self._journal.logger.debug(
                     "Journal is empty or missing; skipping mirror update"
                 )
+                self._dirty = False
                 return
 
-            # Replace the mirrored table with the latest journal snapshot.
-            # Default implementation is no-op, so always safe to call
-            self.store.configure_for_run("full_drop")
-            await self.store.write(journal_df)
-            await self.store.finish()
+            try:
+                # Replace the mirrored table with the latest journal snapshot.
+                # Default implementation is no-op, so always safe to call
+                self.store.configure_for_run("full_drop")
+                await self.store.write(journal_df)
+                await self.store.finish()
+
+                # Clear dirty flag only after successful publish
+                self._dirty = False
+                self._journal.logger.info("Mirrored journal refreshed")
+            except Exception as e:
+                # Keep dirty flag set so we retry on next publish() call
+                self._journal.logger.error(
+                    f"Failed to publish mirrored journal: {e}. "
+                    "Will retry on next publish attempt."
+                )
+                raise
