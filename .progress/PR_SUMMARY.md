@@ -1,54 +1,56 @@
 ---
-title: PR Summary - Stress Testing: Parquet-to-Parquet at Scale
+title: PR Summary - Fabric Schema Helper & Open Mirroring Manifest
 tags: [enhancement, testing]
 ---
 
 ## Overview
 
-- Added comprehensive stress test suite for parquet-to-parquet data movement at midmarket scale (10M-100M rows)
-- Validated framework reliability with concurrent flows (10+ flows simultaneously) and memory efficiency
-- Deferred MSSQL-specific stress tests to future review cycle (documented in new issue)
-- Updated technical review summary to reflect stress testing completion
+- Introduced a shared Fabric schema helper that maps Polars dtypes (including decimals and booleans) into lightweight `_schema.json` entries, centralizing manifest logic.
+- Updated Open Mirroring's mirrored journal `_schema.json` generation to use the shared helper and explicitly mark columns nullable, reducing Fabric schema drift and making behaviour predictable.
+- Added focused unit coverage around the new helper and Open Mirroring schema manifests, and updated progress docs to record the Schema Manifest Improvements work.
 
 ## Key Changes
 
-### Stress Testing Suite
+### Fabric Schema Helper
 
-- `tests/integration/test_parquet_to_parquet_stress.py` (new file):
-  - Added 4 comprehensive stress tests covering large volume (10M-100M rows), concurrent flows (10+ simultaneously), and memory efficiency
-  - Tests validate data integrity, performance metrics, and framework reliability at production scale
-  - Extreme volume test (100M rows) marked with `@pytest.mark.slow` for optional execution
-  - All tests passing, validating framework handles midmarket scale scenarios reliably
+- `src/hygge/utility/fabric_schema.py`:
+  - Added `map_polars_dtype_to_fabric` and `build_fabric_schema_columns` to translate Polars dtypes into Fabric-compatible logical types.
+  - Extended mapping beyond the original journal use case to cover decimals, booleans, null/mixed columns, and to attach optional precision/scale metadata for decimal types.
+  - Always marks columns as `nullable=True` in manifest output to avoid brittle non-null declarations that conflict with real-world NULLs.
 
-### Test Infrastructure
+### Open Mirroring Store
 
-- `pytest.ini`:
-  - Added `slow` marker registration to support optional execution of time-intensive stress tests
-  - Enables running stress tests with `-m slow` or excluding with `-m "not slow"`
+- `src/hygge/stores/openmirroring/store.py`:
+  - Reworked `_write_schema_json` to call `build_fabric_schema_columns(Journal.JOURNAL_SCHEMA)`, so mirrored journal manifests share the same Polars → Fabric mapping used elsewhere.
+  - Kept `_map_polars_dtype_to_fabric` as a backwards-compatible wrapper that now delegates to the shared helper, preserving the store API while consolidating mapping behaviour.
+  - Ensured mirrored journal `_schema.json` now includes explicit `nullable` flags (and richer type information for decimals/booleans), reducing the chance Fabric misinterprets types or drops nullability when ingesting snapshots.
 
-### Documentation & Planning
+### Tests
 
-- `.issues/mssql-stress-testing.md` (new file):
-  - Documented deferral of MSSQL-specific stress tests to future review cycle
-  - Explains rationale: parquet-to-parquet tests validate core framework; MSSQL tests require dedicated database infrastructure
-  - Provides guidance for future implementation when needed
+- `tests/unit/hygge/utility/test_fabric_schema.py`:
+  - New unit suite covering the helper's dtype mapping for strings, integers, floats, temporal types, decimals, booleans, and edge cases like `pl.Null` / `pl.Object`.
+  - Verifies that schema column descriptors are correctly shaped and always marked nullable, and that decimals surface precision/scale when available.
 
-- `.issues/__TECHNICAL_REVIEW_SUMMARY.md`:
-  - Updated to reflect completion of parquet-to-parquet stress testing
-  - Moved MSSQL stress testing to deferred section with link to new issue
-  - Updated status and next review focus to show progress
+- `tests/unit/hygge/stores/test_openmirroring_store.py`:
+  - Extended schema manifest tests to assert mirrored journal manifests still include all `Journal.JOURNAL_SCHEMA` columns with expected logical types.
+  - Added checks that every manifest column is marked `nullable=True`, matching the conservative, comfort-first behaviour of the helper.
 
-### Issue Cleanup
+- `tests/unit/hygge/stores/test_openmirroring_store_coverage.py`:
+  - Updated coverage test for `_map_polars_dtype_to_fabric` to expect booleans to map to `"boolean"` rather than falling back to `"string"`, aligning coverage with the shared helper.
 
-- Removed completed issue files (store-interface-standardization.md, watermark-tracker-extraction.md, TECHNICAL_REVIEW_PYTHONIC_RAILS.md)
-- Issues are now tracked in technical review summary
+### Progress Documentation
+
+- `.progress/HYGGE_PROGRESS.md`:
+  - Marked Schema Manifest Improvements as complete and documented the introduction of the shared Fabric schema helper and reuse from Open Mirroring.
+
+- `.progress/HYGGE_DONE.md`:
+  - Added an entry describing the schema manifest work, including the new helper, expanded type support, and wiring through the Open Mirroring journal mirror.
 
 ## Testing
 
-- All tests passing: `pytest` (4 stress tests, all passing in ~67 seconds)
-- Stress tests validate: 10M-100M row volumes, 10+ concurrent flows, memory efficiency, data integrity
-- Framework reliability confirmed at midmarket production scale
+- Last local run: `pytest` (790 tests collected; initial failure in an Open Mirroring coverage test due to the updated boolean mapping has been resolved by aligning the expectation with the new helper behaviour).
+- Please re-run `pytest` on this branch to confirm all tests are now green before merging the PR.
 
 ---
 
-**Note**: Remember to add appropriate GitHub labels to this PR (`enhancement` and `testing`) for proper categorization in release notes.
+**Note**: Remember to add appropriate GitHub labels to this PR (e.g., `enhancement` and `testing`) for proper categorization in release notes.

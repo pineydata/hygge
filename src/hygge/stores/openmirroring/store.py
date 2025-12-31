@@ -20,10 +20,15 @@ from typing import Any, Dict, List, Optional
 import polars as pl
 from pydantic import Field, field_validator, model_validator
 
+from hygge.core.journal import Journal
 from hygge.core.polish import PolishConfig, Polisher
 from hygge.stores.onelake import OneLakeStore, OneLakeStoreConfig
 from hygge.utility.azure_onelake import ADLSOperations
 from hygge.utility.exceptions import StoreError
+from hygge.utility.fabric_schema import (
+    build_fabric_schema_columns,
+    map_polars_dtype_to_fabric,
+)
 from hygge.utility.path_helper import PathHelper
 
 
@@ -833,17 +838,9 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         Write `_schema.json` file describing column order/types so Fabric mirrors
         the journal parquet without relying on inference.
         """
-        from hygge.core.journal import Journal
-
-        schema_columns = []
-        for column_name, dtype in Journal.JOURNAL_SCHEMA.items():
-            schema_columns.append(
-                {
-                    "name": column_name,
-                    "type": self._map_polars_dtype_to_fabric(dtype),
-                }
-            )
-
+        # Use shared helper so other Fabric destinations can reuse the same
+        # Polars → Fabric mapping without copy/paste.
+        schema_columns = build_fabric_schema_columns(Journal.JOURNAL_SCHEMA)
         schema_payload = {"columns": schema_columns}
 
         if to_tmp:
@@ -884,26 +881,15 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
     @staticmethod
     def _map_polars_dtype_to_fabric(dtype) -> str:
-        """Map Polars dtype to Fabric-compatible type names."""
-        if dtype in {pl.Utf8}:
-            return "string"
-        integer_types = {
-            pl.Int8,
-            pl.Int16,
-            pl.Int32,
-            pl.Int64,
-            pl.UInt8,
-            pl.UInt16,
-            pl.UInt32,
-            pl.UInt64,
-        }
-        if dtype in integer_types:
-            return "long"
-        if dtype in {pl.Float32, pl.Float64}:
-            return "double"
-        if dtype in {pl.Datetime, pl.Date, pl.Time}:
-            return "datetime"
-        return "string"
+        """
+        Backwards-compatible wrapper around the shared Polars → Fabric
+        mapping helper.
+
+        Kept for compatibility with existing callers/tests; delegates to
+        ``hygge.utility.fabric_schema.map_polars_dtype_to_fabric`` so the
+        mapping logic lives in a single place.
+        """
+        return map_polars_dtype_to_fabric(dtype)
 
     async def _write_partner_events_json(self, to_tmp: bool = False) -> None:
         """

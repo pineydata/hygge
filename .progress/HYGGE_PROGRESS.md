@@ -11,6 +11,7 @@
 - Remote journal storage now auto-resolves to ADLS/OneLake with mirrored-table opt-in for Open Mirroring flows; Fabric directory creation guardrails updated to coexist with Mounted Relational Database policies.
 - Mirrored journal sync now rewrites the Fabric table from the canonical `.hygge_journal/journal.parquet` snapshot instead of streaming per-row appends, eliminating schema drift.
 - Schema manifest now ships with the mirrored journal and we force publication into `__hygge.schema`, so Fabric column alignment stays predictable and telemetry doesn't mix with business tables.
+- **Schema Manifest Improvements complete**: Extracted a reusable Polars → Fabric schema helper (`hygge.utility.fabric_schema`), extended type coverage (decimals, booleans, null/mixed columns), and wired Open Mirroring’s journal `_schema.json` generation through the shared helper for future reuse.
 
 ## Upcoming
 
@@ -18,4 +19,3 @@
 - Large Data Volume & Stress Testing: Add stress tests for midmarket scale scenarios (100M+ rows, concurrent flows, connection pool exhaustion).
 - Extend incremental watermark support to other homes (Parquet, ADLS, etc.) to make the pattern universal.
 - Mirror Journal Batching: Batch journal mirror writes to reduce Fabric churn for flows with multiple entities.
-- Schema Manifest Improvements: Extract reusable schema generation logic from OpenMirroringStore for code reuse.
