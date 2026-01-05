@@ -25,6 +25,12 @@ hygge is built on **Polars with PyArrow backend** for optimal data movement perf
 
 We chose Polars because it provides the best balance of performance, developer experience, and compatibility for extract-and-load workflows.
 
+### Standing on Cozy Shoulders
+
+hygge wraps proven community tools rather than reinventing them. For Salesforce, we use `simple-salesforce`. For cloud storage, we use the official SDKs (`boto3`, `google-cloud-storage`, `azure-storage`). For databases, we use mature drivers like `pyodbc` and `duckdb`.
+
+This means you get battle-tested reliability where it matters most, wrapped in hygge's comfortable patterns.
+
 ## Quick Start
 
 Get started with hygge in three simple steps. We'll walk you through each one.
@@ -431,10 +437,6 @@ hygge go
 ```
 
 hygge automatically handles all the cozy details - metadata files, schema manifests, and atomic operations - so your data feels right at home in Fabric.
-
-## Programmatic Usage
-
-For programmatic usage, see the `examples/` directory. hygge uses a workspace pattern with `hygge.yml` and a `flows/` directory structure - all flows are defined in `flows/<flow_name>/flow.yml` files.
 
 ## Extensibility
 

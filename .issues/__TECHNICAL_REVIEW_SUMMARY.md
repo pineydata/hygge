@@ -1,235 +1,374 @@
-# hygge Roadmap: Current Status & Next Steps
+# hygge Technical Review: December 2025
 
-**Last Updated:** Post-Watermark Tracker Extraction
-**Status:** Production-ready for midmarket scale, actively improving
-
----
-
-## Overview
-
-This roadmap tracks hygge's development progress, current priorities, and planned improvements. hygge is a cozy, comfortable data movement framework designed for solo developers and small teams working at midmarket regional org scale.
-
-**Current State:**
-- Core architecture is clean and production-ready
-- 3,000+ new test lines added, comprehensive coverage reporting in place
-- Clear separation of concerns across all components
-- Exception handling provides clear, actionable error messages
-- Polisher feature enables lightweight data finishing
-- Test coverage visibility established with CI integration
+**Review Date:** December 31, 2025
+**Reviewer Perspective:** Principal Data Engineer / Product Manager / Designer
+**Scale Context:** Midmarket regional org (millions to low billions of rows)
 
 ---
 
-## Completed Work ✅
+## Executive Summary
 
-### Major Architectural Improvements
+hygge is a well-designed data movement framework with a clear philosophy and clean architecture. The codebase demonstrates thoughtful design decisions aligned with its "comfort over complexity" philosophy. The framework is **production-ready for midmarket scale** with 793 tests providing good coverage.
 
-1. **Flow Creation Extraction**
-   - FlowFactory successfully extracts all flow creation logic from Coordinator
-   - Coordinator's `_create_flows()` reduced from ~300 lines to ~50 lines
-   - Clean separation of concerns: FlowFactory handles creation, Coordinator handles orchestration
-   - Production-ready with excellent testability and maintainability
-
-2. **Entity Configuration Lifecycle**
-   - Clear separation between flow templates (FlowConfig) and configured instances (Entity)
-   - Single point of entity expansion in Workspace eliminates scattered logic
-   - Lenient validation allows incomplete flow configs that are completed by entity overrides
-   - Resolved validation timing issues that blocked Open Mirroring stores with entity-level `key_columns`
-   - Architecture is simpler and more maintainable
-
-3. **Error Handling Standardization**
-   - Exception chaining preserves full stack traces for production debugging
-   - Specific exception types (FlowError, HomeError, StoreError, JournalError) enable precise error handling
-   - SQLSTATE-based connection error detection replaces brittle string matching
-   - Critical for troubleshooting production issues at 2am in midmarket orgs
-
-4. **Coordinator Simplification**
-   - Workspace handles all configuration discovery and loading
-   - Progress tracking and summary generation extracted to dedicated messaging utilities
-   - Coordinator is now a pure orchestrator focused on flow execution
-   - Significantly reduced complexity while maintaining all functionality
-
-5. **Polisher Transform**
-   - Lightweight last-mile data finishing before writes to stores
-   - Column normalization (remove special chars, PascalCase, space removal)
-   - Deterministic row-level hash ID generation from multiple columns
-   - Generic constant columns and load timestamps
-   - Integrated seamlessly into all store types with Open Mirroring compatibility
-
-6. **Test Coverage Infrastructure**
-   - Comprehensive test coverage reporting with pytest-cov configuration
-   - CI integration generates HTML, XML, and term-missing coverage reports
-   - Added 3,000+ lines of new tests for Journal, MSSQL Home, ADLS Store, OpenMirroring Store, and Azure OneLake utilities
-   - Coverage reporting focuses on source code while excluding test files and common patterns
-   - Visibility into coverage gaps enables targeted test improvements
-   - Coverage reports available as CI artifacts for ongoing review
-
-7. **Watermark Filter Consistency Fix**
-   - Fixed integer watermark filtering to always use `watermark_column` for WHERE clauses
-   - Removed incorrect `primary_key` preference logic that caused issues with composite keys, non-integer primary keys, and non-sequential primary keys
-   - Made behavior consistent across all watermark types (datetime, string, int)
-   - Updated tests to validate correct filtering behavior
-   - Discovered during test coverage improvements - validates the value of comprehensive testing
-
-8. **Store Interface Standardization** ✅
-   - Made store interface explicit by adding default implementations for all optional methods (`configure_for_run`, `cleanup_staging`, `reset_retry_sensitive_state`, `set_pool`)
-   - Removed fragile `hasattr()` checks in favor of direct method calls with safe defaults
-   - Improved type safety and developer experience for store implementers with clear required vs optional method contracts
-   - All existing stores remain fully compatible with no breaking changes
-   - Added comprehensive tests for optional method default implementations
-
-9. **Watermark Tracker Extraction** ✅
-   - Extracted watermark tracking logic from Flow into dedicated `Watermark` class for better separation of concerns
-   - Added upfront schema validation to fail fast with clear error messages instead of reactive warnings
-   - Improved testability with 22 isolated tests covering all edge cases
-   - Removed second-guess fallbacks - now fails loudly on schema mismatches after validation
-   - All existing flows remain fully compatible with no breaking changes
+**Overall Assessment: APPROVE** ✅
 
 ---
 
-## Active Issues 🔄
+## Architecture Overview
 
-### High Priority
+### Component Structure
 
-1. **Large Data Volume & Stress Testing** ✅ (Parquet-to-Parquet Complete)
-   - **Status:** Parquet-to-parquet stress testing completed
-   - **Completed:**
-     - Large data volume tests (10M-100M rows) - validated
-     - Concurrent flow stress tests (10+ flows simultaneously) - validated
-     - Memory efficiency at scale - validated
-     - Data integrity verification - validated
-   - **Deferred:** MSSQL-specific stress tests (see [mssql-stress-testing.md](mssql-stress-testing.md))
-   - **Why:** Parquet-to-parquet tests validate core framework at scale; MSSQL tests require dedicated database infrastructure
+```
+hygge/
+├── core/                  # Core orchestration
+│   ├── coordinator.py     # Orchestrates parallel flow execution
+│   ├── workspace.py       # Project discovery and config loading
+│   ├── flow/              # Flow package (config, entity, factory, flow)
+│   ├── home.py            # Abstract data source interface
+│   ├── store.py           # Abstract data destination interface
+│   ├── journal.py         # Execution metadata tracking
+│   ├── watermark.py       # Incremental load tracking
+│   └── polish.py          # Last-mile data transforms
+├── homes/                 # Data source implementations
+│   ├── parquet/           # Parquet file home
+│   └── mssql/             # SQL Server home
+├── stores/                # Data destination implementations
+│   ├── parquet/           # Parquet file store
+│   ├── adls/              # Azure Data Lake store
+│   ├── onelake/           # OneLake store
+│   ├── openmirroring/     # Microsoft Fabric Open Mirroring
+│   ├── mssql/             # SQL Server store
+│   └── sqlite/            # SQLite store
+├── connections/           # Database connection management
+├── messages/              # Logging and progress tracking
+└── utility/               # Shared utilities
+```
 
-### Deferred/Evaluation
+### Data Flow Architecture
 
-1. **[MSSQL Stress Testing](mssql-stress-testing.md)**
-   - **Status:** Deferred to future review cycle
-   - **Rationale:** Parquet-to-parquet stress tests validate core framework at scale. MSSQL-specific tests require dedicated database infrastructure and can be addressed when needed.
-   - **Re-evaluate:** Next technical review cycle or if production issues arise
+```
+hygge.yml → Workspace → Coordinator → FlowFactory → Flow(s)
+                                            ↓
+                               Home → [batches] → Store
+                                            ↓
+                                       Journal
+```
 
-### Low Priority
+---
 
-1. **[Mirror Journal Batching](mirror-journal-batching.md)**
-   - **Goal:** Batch journal mirror writes to reduce Fabric churn
-   - **Current:** Mirrored journal reloads after every entity completion
-   - **Proposed:** Accumulate entity run notifications, publish once per flow run
-   - **Why:** Performance optimization for flows with multiple entities
-   - **Estimated Effort:** 1 day
+## Strengths
 
-2. **[Schema Manifest Improvements](schema-manifest-improvements.md)**
-   - **Goal:** Extract reusable schema generation logic from OpenMirroringStore
-   - **Current:** Schema generation tightly coupled to Open Mirroring store
-   - **Proposed:** Shared helper for Polars dtype → Fabric schema mapping
-   - **Why:** Enables other Fabric destinations to reuse schema generation
-   - **Estimated Effort:** 1 day
+### 1. CLI-First Design
 
-### Deferred/Evaluation
+**The CLI (`hygge go`) is the primary interface.** Users interact through YAML configs, not code. Internal classes (Flow, FlowFactory, Coordinator) are implementation details, not a public API. This keeps the user experience simple and focused.
 
-2. **[MSSQL Python Migration](mssql-python-migration.md)**
-   - **Status:** Decision to stay with `pyodbc`
-   - **Rationale:** `mssql-python` lacks bulk copy operations critical for Store writes, provides no async advantage
-   - **Action:** Monitor `mssql-python` development for bulk copy support
-   - **Re-evaluate:** 12-24 months if bulk operations are added
+### 2. Clear Philosophy Embedded in Code
+
+The "comfort over complexity" philosophy is consistently applied:
+
+- **Convention over configuration**: Parquet is the default type, smart defaults everywhere
+- **Clear naming**: Home (source) / Store (destination) / Flow (movement) are intuitive
+- **Fail-fast with helpful messages**: Validation errors tell you what's wrong and how to fix it
+
+### 3. Registry Pattern for Extensibility
+
+The Home/Store registry pattern is elegant:
+
+```python
+class ParquetStore(Store, store_type="parquet"):
+    ...
+
+# Usage: Home.create("name", config) automatically selects the right implementation
+```
+
+This makes adding new homes/stores straightforward and discoverable.
+
+### 4. Clean Separation of Concerns
+
+The architecture has clear boundaries:
+
+- **Workspace** handles config discovery and entity expansion (single responsibility)
+- **Coordinator** handles flow orchestration and parallelism (pure orchestrator)
+- **FlowFactory** handles flow construction and wiring (factory pattern)
+- **Flow** handles data movement with producer-consumer pattern
+- **Journal** handles execution metadata separately from flow execution
+
+### 5. Entity Pattern for Multi-Table Flows
+
+The Entity concept elegantly handles the common case of 10-200+ tables:
+
+```yaml
+flows:
+  salesforce:
+    entities:
+      - Account
+      - Contact
+      - Opportunity
+```
+
+Each entity becomes a separate flow with merged configuration - pragmatic for midmarket needs.
+
+### 6. Producer-Consumer Pattern with Backpressure
+
+The Flow class uses async queues with bounded size for natural backpressure:
+
+```python
+queue = asyncio.Queue(maxsize=self.queue_size)  # Default: 10
+```
+
+This prevents memory issues with fast producers / slow consumers.
+
+### 7. Exception Hierarchy with Proper Chaining
+
+The exception design supports both precise error handling and debugging:
+
+```python
+raise FlowExecutionError(f"Flow failed: {self.name}") from e  # Preserves stack trace
+```
+
+Connection errors, read errors, and write errors are distinguished for retry logic.
+
+### 8. Store Interface with Optional Methods
+
+The store interface is well-designed with clear required vs optional methods:
+
+```python
+# Required (abstract)
+async def _save(self, data, path) -> None
+
+# Optional (default no-op implementations)
+def configure_for_run(self, run_type) -> None
+async def cleanup_staging(self) -> None
+async def reset_retry_sensitive_state(self) -> None
+def set_pool(self, pool) -> None
+```
+
+---
+
+## Areas for Improvement
+
+### 1. Flow Package Complexity
+
+The `flow/` package has grown to 4 modules with interconnected responsibilities:
+
+```
+flow/
+├── config.py    # 278 lines - FlowConfig with validation
+├── entity.py    # 84 lines - Entity model
+├── factory.py   # 564 lines - FlowFactory with creation logic
+└── flow.py      # 582 lines - Flow with execution logic
+```
+
+**Concern:** `factory.py` at 564 lines is doing a lot - creating instances, injecting dependencies, validating alignment, merging configs. Consider whether some of this belongs elsewhere.
+
+**Recommendation:** Monitor for growth. If factory exceeds 700 lines, consider extracting validation and alignment checking into dedicated helpers.
+
+### 2. Type Safety Gaps
+
+Several places use `Any` where more specific types would help:
+
+```python
+def __init__(self, name: str, home: Home, store: Any, ...):  # store should be Store
+```
+
+```python
+store: Optional[Any] = None,  # In Journal
+store_config: Optional[Any] = None,  # Throughout
+```
+
+**Impact:** IDE autocomplete is limited, type checking misses potential issues.
+
+**Recommendation:** Add `Store` protocol or use existing base class consistently.
+
+### 3. Configuration Validation Timing
+
+FlowConfig uses "lenient" validation (structure only) because entity configs complete later:
+
+```python
+# Don't validate completeness - that happens when FlowInstance is created
+```
+
+This deferred validation is pragmatic but could lead to confusing errors if misconfigured.
+
+**Recommendation:** Consider adding a `validate_complete()` method that can be called explicitly when full validation is desired.
+
+### 4. Journal Path Resolution Complexity
+
+The journal supports multiple storage backends with complex path resolution:
+
+```python
+def _configure_storage(self, store, store_config, store_path, home_path, home_config):
+    if self.config.path:
+        self._setup_local_storage(Path(self.config.path))
+    elif location == "store":
+        if self._store_supports_remote_journal(store_config):
+            self._setup_remote_storage(store, store_config)
+        else:
+            self._setup_local_storage(...)
+    elif location == "home":
+        ...
+```
+
+**Concern:** This handles many scenarios but is getting dense (40+ lines).
+
+**Recommendation:** Consider extracting a `JournalStorageResolver` class if this grows further.
+
+### 5. SQLite Store Test Failures
+
+Six SQLite store tests fail with async event loop errors:
+
+```
+RuntimeError: Event loop is closed
+```
+
+**Impact:** Test infrastructure issue, not production bug, but failing tests erode confidence.
+
+**Recommendation:** Fix the pytest-asyncio fixture scoping. See [sqlite-store-tests.md](sqlite-store-tests.md).
+
+---
+
+## Design Decisions Worth Preserving
+
+### 1. Polars + PyArrow Commitment
+
+The commitment to Polars is wise:
+
+- Single data representation throughout the pipeline
+- Efficient columnar operations
+- Good database connectivity via `read_database()`
+- Clean API that fits hygge's philosophy
+
+**Preserve:** Don't add pandas as an alternative - keep the stack focused.
+
+### 2. Workspace Pattern
+
+The workspace pattern (hygge.yml + flows/ directory) is Rails-inspired and works well:
+
+```
+my-project/
+├── hygge.yml           # Project config
+└── flows/
+    └── my_flow/
+        ├── flow.yml    # Flow config
+        └── entities/   # Entity configs
+```
+
+**Preserve:** This convention-over-configuration approach scales well for midmarket.
+
+### 3. CLI-First Philosophy
+
+The CLI (`hygge go`, `hygge debug`) is the primary interface, with programmatic usage secondary:
+
+```bash
+hygge go --flow users --incremental
+```
+
+**Preserve:** Keep CLI as the comfortable default, don't over-engineer programmatic APIs.
+
+### 4. Batched Processing with Progress
+
+The consistent batching (default 100K rows) with progress logging feels natural:
+
+```
+09:15:32 [users_flow] WROTE 300,000 rows
+```
+
+**Preserve:** This cadence (configurable via `row_multiplier`) works well for observability.
+
+---
+
+## Potential Technical Debt
+
+### Low Severity
+
+1. **String-based type checking in some places**
+   ```python
+   if store_config.type == "open_mirroring":
+   ```
+   Consider using enums or constants for type strings.
+
+2. **`hasattr()` usage in a few places**
+   Most removed, but some remain in edge cases. Complete the transition.
+
+3. **Date placeholders in HYGGE_DONE.md**
+   Some entries have `2025-XX-XX` - normalize for consistency.
+
+### Medium Severity
+
+1. **Flow constructor requires entity_name**
+   This enforces FlowFactory usage, which is good, but may surprise users wanting simple programmatic flows. Document clearly.
+
+2. **Open Mirroring store at 1300+ lines**
+   The spec complexity is real, but the file has refactoring opportunities: duplicate JSON write patterns, monolithic `finish()` method, scattered atomic operation logic. See [openmirroring-refactor.md](openmirroring-refactor.md).
 
 ---
 
 ## Roadmap Priorities
 
-### Immediate Next Steps (Next 1-2 Weeks)
+### Immediate (Fix Before Shipping)
 
-1. ✅ **Large Data Volume & Stress Testing** - Complete
-   - Parquet-to-parquet stress tests validated framework at scale
-   - MSSQL stress tests deferred to future review (see [mssql-stress-testing.md](mssql-stress-testing.md))
+1. **Fix SQLite store tests** - Async event loop handling
+2. **Document FlowFactory** - Make canonical creation path clear
 
-### Long-Term (Next 3-6 Months)
+### Short-Term (Next Month)
 
-1. **Small Improvements** (As Needed)
-   - [Mirror Journal Batching](mirror-journal-batching.md) for performance
-   - [Schema Manifest Improvements](schema-manifest-improvements.md) for code reuse
-   - **Why:** Incremental improvements that enhance the framework
+1. **Type hints improvement** - Add Store protocol, reduce `Any` usage
+2. **Flow package review** - Monitor factory.py growth
+
+### Long-Term (Quarterly)
+
+1. **Watermark support for other homes** - Extend beyond MSSQL
+2. **Schema evolution handling** - How to handle source schema changes
+3. **MSSQL stress testing** - When dedicated test infrastructure available
 
 ---
 
-## Architecture Status
+## Test Coverage Assessment
 
-### Current Architecture ✅
+- **793 tests collected**
+- **774 passed, 6 failed, 13 skipped**
+- **Failure rate: 0.76%** (all in SQLite store, infrastructure issue)
 
-**Clean Separation of Concerns:**
-- **Workspace:** Discovers configuration, expands entities from templates
-- **Coordinator:** Pure orchestrator that runs flows in parallel
-- **FlowFactory:** Creates flows from entities with proper wiring
-- **Flow:** Orchestrates data movement with producer-consumer pattern
-- **Store/Home:** Handle data I/O with Polars DataFrames
+**Coverage areas:**
+- ✅ Unit tests for all core components
+- ✅ Integration tests for parquet-to-parquet at scale
+- ✅ Journal, watermark, and polisher thoroughly tested
+- ⚠️ SQLite store tests need fixture fixes
+- ⏸️ MSSQL stress tests deferred (requires database)
+
+---
+
+## Conclusion
+
+hygge is a well-architected framework that successfully embodies its "comfort over complexity" philosophy. The codebase is clean, the patterns are consistent, and the design decisions are pragmatic for midmarket scale.
 
 **Key Strengths:**
-- Clear responsibilities make the codebase easy to understand
-- Testable components enable confident refactoring
-- Production-ready for midmarket scale data volumes
-- Appropriate complexity - not over-engineered for the use case
+- Clear philosophy consistently applied
+- Clean separation of concerns
+- Extensible registry pattern
+- Production-ready for midmarket volumes
+- Good test coverage
 
-### Areas for Improvement
+**Key Concerns:**
+- Minor test infrastructure issue (SQLite)
+- Type safety could be improved
+- Some modules growing large (factory.py, openmirroring store)
 
-**Code Quality:**
-- All identified code quality improvements have been completed
-
-**Test Coverage:**
-- ✅ Coverage reporting infrastructure in place with CI integration
-- ✅ 3,000+ new test lines added for previously under-tested components
-- ✅ Parquet-to-parquet stress tests completed (10M-100M rows, concurrent flows, memory efficiency)
-- ⏸️ MSSQL stress tests deferred (see [mssql-stress-testing.md](mssql-stress-testing.md))
-- ✅ Coverage reports available as CI artifacts for ongoing review
-
-**Remaining Complexity:**
-- None - all identified code quality improvements have been completed
+**Verdict:** The framework is ready for production use. The identified issues are minor and don't block deployment. Continue iterating with hygge's philosophy of "progress over perfection."
 
 ---
 
-## Success Metrics
+## Active Issues
 
-### Code Quality
-- 3,000+ new test lines added, comprehensive coverage reporting in place
-- Clear architecture with well-defined separation of concerns
-- Exception handling provides actionable error messages
-- ✅ Test coverage visibility established with CI integration
-- Coverage reports identify gaps and guide targeted improvements
-
-### Production Readiness
-- Handles midmarket org data volumes reliably (millions to low billions of rows)
-- Appropriate error handling and retry mechanisms for transient failures
-- Data integrity preserved through failures with atomic operations
-- Proper logging and observability for production troubleshooting
-
-### Developer Experience
-- Simple, intuitive APIs that feel natural to use
-- Smart defaults enable minimal configuration
-- Clear error messages guide users to solutions
-- Type safety improvements (planned)
+| Priority | Issue | Status |
+|----------|-------|--------|
+| 🔴 High | [SQLite Store Tests](sqlite-store-tests.md) | 6 tests failing |
+| 🟡 Medium | [FlowFactory Documentation](flowfactory-documentation.md) | Needs clarity |
+| 🟢 Low | [Store Type Hints](store-type-hints.md) | Enhancement |
+| ⏸️ Deferred | [MSSQL Stress Testing](mssql-stress-testing.md) | Needs infrastructure |
+| ⏸️ Deferred | [MSSQL Python Migration](mssql-python-migration.md) | Stay with pyodbc |
 
 ---
 
-## Next Review
-
-**Recommended Review Cycle:** Quarterly
-
-**Next Review Focus:**
-1. ✅ Test coverage baseline established and gaps identified
-2. ✅ Watermark filter consistency fix completed
-3. ✅ Store interface standardization completed
-4. ✅ Watermark tracker extraction completed
-5. ✅ Parquet-to-parquet stress testing completed
-6. MSSQL stress testing (if needed, see [mssql-stress-testing.md](mssql-stress-testing.md))
-7. Any new issues or priorities that emerge
-
----
-
-## Notes
-
-- **Scale Context:** Midmarket regional org (millions to low billions of rows, not trillions)
-- **Philosophy:** Comfort over complexity, reliability over speed, clarity over cleverness
-- **Testing:** Test immediately after functionality, focus on behavior that matters
-- **Breaking Changes:** Maintain backward compatibility unless explicitly discussed
-
----
-
-**Last Updated:** Post-Stress Testing (Parquet-to-Parquet)
-**Status:** Production-ready, stress tested at scale
+**Last Updated:** December 31, 2025
+**Next Review:** Q1 2026
