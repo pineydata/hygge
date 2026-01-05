@@ -10,11 +10,75 @@ A cozy, comfortable data movement framework that makes data feel at home.
 
 hygge (pronounced "hoo-ga") is a data movement framework for solo developers/small teams. **Not a commercial product** - focus on comfort over enterprise rigor.
 
+### User Interface: CLI First
+
+**The CLI (`hygge go`) is the primary interface.** Users interact with hygge through:
+1. YAML configuration files (`hygge.yml`, `flow.yml`, entity configs)
+2. Command line: `hygge init`, `hygge go`, `hygge debug`
+
+**Programmatic usage is possible but discouraged.** The internal classes (Flow, FlowFactory, Coordinator) are implementation details, not a public API. Don't design features assuming programmatic usage - if it doesn't improve the CLI experience, it's probably not needed.
+
 ### Core Architecture
 - **Home**: Data source (parquet files, SQL databases)
 - **Store**: Data destination (parquet files, cloud storage)
 - **Flow**: Single data movement from Home to Store
 - **Coordinator**: Manages multiple flows from YAML config
+
+### Polars is Home
+
+**All data flows through Polars DataFrames.** This is hygge's warm center – a firm commitment, not a suggestion.
+
+The architecture has clear boundaries:
+
+```
+Source Format → [Home] → Polars DataFrame → [Flow] → Polars DataFrame → [Store] → Destination Format
+```
+
+**Homes** are responsible for getting data *into* Polars:
+- Whatever the source format (CSV, JSON, database cursors, API responses)
+- The Home produces Polars DataFrames
+- All format conversion complexity lives here
+
+**Stores** are responsible for getting data *out of* Polars:
+- Whatever the destination needs (parquet files, database tables, cloud storage)
+- The Store consumes Polars DataFrames
+- All format conversion complexity lives here
+
+**Flows** never think about formats:
+- They just move Polars DataFrames from Home to Store
+- The conversion complexity stays at the edges, where it belongs
+- Flows handle batching, progress, retries – not data formats
+
+**When building a new Home or Store:**
+- Find the most performant path to/from Polars
+- Keep format-specific logic contained in the Home/Store
+- The rest of hygge should never need to know about the source/destination format
+
+### Stand on Cozy Shoulders
+
+**Use proven community tools first.** Don't rebuild what others have made warm.
+
+| Domain | Community Tool | Why |
+|--------|---------------|-----|
+| Salesforce API | `simple-salesforce` | Battle-tested, handles OAuth complexity |
+| GCP | `google-cloud-*` libraries | Google's official SDKs |
+| AWS | `boto3` / `s3fs` | The standard |
+| Azure | `azure-storage-*` / `azure-identity` | Microsoft's official SDKs |
+| DuckDB | `duckdb` | The database *is* the library |
+| SQL Server | `pyodbc` | Mature, bulk operations |
+
+**When to build custom:**
+- Community tool doesn't exist
+- Community tool is abandoned/unmaintained
+- Performance requirements exceed what's available
+- Integration complexity exceeds wrapper benefits
+
+**Default posture:** Wrap proven tools in hygge's comfortable patterns. Don't rewrite them.
+
+**When integrating a library:**
+1. Find the most performant path to Polars (Arrow preferred, then CSV, avoid dict/JSON)
+2. Keep the library interaction in the Home/Store implementation
+3. Document the integration pattern for future reference
 
 ## Philosophy & Principles
 
