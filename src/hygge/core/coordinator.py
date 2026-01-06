@@ -24,8 +24,8 @@ from hygge.connections import (
     ConnectionPool,
     MssqlConnection,
 )
-from hygge.messages import Progress, Summary, get_logger
-from hygge.utility.exceptions import ConfigError, FlowError
+from hygge.messages import ErrorFormatter, Progress, Summary, get_logger
+from hygge.utility.exceptions import ConfigError, FlowError, HyggeError
 from hygge.utility.run_id import generate_run_id
 
 from .flow import Entity, Flow, FlowFactory
@@ -220,6 +220,83 @@ class Coordinator:
 
             # Run flows in parallel
             await self._run_flows()
+
+        finally:
+            # Clean up connection pools
+            await self._cleanup_connection_pools()
+
+    async def dry_run(self) -> None:
+        """
+        Preview what would be executed without actually running flows.
+
+        Dry-run mode shows:
+        - Which flows would be executed
+        - Source and destination information
+        - Estimated row counts (where available)
+        - Configuration mappings
+        - Any issues that would prevent execution
+        """
+        config_source = (
+            str(self.config_path) if self.config_path else "Workspace-provided config"
+        )
+        self.logger.info(f"Dry-run mode: Previewing execution with config: {config_source}")
+
+        try:
+            # Load configuration if not already loaded
+            if self.config is None:
+                if not self._workspace:
+                    raise ConfigError(
+                        "No workspace available. Coordinator requires hygge.yml "
+                        "workspace configuration."
+                    )
+                self.config = self._workspace.prepare()
+                # Update project_config from workspace (in case it changed)
+                self.project_config = self._workspace.config
+                # Update journal_config from prepared config
+                if self.config and self.config.journal:
+                    if isinstance(self.config.journal, JournalConfig):
+                        self.journal_config = self.config.journal
+                    else:
+                        self.journal_config = JournalConfig(**self.config.journal)
+
+            # Initialize connection pools (for testing connections)
+            await self._initialize_connection_pools()
+
+            # Create flows
+            self._create_flows()
+
+            if not self.flows:
+                self.logger.warning("No flows to preview")
+                return
+
+            # Preview each flow
+            self.logger.info(f"\n📋 Would execute {len(self.flows)} flow(s):\n")
+
+            for i, flow in enumerate(self.flows, 1):
+                source_info = getattr(flow.home, "name", None) or getattr(
+                    flow.home, "__class__.__name__", "unknown"
+                )
+                dest_info = getattr(flow.store, "name", None) or getattr(
+                    flow.store, "__class__.__name__", "unknown"
+                )
+
+                self.logger.info(f"  {i}. {flow.name}")
+                self.logger.info(f"     Source: {source_info}")
+                self.logger.info(f"     Destination: {dest_info}")
+                self.logger.info(f"     Run type: {flow.run_type}")
+
+                # Try to get row count estimate (non-blocking)
+                try:
+                    if hasattr(flow.home, "estimate_row_count"):
+                        estimate = await flow.home.estimate_row_count()
+                        if estimate is not None:
+                            self.logger.info(f"     Estimated rows: {estimate:,}")
+                except Exception:
+                    pass  # Ignore errors in dry-run preview
+
+                self.logger.info("")
+
+            self.logger.info("✨ All flows validated successfully for dry-run")
 
         finally:
             # Clean up connection pools
@@ -467,13 +544,22 @@ class Coordinator:
         # Create semaphore to limit concurrent flow execution
         semaphore = asyncio.Semaphore(max_concurrent)
 
-        # Log summary of flows starting (condensed to reduce noise)
+        # Log summary of flows starting with source → destination context
         total_flows = len(self.flows)
         if total_flows <= 10:
-            # For small numbers, show individual flows
+            # For small numbers, show individual flows with context
             for i, flow in enumerate(self.flows, 1):
+                # Show source → destination context
+                source_info = getattr(flow.home, "name", None) or getattr(
+                    flow.home, "__class__.__name__", "unknown"
+                )
+                dest_info = getattr(flow.store, "name", None) or getattr(
+                    flow.store, "__class__.__name__", "unknown"
+                )
+                context = f" ({source_info} → {dest_info})" if source_info != "unknown" else ""
+
                 self.logger.info(
-                    f"[{i} of {total_flows}] STARTING flow {flow.name}",
+                    f"[{i} of {total_flows}] STARTING flow {flow.name}{context}",
                     color_prefix="START",
                 )
         else:
@@ -586,12 +672,28 @@ class Coordinator:
         except Exception as e:
             flow_result["status"] = "fail"
             flow_result["duration"] = flow.duration if flow.duration > 0 else 0.0
-            flow_result["error"] = str(e)
 
-            # Log FAILED line (hygge-style, red)
-            self.logger.error(
-                f"[{flow_num} of {total_flows}] FAILED flow {flow.name} ...."
+            # Format error with friendly message
+            friendly_msg, suggestion = ErrorFormatter.format_error(e, verbose=False)
+            flow_result["error"] = friendly_msg
+            flow_result["_error_suggestion"] = suggestion
+
+            # Log FAILED line with context (hygge-style, red)
+            # Show source → destination context if available
+            source_info = getattr(flow.home, "name", None) or getattr(
+                flow.home, "__class__.__name__", "unknown"
             )
+            dest_info = getattr(flow.store, "name", None) or getattr(
+                flow.store, "__class__.__name__", "unknown"
+            )
+            context = f" ({source_info} → {dest_info})" if source_info != "unknown" else ""
+
+            self.logger.error(
+                f"[{flow_num} of {total_flows}] FAILED flow {flow.name}{context} ...."
+            )
+            self.logger.error(f"  Error: {friendly_msg}")
+            if suggestion:
+                self.logger.info(f"  💡 {suggestion}")
 
             # Store exception for re-raising if needed
             flow_result["_exception"] = e

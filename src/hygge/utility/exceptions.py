@@ -1,5 +1,7 @@
 """
 Custom exceptions for hygge - clear, actionable error handling.
+"""
+from typing import Optional
 
 hygge uses a hierarchical exception system that makes error handling
 comfortable and reliable. Exceptions are designed to be clear and actionable,
@@ -41,7 +43,20 @@ Usage Guidelines:
 class HyggeError(Exception):
     """Base exception for all hygge errors."""
 
-    pass
+    def __init__(
+        self, message: str, friendly_message: Optional[str] = None, suggestion: Optional[str] = None
+    ):
+        """
+        Initialize HyggeError.
+
+        Args:
+            message: Technical error message
+            friendly_message: User-friendly error message (defaults to message)
+            suggestion: Optional suggestion for how to fix the issue
+        """
+        super().__init__(message)
+        self.friendly_message = friendly_message or message
+        self.suggestion = suggestion
 
 
 class FlowError(HyggeError):
@@ -83,8 +98,8 @@ class HomeReadError(HomeError):
 class StoreError(HyggeError):
     """Base exception for store-related errors."""
 
-    def __init__(self, message: str, **kwargs):
-        super().__init__(message)
+    def __init__(self, message: str, friendly_message: Optional[str] = None, suggestion: Optional[str] = None, **kwargs):
+        super().__init__(message, friendly_message=friendly_message, suggestion=suggestion)
         self.context = kwargs
 
 

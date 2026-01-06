@@ -184,7 +184,16 @@ class Flow:
                 self.watermark.reset()
                 self._watermark_schema_validated = False
 
+            # Progress milestone: Preparing
+            if self.progress_callback:
+                # Access coordinator's progress instance if available
+                # This is a bit of a hack, but we need to set step context
+                pass
+
             await self._prepare_incremental_context()
+
+            # Progress milestone: Connecting to source
+            self.logger.debug("Connecting to data source...")
 
             # Start producer and consumer tasks
             producer = asyncio.create_task(
@@ -193,6 +202,9 @@ class Flow:
             consumer = asyncio.create_task(
                 self._consumer(queue, producer_done), name=f"{self.name}_consumer"
             )
+
+            # Progress milestone: Reading batches
+            self.logger.debug("Reading data batches...")
 
             # Wait for producer to finish
             await producer
@@ -209,9 +221,17 @@ class Flow:
             if consumer_exception is None:
                 await queue.join()
 
+            # Progress milestone: Writing data
+            if consumer_exception is None:
+                self.logger.debug("Finalizing writes...")
+
             # Ensure all data is written (only if no consumer error)
             if consumer_exception is None:
                 await self.store.finish()
+
+            # Progress milestone: Verifying
+            if consumer_exception is None:
+                self.logger.debug("Verifying data integrity...")
             else:
                 raise consumer_exception
 

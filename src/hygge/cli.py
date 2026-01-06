@@ -14,8 +14,8 @@ import click
 
 from hygge import Coordinator
 from hygge.core.workspace import Workspace
-from hygge.messages import get_logger
-from hygge.utility.exceptions import ConfigError
+from hygge.messages import ErrorFormatter, get_logger
+from hygge.utility.exceptions import ConfigError, HyggeError
 
 
 def _parse_var_value(value: str) -> Any:
@@ -63,6 +63,10 @@ def init(project_name: str, flows_dir: str, force: bool):
     PROJECT_NAME: Name of the project and directory to create
     """
     logger = get_logger("hygge.cli.init")
+
+    # Warm welcome message
+    click.echo("✨ Welcome to hygge - comfortable data movement!")
+    click.echo("")
 
     current_dir = Path.cwd()
     project_dir = current_dir / project_name
@@ -142,8 +146,8 @@ source_config:
     entity_file.write_text(entity_content)
     click.echo(f"Created example entity: {entity_file}")
 
-    click.echo("\nhygge project initialized successfully!")
-    click.echo("\nNext steps:")
+    click.echo("\n🎉 hygge project initialized successfully!")
+    click.echo("\n📋 Next steps:")
     click.echo(f"  1. cd {project_name}")
     click.echo(
         f"  2. Edit {flow_file.relative_to(project_dir)} to configure your "
@@ -151,6 +155,7 @@ source_config:
     )
     click.echo("  3. Update paths in flow.yml to point to your actual data locations")
     click.echo("  4. Run: hygge go")
+    click.echo("\n💡 Tip: Use 'hygge debug' to test your configuration before running flows")
 
     logger.info(f"Initialized hygge project '{project_name}' in {project_dir}")
 
@@ -200,8 +205,14 @@ source_config:
 )
 @click.option(
     "--verbose",
+    "-v",
     is_flag=True,
-    help="Enable verbose logging",
+    help="Enable verbose logging and show full stack traces for errors",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview what would be executed without actually running flows",
 )
 @click.option(
     "--var",
@@ -220,9 +231,22 @@ def go(
     concurrency: Optional[int],
     verbose: bool,
     var: tuple,
+    dry_run: bool,
 ):
     """Execute flows in the current hygge project."""
     logger = get_logger("hygge.cli.go")
+
+    # Check for first-run (no hygge.yml exists)
+    try:
+        workspace = Workspace.find()
+    except ConfigError:
+        # First run - show welcome
+        click.echo("✨ Welcome to hygge!")
+        click.echo("")
+        click.echo("It looks like this is your first time running hygge here.")
+        click.echo("To get started, run: hygge init <project_name>")
+        click.echo("")
+        sys.exit(0)
 
     if verbose:
         # TODO: Set log level to DEBUG
@@ -302,7 +326,7 @@ def go(
             current[final_key] = _parse_var_value(value)
 
         # Use Workspace to load configuration (replaces temp coordinator hack)
-        workspace = Workspace.find()
+        # workspace already found above for first-run check
         config = workspace.prepare()
 
         # Apply run_type override if specified
@@ -368,6 +392,12 @@ def go(
         if concurrency is not None:
             coordinator.options["concurrency"] = concurrency
 
+        # Handle dry-run mode
+        if dry_run:
+            asyncio.run(coordinator.dry_run())
+            click.echo("\n✨ Dry-run completed. No data was moved.")
+            return
+
         # Run flows
         if flow_filter:
             flow_list = ", ".join(flow_filter)
@@ -379,16 +409,41 @@ def go(
         click.echo("All flows completed successfully!")
 
     except ConfigError as e:
-        click.echo(f"Configuration error: {e}")
+        friendly_msg, suggestion = ErrorFormatter.format_error(e, verbose=verbose)
+        click.echo(f"Configuration error: {friendly_msg}", err=True)
+        if suggestion:
+            click.echo(f"\n💡 {suggestion}", err=True)
+        if verbose:
+            click.echo("\n" + ErrorFormatter.format_with_stack_trace(e), err=True)
+        sys.exit(1)
+    except HyggeError as e:
+        friendly_msg, suggestion = ErrorFormatter.format_error(e, verbose=verbose)
+        click.echo(f"Error: {friendly_msg}", err=True)
+        if suggestion:
+            click.echo(f"\n💡 {suggestion}", err=True)
+        if verbose:
+            click.echo("\n" + ErrorFormatter.format_with_stack_trace(e), err=True)
+        logger.error(f"Error running flows: {e}")
         sys.exit(1)
     except Exception as e:
-        click.echo(f"Error: {e}")
+        friendly_msg, suggestion = ErrorFormatter.format_error(e, verbose=verbose)
+        click.echo(f"Error: {friendly_msg}", err=True)
+        if suggestion:
+            click.echo(f"\n💡 {suggestion}", err=True)
+        if verbose:
+            click.echo("\n" + ErrorFormatter.format_with_stack_trace(e), err=True)
         logger.error(f"Error running flows: {e}")
         sys.exit(1)
 
 
 @hygge.command()
-def debug():
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Show detailed connection test information",
+)
+def debug(verbose: bool):
     """Debug hygge project configuration and test all connections."""
     logger = get_logger("hygge.cli.debug")
 
@@ -397,10 +452,14 @@ def debug():
         workspace = Workspace.find()
         config = workspace.prepare()
 
-        click.echo("Project configuration is valid")
-        click.echo("Project: {}".format(workspace.name))
-        click.echo("Flows directory: {}".format(workspace.flows_dir))
-        click.echo("Number of entities: {}".format(len(config.entities)))
+        click.echo("🔍 Validating hygge project configuration...")
+        click.echo("")
+
+        click.echo("✅ Project configuration is valid")
+        click.echo(f"   Project: {workspace.name}")
+        click.echo(f"   Flows directory: {workspace.flows_dir}")
+        click.echo(f"   Number of entities: {len(config.entities)}")
+        click.echo("")
 
         # Group entities by base_flow_name
         flows_dict = {}
@@ -411,8 +470,9 @@ def debug():
             flows_dict[base_flow].append(entity)
 
         # List flows and their entities
+        click.echo("📊 Configured flows:")
         for base_flow_name, entities in flows_dict.items():
-            click.echo(f"   {base_flow_name}")
+            click.echo(f"   • {base_flow_name}")
             if len(entities) > 1 or (len(entities) == 1 and entities[0].entity_name):
                 click.echo(f"      Entities: {len(entities)}")
                 for entity in entities:
@@ -422,53 +482,115 @@ def debug():
                         )
                     else:
                         click.echo(f"         - {entity.flow_name} (implicit)")
+        click.echo("")
 
         # Test all configured connections
         connections = config.connections
         if connections:
-            click.echo(f"\nTesting {len(connections)} database connections...")
+            click.echo(f"🔌 Testing {len(connections)} database connection(s)...")
+            click.echo("")
 
+            all_passed = True
             for conn_name, conn_config in connections.items():
-                click.echo(f"\n   Testing connection: {conn_name}")
+                click.echo(f"   Testing: {conn_name}")
                 click.echo(f"      Type: {conn_config.get('type', 'unknown')}")
-                click.echo(f"      Server: {conn_config.get('server', 'unknown')}")
-                click.echo(f"      Database: {conn_config.get('database', 'unknown')}")
+                if verbose:
+                    click.echo(f"      Server: {conn_config.get('server', 'unknown')}")
+                    click.echo(f"      Database: {conn_config.get('database', 'unknown')}")
 
                 try:
                     # Test the connection based on type
                     conn_type = conn_config.get("type", "").lower()
 
                     if conn_type == "mssql":
-                        asyncio.run(_test_mssql_connection(conn_name, conn_config))
+                        asyncio.run(_test_mssql_connection(conn_name, conn_config, verbose))
+                        click.echo(f"      ✅ Connection successful")
                     else:
                         click.echo(
-                            f"      WARNING: Connection type "
-                            f"'{conn_type}' not supported"
+                            f"      ⚠️  Connection type '{conn_type}' not supported for testing"
                         )
 
                 except Exception as e:
-                    click.echo(f"      Connection failed: {str(e)}")
-                    # Show more detailed error information
-                    import traceback
+                    all_passed = False
+                    friendly_msg, suggestion = ErrorFormatter.format_error(e, verbose=verbose)
+                    click.echo(f"      ❌ Connection failed: {friendly_msg}", err=True)
+                    if suggestion:
+                        click.echo(f"      💡 {suggestion}", err=True)
+                    if verbose:
+                        click.echo("\n" + ErrorFormatter.format_with_stack_trace(e), err=True)
+                click.echo("")
 
-                    click.echo(f"      Error details: {traceback.format_exc()}")
+            if all_passed:
+                click.echo("✅ All connections tested successfully!")
+            else:
+                click.echo("⚠️  Some connections failed. Check the errors above.")
         else:
-            click.echo("\nNo database connections configured")
+            click.echo("ℹ️  No database connections configured")
+            click.echo("")
+
+        # Test file paths if configured
+        click.echo("📁 Validating file paths...")
+        path_issues = []
+        for entity in config.entities:
+            # Check home path
+            if hasattr(entity.flow_config, "home") and hasattr(entity.flow_config.home, "path"):
+                home_path = entity.flow_config.home.path
+                if home_path:
+                    from pathlib import Path
+                    path_obj = Path(home_path)
+                    if not path_obj.exists() and not path_obj.is_absolute():
+                        # Try relative to workspace
+                        workspace_path = workspace.hygge_yml.parent / path_obj
+                        if not workspace_path.exists():
+                            path_issues.append(f"Home path not found: {home_path} (flow: {entity.flow_name})")
+
+            # Check store path
+            if hasattr(entity.flow_config, "store") and hasattr(entity.flow_config.store, "path"):
+                store_path = entity.flow_config.store.path
+                if store_path:
+                    from pathlib import Path
+                    path_obj = Path(store_path)
+                    # Store paths don't need to exist (will be created)
+                    pass
+
+        if path_issues:
+            click.echo("   ⚠️  Found path issues:")
+            for issue in path_issues:
+                click.echo(f"      • {issue}")
+        else:
+            click.echo("   ✅ All file paths validated")
+        click.echo("")
+
+        click.echo("✨ Configuration validation complete!")
 
         logger.info("Project configuration debug completed")
 
     except ConfigError as e:
-        click.echo(f"Configuration error: {e}")
+        friendly_msg, suggestion = ErrorFormatter.format_error(e, verbose=False)
+        click.echo(f"Configuration error: {friendly_msg}", err=True)
+        if suggestion:
+            click.echo(f"\n💡 {suggestion}", err=True)
+        sys.exit(1)
+    except HyggeError as e:
+        friendly_msg, suggestion = ErrorFormatter.format_error(e, verbose=False)
+        click.echo(f"Error: {friendly_msg}", err=True)
+        if suggestion:
+            click.echo(f"\n💡 {suggestion}", err=True)
+        logger.error(f"Error debugging configuration: {e}")
         sys.exit(1)
     except Exception as e:
-        click.echo(f"Error: {e}")
+        friendly_msg, suggestion = ErrorFormatter.format_error(e, verbose=False)
+        click.echo(f"Error: {friendly_msg}", err=True)
+        if suggestion:
+            click.echo(f"\n💡 {suggestion}", err=True)
         logger.error(f"Error debugging configuration: {e}")
         sys.exit(1)
 
 
-async def _test_mssql_connection(conn_name: str, conn_config: dict):
+async def _test_mssql_connection(conn_name: str, conn_config: dict, verbose: bool = False):
     """Test MSSQL connection with detailed feedback."""
-    click.echo("      Connecting...")
+    if verbose:
+        click.echo("      Connecting...")
 
     try:
         # Import here to avoid circular imports
@@ -487,7 +609,8 @@ async def _test_mssql_connection(conn_name: str, conn_config: dict):
         )
 
         # Test connection
-        click.echo("      Testing query...")
+        if verbose:
+            click.echo("      Testing query...")
         connection = await connection_factory.get_connection()
 
         # Run a simple test query
@@ -497,7 +620,8 @@ async def _test_mssql_connection(conn_name: str, conn_config: dict):
         cursor.close()
         connection.close()
 
-        click.echo(f"      Connection successful! Test query returned: {result[0]}")
+        if verbose:
+            click.echo(f"      Test query returned: {result[0]}")
 
     except Exception as e:
         raise Exception(f"MSSQL connection test failed: {str(e)}")

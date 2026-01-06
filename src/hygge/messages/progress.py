@@ -41,6 +41,9 @@ class Progress:
         self.milestone_lock = asyncio.Lock()
         self.run_start_time: Optional[float] = None
         self.logger = logger or HyggeLogger("hygge.progress")
+        # Track narrative context for step-by-step updates
+        self.current_step: Optional[str] = None
+        self.step_start_time: Optional[float] = None
 
     def start(self, start_time: Optional[float] = None) -> None:
         """
@@ -54,6 +57,22 @@ class Progress:
         self.run_start_time = start_time
         self.total_rows_progress = 0
         self.last_milestone_rows = 0
+
+    def set_step(self, step_name: str) -> None:
+        """
+        Set current narrative step for progress tracking.
+
+        Args:
+            step_name: Description of current step (e.g., "Reading from database",
+                      "Writing to parquet", "Verifying data")
+        """
+        self.current_step = step_name
+        self.step_start_time = _get_event_loop_time()
+
+    def clear_step(self) -> None:
+        """Clear current narrative step."""
+        self.current_step = None
+        self.step_start_time = None
 
     async def update(self, rows: int) -> None:
         """
@@ -79,7 +98,9 @@ class Progress:
                 )
                 if elapsed > 0:
                     rate = milestone / elapsed
+                    # Include step context if available
+                    step_context = f" ({self.current_step})" if self.current_step else ""
                     self.logger.info(
-                        f"PROCESSED {milestone:,} rows in {elapsed:.1f}s "
+                        f"PROCESSED {milestone:,} rows{step_context} in {elapsed:.1f}s "
                         f"({rate:,.0f} rows/s)"
                     )

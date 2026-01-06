@@ -84,15 +84,24 @@ class Summary:
         # Hygge-style summary line - comfortable and clear
         flow_word = "flow" if len(flow_results) == 1 else "flows"
         self.logger.info(
-            f"Finished running {len(flow_results)} {flow_word} "
+            f"✨ Finished running {len(flow_results)} {flow_word} "
             f"in {time_str} ({elapsed_time:.2f}s)."
         )
 
         # Final status line (green if all pass, red if failures)
         if failed == 0:
-            self.logger.info("Completed successfully", color_prefix="OK")
+            if total_rows > 0:
+                self.logger.info(
+                    f"🎉 All flows completed successfully! "
+                    f"Moved {total_rows:,} rows of data.",
+                    color_prefix="OK",
+                )
+            else:
+                self.logger.info("✅ All flows completed successfully.", color_prefix="OK")
         else:
-            self.logger.error("Completed with errors")
+            self.logger.error(
+                f"⚠️  Completed with {failed} error{'s' if failed != 1 else ''}"
+            )
 
         # Hygge-style status summary - natural and concise
         if failed == 0 and skipped == 0:
