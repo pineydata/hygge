@@ -375,7 +375,7 @@ def go(
         # Run flows or preview
         if dry_run:
             # Preview mode - show what would happen
-            preview_results = asyncio.run(coordinator.preview(verbose=verbose))
+            preview_results = asyncio.run(coordinator.preview())
             _print_preview(preview_results, verbose=verbose, flow_filter=flow_filter)
         else:
             # Normal execution

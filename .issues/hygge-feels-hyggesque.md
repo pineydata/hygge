@@ -6,13 +6,15 @@
 ## Progress & Next Steps
 
 ### Completed ✅
-- **Comma-separated CLI arguments** - Clean syntax for multiple flows
-- **Enhanced `hygge debug`** - Warm validation with path checking and actionable guidance
-- **`--dry-run` flag** - Preview what flows would do without moving data or connecting
+- **Comma-separated CLI arguments** - Clean syntax for running multiple flows without quoting complexity
+- **Enhanced `hygge debug`** - Your trusted companion that validates configuration, tests connections, and checks paths before you run
+- **`--dry-run` flag** - Preview exactly what would happen without connecting to sources or moving data ✨ **NEW**
 
 ### What We Built: `--dry-run` Flag ✅
 
-Preview what flows would do **without moving data or connecting to sources**. True "dry" preview - shows configuration without testing connections.
+**Status:** Complete and ready for merge (PR opened)
+
+Preview exactly what `hygge go` would do **before you commit** - no connections, no data movement, just a clear picture of what would happen. True "dry" preview that inspects configuration and shows you the journey your data would take.
 
 **Usage:**
 ```bash
@@ -28,10 +30,10 @@ hygge go --dry-run --entity salesforce.Account,salesforce.Contact
 ```
 
 **What it shows:**
-- Source → destination mapping
-- Incremental vs full load mode
-- Configuration warnings
-- Suggests `hygge debug` to test connections before running
+- **The journey**: Where data comes from and where it's going (source → destination)
+- **The approach**: Incremental (only new data) vs full load (everything)
+- **The concerns**: Configuration warnings that need attention
+- **The next step**: Suggests `hygge debug` to test connections when you're ready
 
 **Example output (concise):**
 ```bash
@@ -54,31 +56,47 @@ Would run 3 flow(s)
    • Run flows: hygge go
 ```
 
-**Philosophy:**
-- **No connections** - truly dry, just config preview
-- **Fast** - no waiting for connections or queries
-- **Safe** - see what would happen before committing
-- **Complements `hygge debug`** - dry-run shows config, debug tests connections
+**Technical highlights:**
+- **True dry-run**: No connections, no data reads - purely configuration-based inspection
+- **Instant feedback**: No waiting for I/O operations, results appear immediately
+- **Risk-free exploration**: See the full picture before committing to the journey
+- **Complementary design**: Works alongside `hygge debug` - dry-run shows the plan, debug tests the execution path
+- **Cleaner codebase**: Eliminated ~40 lines of duplicated setup logic through coordinator refactoring
+- **Fail-fast philosophy**: No silent fallbacks or assumptions - clear, actionable error messages
+
+**Development lessons:**
+- **Listen to users**: Started with a "read sample data" approach, but user guidance led us to the cleaner "config-only" design
+- **Keep it simple**: Kept formatting logic in the CLI where it belongs, resisted the urge to over-engineer a separate module
+- **DRY wins**: Refactoring duplicated coordinator logic improved both the new preview feature and existing run method
+- **Ship with confidence**: All tests passing, linting clean, ready for production use
 
 ### Next Steps - Pick Your Path
 
-We've built configuration preview (`--dry-run`) and connection testing (`hygge debug`). Here are the natural next steps:
+**The Three Pillars of Comfort:**
 
-**Option B: Narrative Progress Messages (Daily Experience)**
+With `--dry-run` complete, we now have:
+1. ✅ **Before you run**: `hygge debug` (connection testing) + `hygge go --dry-run` (config preview)
+2. 🚧 **While you run**: Generic progress messages need warmth
+3. 🚧 **When things break**: Stack traces need friendly guidance
+
+**Option B: Narrative Progress Messages (Daily Experience)** 👈 *Recommended Next*
 - Transform "Processing 300,000 rows..." into storytelling
 - Show concrete details: batch numbers, file names, row counts
 - Use warm, approachable language throughout
-- **Why this matters**: Most visible improvement to daily usage
+- **Why this matters**: Most visible improvement to daily usage - users see this every time they run hygge
+- **Why now**: We've built the "before" experience, now improve the "during" experience
 - **Effort**: Medium-Large (2-3 sessions, touches core flow execution)
+- **Files to touch**: `src/hygge/messages/progress.py`, `src/hygge/core/flow/flow.py`, flow execution
 
 **Option C: Friendly Error Messages (When Things Go Wrong)**
 - Replace stack traces with helpful guidance
 - Clear explanations with specific fixes
 - Context-aware suggestions
 - **Why this matters**: Turns frustration into guidance
+- **Why later**: Less frequent than progress messages, bigger scope
 - **Effort**: Large (3-4 sessions, touches all components)
 
-**Recommendation**: Start with **Option A (`--dry-run`)** - it's high-impact, medium-effort, and builds on the debug work we just completed. It gives users confidence before running, which aligns perfectly with hygge's philosophy of comfort and reliability.
+**Recommendation**: **Option B (Narrative Progress Messages)** - Complete the journey! Users now have confidence *before* running (`debug` + `--dry-run`). Let's make the *running* experience feel just as cozy. This is the most visible daily improvement and completes the "happy path" experience before tackling errors.
 
 ## Context
 
@@ -278,7 +296,9 @@ hygge go --flow salesforce,users --incremental --concurrency 4
 ## Success Criteria
 
 After this work:
-- [ ] The CLI feels warm and welcoming
+- [x] The CLI feels warm and welcoming ✅ (`hygge debug`, comma-separated args, `--dry-run`)
+- [x] Users have confidence before running ✅ (`hygge debug` + `hygge go --dry-run`)
+- [ ] Progress messages tell a story during execution
 - [ ] Errors feel like gentle guidance, not cold rejection
 - [ ] New users feel invited in from the cold
 - [ ] "Cozy" and "comfortable" are words people use to describe hygge

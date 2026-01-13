@@ -225,9 +225,15 @@ class Flow:
                 "enabled": False,
                 "run_type": self.run_type,
             }
+            # Warn if watermark is expected but not configured
             if self.run_type == "full_drop":
                 preview_info["warnings"].append(
                     "No incremental watermark configured - would process all rows"
+                )
+            elif self.run_type == "incremental":
+                preview_info["warnings"].append(
+                    "Incremental run requested but no watermark configured - "
+                    "would process all rows"
                 )
 
         return preview_info

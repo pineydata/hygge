@@ -1,44 +1,66 @@
 ---
-title: PR Summary - Enhanced CLI for a Warmer Experience
+title: PR Summary - Add --dry-run flag for previewing flows
 tags: [enhancement, feature]
 ---
 
 ## Overview
 
-- Improved CLI argument syntax with comma-separated flow names
-- Enhanced `hygge debug` with warm messaging and path validation
-- Added comprehensive testing for CLI improvements
+- Add `--dry-run` flag to preview flow execution without moving data or connecting to sources/destinations
+- Users can verify configuration before running actual data movement
+- Supports both concise (one-line per flow) and verbose (detailed) output via `--verbose` flag
+- Refactored coordinator to eliminate ~40 lines of duplicated setup logic
 
 ## Key Changes
 
-### CLI Arguments
+### CLI & Preview Output
 
 - `src/hygge/cli.py`:
-  - Changed `--flow` and `--entity` to accept comma-separated values
-  - Updated help text with clear examples: `--flow flow1,flow2,flow3`
-  - No quotes needed, shell-friendly syntax
+  - Added `--dry-run` flag to `hygge go` command
+  - Implemented concise and verbose formatting for preview results
+  - Shows flow name, source → destination types, incremental/full load mode, and warnings
+  - Fail-fast on required fields instead of silent fallbacks
 
-### Enhanced `hygge debug`
+### Flow Preview Logic
 
-- `src/hygge/cli.py`:
-  - Added warm welcome message and emoji indicators
-  - Improved configuration validation output
-  - Added path validation for parquet homes/stores with actionable guidance
-  - Enhanced connection testing with better error messages
-  - Added success summary with clear next steps
+- `src/hygge/core/flow/flow.py`:
+  - Added `Flow.preview()` method that extracts config info without I/O
+  - Returns home/store types, paths, incremental settings, and detected warnings
+  - True dry-run: no connections, no data reads, config-only inspection
+
+### Coordinator Orchestration
+
+- `src/hygge/core/coordinator.py`:
+  - Extracted `_prepare_for_execution()` to eliminate DRY violation between `preview()` and `run()`
+  - Added `preview()` method to orchestrate multi-flow previews
+  - Reduced code by 27 lines through refactoring
+
+### Documentation
+
+- `README.md`:
+  - Added "Preview What Would Run" section with usage examples
+  - Shows both concise and verbose output formats
+- `.gitignore`:
+  - Ignored test demo project directory
 
 ### Tests
 
-- `tests/unit/hygge/test_cli.py`:
-  - Added tests for comma-separated flow/entity syntax
-  - Added tests for warm messaging and path validation
-  - Updated existing tests for new output format
+- `tests/unit/hygge/test_dry_run.py`:
+  - 6 new tests covering flow preview, coordinator preview, and formatting
+  - Tests verify no-connection behavior and config-only inspection
 
 ## Testing
 
-- All tests passing: `pytest tests/unit/hygge/test_cli.py` (20 tests)
-- New test coverage for CLI enhancements and path validation
+- All tests passing: `pytest tests/unit/hygge/test_dry_run.py` (6 tests)
+- Existing test suite continues to pass
+- Pre-commit hooks passing (ruff, formatting, etc.)
+
+## Philosophy Alignment
+
+- **Safety & Trust**: Preview before execution reduces risk
+- **Convention over Configuration**: Zero config needed, just add `--dry-run`
+- **Comfort Over Complexity**: Simple flag, natural output
+- **Fail Fast**: No silent fallbacks, clear error messages
 
 ---
 
-**Note**: Please add GitHub labels `enhancement` and `feature` to this PR for proper release notes categorization.
+**Remember to add GitHub labels**: `enhancement`, `feature` for proper release notes categorization
