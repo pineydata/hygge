@@ -1,40 +1,66 @@
 ---
-title: PR Summary - Mirror Journal Batching
-tags: [enhancement, performance]
+title: PR Summary - Add --dry-run flag for previewing flows
+tags: [enhancement, feature]
 ---
 
 ## Overview
 
-- Batched mirrored journal updates to reduce landing zone churn, publishing once per successful entity completion instead of after each entity run notification.
-- Added deferred publish mechanism with dirty flag tracking to accumulate entity run notifications before mirroring to Fabric.
-- Ensures mirror publishes after each successful entity, providing timely updates while reducing transient empty snapshots.
+- Add `--dry-run` flag to preview flow execution without moving data or connecting to sources/destinations
+- Users can verify configuration before running actual data movement
+- Supports both concise (one-line per flow) and verbose (detailed) output via `--verbose` flag
+- Refactored coordinator to eliminate ~40 lines of duplicated setup logic
 
 ## Key Changes
 
-### Mirrored Journal Writer
+### CLI & Preview Output
 
-- `src/hygge/core/journal.py`:
-  - Modified `MirroredJournalWriter.append()` to set a `_dirty` flag instead of immediately mirroring, deferring the actual publish operation.
-  - Added `MirroredJournalWriter.publish()` method that performs the full-drop rewrite of the mirrored table only when dirty, reloading the canonical journal parquet snapshot.
-  - Added error handling in `publish()` to preserve dirty flag on failure, ensuring retry on next publish attempt.
-  - Added `Journal.publish_mirror()` public method to trigger mirror publishing, safe to call even if mirroring is disabled (no-op).
-  - Added "Mirrored journal refreshed" log message when publish completes for observability.
+- `src/hygge/cli.py`:
+  - Added `--dry-run` flag to `hygge go` command
+  - Implemented concise and verbose formatting for preview results
+  - Shows flow name, source → destination types, incremental/full load mode, and warnings
+  - Fail-fast on required fields instead of silent fallbacks
 
-### Flow Execution
+### Flow Preview Logic
 
 - `src/hygge/core/flow/flow.py`:
-  - Added `publish_mirror()` call after successful `_record_entity_run()`, ensuring mirror is published once per successful entity completion.
+  - Added `Flow.preview()` method that extracts config info without I/O
+  - Returns home/store types, paths, incremental settings, and detected warnings
+  - True dry-run: no connections, no data reads, config-only inspection
+
+### Coordinator Orchestration
+
+- `src/hygge/core/coordinator.py`:
+  - Extracted `_prepare_for_execution()` to eliminate DRY violation between `preview()` and `run()`
+  - Added `preview()` method to orchestrate multi-flow previews
+  - Reduced code by 27 lines through refactoring
+
+### Documentation
+
+- `README.md`:
+  - Added "Preview What Would Run" section with usage examples
+  - Shows both concise and verbose output formats
+- `.gitignore`:
+  - Ignored test demo project directory
 
 ### Tests
 
-- `tests/unit/hygge/core/test_journal.py`:
-  - Added `TestMirroredJournalBatching` suite with three tests: verifies multiple appends batch into single publish, confirms publish idempotency, and validates empty journal handling.
+- `tests/unit/hygge/test_dry_run.py`:
+  - 6 new tests covering flow preview, coordinator preview, and formatting
+  - Tests verify no-connection behavior and config-only inspection
 
 ## Testing
 
-- All tests passing: `pytest` (36 tests in test_journal.py, all passing)
-- New batching tests verify the deferred publish mechanism works correctly and handles edge cases.
+- All tests passing: `pytest tests/unit/hygge/test_dry_run.py` (6 tests)
+- Existing test suite continues to pass
+- Pre-commit hooks passing (ruff, formatting, etc.)
+
+## Philosophy Alignment
+
+- **Safety & Trust**: Preview before execution reduces risk
+- **Convention over Configuration**: Zero config needed, just add `--dry-run`
+- **Comfort Over Complexity**: Simple flag, natural output
+- **Fail Fast**: No silent fallbacks, clear error messages
 
 ---
 
-**Note**: Remember to add appropriate GitHub labels to this PR (e.g., `enhancement` and `performance`) for proper categorization in release notes.
+**Remember to add GitHub labels**: `enhancement`, `feature` for proper release notes categorization

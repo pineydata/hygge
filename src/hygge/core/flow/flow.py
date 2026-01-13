@@ -11,6 +11,7 @@ Following hygge's philosophy, Flow prioritizes:
 - **Reliability**: Automatic retries, graceful error handling, state management
 - **Flow over force**: Smooth batch processing that adapts to your data
 """
+
 import asyncio
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
@@ -145,6 +146,97 @@ class Flow:
     ) -> None:
         """Set callback for coordinator-level progress tracking."""
         self.progress_callback = callback
+
+    async def preview(self) -> Dict[str, Any]:
+        """
+        Preview this flow without moving data or connecting to sources.
+
+        Shows what would happen based on configuration without actually
+        connecting to home/store. This is truly "dry" - no connections,
+        no queries, just configuration preview.
+
+        Returns:
+            Dict with preview information including:
+            - flow_name: Name of the flow
+            - status: "ready" (always - we don't validate connections)
+            - home_info: Source configuration
+            - store_info: Destination configuration
+            - incremental_info: Watermark configuration if applicable
+            - warnings: List of warning messages
+        """
+        preview_info = {
+            "flow_name": self.name,
+            "entity_name": self.entity_name,
+            "base_flow_name": self.base_flow_name,
+            "status": "ready",
+            "home_info": {},
+            "store_info": {},
+            "incremental_info": {},
+            "warnings": [],
+        }
+
+        # Get home information from configuration (no connection)
+        home_type = type(self.home).__name__.replace("Home", "").lower()
+        preview_info["home_info"] = {"type": home_type}
+
+        # Extract path (prefer data_path over path)
+        home_path = None
+        for attr in ["data_path", "path"]:
+            if hasattr(self.home, attr):
+                home_path = str(getattr(self.home, attr))
+                break
+        if home_path:
+            preview_info["home_info"]["path"] = home_path
+
+        # Extract optional home attributes
+        for attr in ["table_name", "connection_name"]:
+            if hasattr(self.home, attr):
+                key = "table" if attr == "table_name" else "connection"
+                preview_info["home_info"][key] = getattr(self.home, attr)
+
+        # Get store information from configuration (no connection)
+        store_type = type(self.store).__name__.replace("Store", "").lower()
+        preview_info["store_info"] = {"type": store_type}
+
+        # Extract path (prefer base_path over path)
+        store_path = None
+        for attr in ["base_path", "path"]:
+            if hasattr(self.store, attr):
+                store_path = str(getattr(self.store, attr))
+                break
+        if store_path:
+            preview_info["store_info"]["path"] = store_path
+
+        # Extract optional store attributes
+        for attr in ["table_name", "workspace", "lakehouse"]:
+            if hasattr(self.store, attr):
+                key = "table" if attr == "table_name" else attr
+                preview_info["store_info"][key] = getattr(self.store, attr)
+
+        # Get incremental/watermark information
+        if self.watermark and self.watermark_config:
+            preview_info["incremental_info"] = {
+                "enabled": True,
+                "watermark_column": self.watermark_config.get("column"),
+                "run_type": self.run_type,
+            }
+        else:
+            preview_info["incremental_info"] = {
+                "enabled": False,
+                "run_type": self.run_type,
+            }
+            # Warn if watermark is expected but not configured
+            if self.run_type == "full_drop":
+                preview_info["warnings"].append(
+                    "No incremental watermark configured - would process all rows"
+                )
+            elif self.run_type == "incremental":
+                preview_info["warnings"].append(
+                    "Incremental run requested but no watermark configured - "
+                    "would process all rows"
+                )
+
+        return preview_info
 
     async def start(self) -> None:
         """
