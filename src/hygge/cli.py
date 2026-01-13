@@ -490,6 +490,8 @@ def debug():
 
 def _validate_flow_paths(config, workspace):
     """Validate that paths referenced in flows exist and are accessible."""
+    from pathlib import Path
+
     issues_found = []
     paths_checked = 0
 
