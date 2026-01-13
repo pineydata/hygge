@@ -107,23 +107,59 @@ columns:
 
 Each entity will run in parallel when you execute the flow.
 
-### Step 4: Validate Your Configuration
+### Step 4: Preview What Would Run (Optional)
 
-Before running, check that everything is configured correctly:
+See what flows would do before executing:
+
+```bash
+# Quick preview - one line per flow
+hygge go --dry-run
+
+# Detailed preview with full configuration
+hygge go --dry-run --verbose
+```
+
+**What this shows:**
+
+- Which flows/entities would run
+- Source → destination mapping
+- Incremental vs full load mode
+- Configuration warnings
+
+**Example output:**
+
+```
+🏡 hygge dry-run preview
+
+Would run 2 flow(s)
+
+✓ example_flow_users      parquet → parquet (incremental)
+✓ example_flow_orders     parquet → parquet (full load)
+
+📊 Summary:
+   ✓ 2 flow(s) configured
+
+💡 Next steps:
+   • Test connections: hygge debug
+   • Run flows: hygge go
+```
+
+### Step 5: Validate Connections
+
+Test that hygge can connect to your sources and destinations:
 
 ```bash
 hygge debug
 ```
 
-**What this shows:**
+**What this checks:**
 
-- Discovered flows and entities
-- Configuration validation results
-- Any warnings or errors
+- Configuration file validity
+- Database connections (if configured)
+- File paths exist and are accessible
+- Provides actionable guidance for any issues
 
-Fix any issues before proceeding to the next step.
-
-### Step 5: Run Your Flows
+### Step 6: Run Your Flows
 
 Execute all flows in your project:
 
