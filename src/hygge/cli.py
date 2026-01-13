@@ -638,29 +638,38 @@ def _print_preview(preview_results: list, verbose: bool, flow_filter: Optional[l
 
 def _print_concise_flow(result: dict):
     """Print one-line flow preview."""
+    # Required fields - fail fast if missing
     flow_name = result["flow_name"]
-    warnings = result.get("warnings", [])
-    indicator = "⚠️ " if warnings else "✓"
-
     home_info = result["home_info"]
     store_info = result["store_info"]
     home_type = home_info["type"]
     store_type = store_info["type"]
 
+    # Optional fields - explicit defaults
+    warnings = result.get("warnings", [])  # Optional: list of warnings
+    # Optional: incremental config
     incremental_info = result.get("incremental_info", {})
-    if incremental_info.get("enabled"):
-        mode = "(incremental)"
-    else:
-        mode = "(full load)"
+
+    # Determine indicator and mode
+    indicator = "⚠️ " if warnings else "✓"
+    mode = "(incremental)" if incremental_info.get("enabled") else "(full load)"
 
     click.echo(f"{indicator} {flow_name:30} {home_type} → {store_type} {mode}")
 
 
 def _print_verbose_flow(result: dict):
     """Print detailed flow preview."""
+    # Required fields
     flow_name = result["flow_name"]
-    entity_name = result.get("entity_name")
-    base_flow_name = result.get("base_flow_name")
+    home_info = result["home_info"]
+    store_info = result["store_info"]
+
+    # Optional fields - explicit
+    entity_name = result.get("entity_name")  # Optional: entity-specific name
+    base_flow_name = result.get("base_flow_name")  # Optional: base flow
+    # Optional: incremental config
+    incremental_info = result.get("incremental_info", {})
+    warnings = result.get("warnings", [])  # Optional: list of warnings
 
     click.echo("━" * 60)
     if entity_name and entity_name != flow_name:
@@ -671,7 +680,6 @@ def _print_verbose_flow(result: dict):
     click.echo("")
 
     # Source
-    home_info = result["home_info"]
     click.echo("📥 Source")
     click.echo(f"   Type: {home_info['type']}")
     if home_info.get("path"):
@@ -683,7 +691,6 @@ def _print_verbose_flow(result: dict):
     click.echo("")
 
     # Destination
-    store_info = result["store_info"]
     click.echo("📤 Destination")
     click.echo(f"   Type: {store_info['type']}")
     if store_info.get("path"):
@@ -697,7 +704,6 @@ def _print_verbose_flow(result: dict):
     click.echo("")
 
     # Incremental
-    incremental_info = result.get("incremental_info", {})
     if incremental_info.get("enabled"):
         click.echo("💧 Incremental Mode: Enabled")
         wm_col = incremental_info.get("watermark_column")
@@ -710,7 +716,6 @@ def _print_verbose_flow(result: dict):
     click.echo("")
 
     # Warnings
-    warnings = result.get("warnings", [])
     if warnings:
         for warning in warnings:
             click.echo(f"⚠️  {warning}")
