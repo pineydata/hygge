@@ -490,8 +490,6 @@ def debug():
 
 def _validate_flow_paths(config, workspace):
     """Validate that paths referenced in flows exist and are accessible."""
-    from pathlib import Path
-
     issues_found = []
     paths_checked = 0
 
@@ -527,11 +525,15 @@ def _validate_flow_paths(config, workspace):
                     # (store path will be created)
                     parent = full_path.parent
                     if not parent.exists():
+                        relative_parent = Path(store_path).parent
                         issues_found.append(
-                            f"  ⚠️  Store parent directory " f"doesn't exist: {parent}"
+                            f"  ⚠️  Store parent directory "
+                            f"doesn't exist: {relative_parent}"
                         )
                         issues_found.append(f"     Flow: {entity.base_flow_name}")
-                        issues_found.append(f"     💡 Create it: mkdir -p {parent}")
+                        issues_found.append(
+                            f"     💡 Create it: mkdir -p {relative_parent}"
+                        )
 
     if issues_found:
         warning_count = len([i for i in issues_found if i.startswith("  ⚠️")])
@@ -576,8 +578,8 @@ async def _test_mssql_connection(conn_name: str, conn_config: dict):
 
         click.echo("    ✓ Connection successful!")
 
-    except Exception as e:
-        raise Exception(f"{str(e)}")
+    except Exception:
+        raise
 
 
 if __name__ == "__main__":
