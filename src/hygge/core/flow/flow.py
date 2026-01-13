@@ -177,41 +177,41 @@ class Flow:
 
         # Get home information from configuration (no connection)
         home_type = type(self.home).__name__.replace("Home", "").lower()
-        preview_info["home_info"] = {
-            "type": home_type,
-        }
+        preview_info["home_info"] = {"type": home_type}
 
-        # Add path info if available
-        if hasattr(self.home, "data_path"):
-            preview_info["home_info"]["path"] = str(self.home.data_path)
-        elif hasattr(self.home, "path"):
-            preview_info["home_info"]["path"] = str(self.home.path)
+        # Extract path (prefer data_path over path)
+        home_path = None
+        for attr in ["data_path", "path"]:
+            if hasattr(self.home, attr):
+                home_path = str(getattr(self.home, attr))
+                break
+        if home_path:
+            preview_info["home_info"]["path"] = home_path
 
-        # Add table/connection info if available
-        if hasattr(self.home, "table_name"):
-            preview_info["home_info"]["table"] = self.home.table_name
-        if hasattr(self.home, "connection_name"):
-            preview_info["home_info"]["connection"] = self.home.connection_name
+        # Extract optional home attributes
+        for attr in ["table_name", "connection_name"]:
+            if hasattr(self.home, attr):
+                key = "table" if attr == "table_name" else "connection"
+                preview_info["home_info"][key] = getattr(self.home, attr)
 
         # Get store information from configuration (no connection)
         store_type = type(self.store).__name__.replace("Store", "").lower()
-        preview_info["store_info"] = {
-            "type": store_type,
-        }
+        preview_info["store_info"] = {"type": store_type}
 
-        # Add path info if available
-        if hasattr(self.store, "base_path"):
-            preview_info["store_info"]["path"] = str(self.store.base_path)
-        elif hasattr(self.store, "path"):
-            preview_info["store_info"]["path"] = str(self.store.path)
+        # Extract path (prefer base_path over path)
+        store_path = None
+        for attr in ["base_path", "path"]:
+            if hasattr(self.store, attr):
+                store_path = str(getattr(self.store, attr))
+                break
+        if store_path:
+            preview_info["store_info"]["path"] = store_path
 
-        # Add store-specific info
-        if hasattr(self.store, "table_name"):
-            preview_info["store_info"]["table"] = self.store.table_name
-        if hasattr(self.store, "workspace"):
-            preview_info["store_info"]["workspace"] = self.store.workspace
-        if hasattr(self.store, "lakehouse"):
-            preview_info["store_info"]["lakehouse"] = self.store.lakehouse
+        # Extract optional store attributes
+        for attr in ["table_name", "workspace", "lakehouse"]:
+            if hasattr(self.store, attr):
+                key = "table" if attr == "table_name" else attr
+                preview_info["store_info"][key] = getattr(self.store, attr)
 
         # Get incremental/watermark information
         if self.watermark and self.watermark_config:
