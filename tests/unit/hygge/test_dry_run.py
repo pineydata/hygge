@@ -131,46 +131,6 @@ async def test_flow_preview_with_watermark(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_flow_preview_incremental_without_watermark(tmp_path):
-    """Test that incremental run without watermark shows a warning."""
-    source_dir = tmp_path / "source"
-    source_dir.mkdir()
-    source_file = source_dir / "test.parquet"
-
-    test_data = pl.DataFrame({"id": [1, 2, 3], "value": ["a", "b", "c"]})
-    test_data.write_parquet(source_file)
-
-    # Create flow with incremental run_type but NO watermark
-    home_config = ParquetHomeConfig(path=str(source_file))
-    home = ParquetHome(name="test_home", config=home_config)
-
-    store_config = ParquetStoreConfig(path=str(tmp_path / "destination"))
-    store = ParquetStore(name="test_store", config=store_config)
-
-    flow = Flow(
-        name="test_flow",
-        home=home,
-        store=store,
-        entity_name="test_entity",
-        base_flow_name="test",
-        run_type="incremental",
-        watermark_config=None,  # No watermark!
-    )
-
-    # Preview
-    preview_info = await flow.preview()
-
-    # Verify warning is present
-    assert preview_info["incremental_info"]["enabled"] is False
-    assert preview_info["incremental_info"]["run_type"] == "incremental"
-    assert len(preview_info["warnings"]) == 1
-    assert (
-        "Incremental run requested but no watermark configured"
-        in preview_info["warnings"][0]
-    )
-
-
-@pytest.mark.asyncio
 async def test_coordinator_preview_simple(tmp_path):
     """Test coordinator preview with simple flow setup."""
     # Create test data

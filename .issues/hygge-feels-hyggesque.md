@@ -8,7 +8,8 @@
 ### Completed ✅
 - **Comma-separated CLI arguments** - Clean syntax for running multiple flows without quoting complexity
 - **Enhanced `hygge debug`** - Your trusted companion that validates configuration, tests connections, and checks paths before you run
-- **`--dry-run` flag** - Preview exactly what would happen without connecting to sources or moving data ✨ **NEW**
+- **`--dry-run` flag** - Preview exactly what would happen without connecting to sources or moving data
+- **Narrative progress messages** - Warm, storytelling progress with emojis and file paths ✨ **NEW**
 
 ### What We Built: `--dry-run` Flag ✅
 

@@ -160,64 +160,55 @@ class Coordinator:
         self._journal_cache: Dict[str, Journal] = {}
         self.flow_run_ids: Dict[str, str] = {}
 
-    async def _prepare_for_execution(self, skip_connection_pools: bool = False) -> None:
-        """
-        Load config, initialize pools, and create flows.
-
-        Shared setup logic for both run() and preview().
-
-        Args:
-            skip_connection_pools: If True, skip connection pool initialization.
-                Used during dry-run preview to avoid connecting to databases.
-        """
-        # Load configuration if not already loaded
-        if self.config is None:
-            if not self._workspace:
-                raise ConfigError(
-                    "No workspace available. Coordinator requires hygge.yml "
-                    "workspace configuration."
-                )
-            self.config = self._workspace.prepare()
-            self.project_config = self._workspace.config
-
-        # Initialize connection pools (skip for dry-run preview)
-        if not skip_connection_pools:
-            await self._initialize_connection_pools()
-
-        # Create flows
-        self._create_flows()
-
-        # Validate that at least one flow was created (if filter specified)
-        if self.flow_filter and len(self.flows) == 0:
-            available_base_flows = {
-                entity.base_flow_name for entity in self.config.entities
-            }
-            available_entity_flows = [
-                entity.flow_name for entity in self.config.entities
-            ]
-            available_flows_str = ", ".join(sorted(available_base_flows))
-            entity_flows_str = (
-                ", ".join(sorted(available_entity_flows))
-                if available_entity_flows
-                else "none"
-            )
-            raise ConfigError(
-                f"No flows matched filter: {', '.join(self.flow_filter)}. "
-                f"Available base flows: {available_flows_str}. "
-                f"Available entity flows: {entity_flows_str}."
-            )
-
-    async def preview(self) -> list:
+    async def preview(self, verbose: bool = False) -> list:
         """
         Preview what would run without moving data.
+
+        Args:
+            verbose: Passed through to CLI for formatting (not used by coordinator).
 
         Returns:
             List of preview info dicts for CLI formatting.
         """
         try:
-            # Skip connection pool initialization during dry-run
-            await self._prepare_for_execution(skip_connection_pools=True)
-            return await self._preview_flows()
+            # Load configuration if not already loaded
+            if self.config is None:
+                if not self._workspace:
+                    raise ConfigError(
+                        "No workspace available. Coordinator requires hygge.yml "
+                        "workspace configuration."
+                    )
+                self.config = self._workspace.prepare()
+                self.project_config = self._workspace.config
+
+            # Initialize connection pools (needed for preview connections)
+            await self._initialize_connection_pools()
+
+            # Create flows
+            self._create_flows()
+
+            # Validate that at least one flow was created (if filter specified)
+            if self.flow_filter and len(self.flows) == 0:
+                available_base_flows = {
+                    entity.base_flow_name for entity in self.config.entities
+                }
+                available_entity_flows = [
+                    entity.flow_name for entity in self.config.entities
+                ]
+                available_flows_str = ", ".join(sorted(available_base_flows))
+                entity_flows_str = (
+                    ", ".join(sorted(available_entity_flows))
+                    if available_entity_flows
+                    else "none"
+                )
+                raise ConfigError(
+                    f"No flows matched filter: {', '.join(self.flow_filter)}. "
+                    f"Available base flows: {available_flows_str}. "
+                    f"Available entity flows: {entity_flows_str}."
+                )
+
+            # Preview all flows - return results for CLI formatting
+            return await self._preview_flows(verbose=verbose)
 
         finally:
             # Clean up connection pools
@@ -237,14 +228,50 @@ class Coordinator:
         self.flow_run_ids = {}
 
         try:
-            await self._prepare_for_execution()
+            # Load configuration if not already loaded
+            if self.config is None:
+                if not self._workspace:
+                    raise ConfigError(
+                        "No workspace available. Coordinator requires hygge.yml "
+                        "workspace configuration."
+                    )
+                self.config = self._workspace.prepare()
+                # Update project_config from workspace (in case it changed)
+                self.project_config = self._workspace.config
+                # Update journal_config from prepared config
+                if self.config and self.config.journal:
+                    if isinstance(self.config.journal, JournalConfig):
+                        self.journal_config = self.config.journal
+                    else:
+                        self.journal_config = JournalConfig(**self.config.journal)
 
-            # Update journal_config from prepared config (run-specific)
-            if self.config and self.config.journal:
-                if isinstance(self.config.journal, JournalConfig):
-                    self.journal_config = self.config.journal
-                else:
-                    self.journal_config = JournalConfig(**self.config.journal)
+            # Initialize connection pools
+            await self._initialize_connection_pools()
+
+            # Create flows
+            self._create_flows()
+
+            # Validate that at least one flow was created (if filter specified)
+            if self.flow_filter and len(self.flows) == 0:
+                # Collect available flow names from entities
+                available_base_flows = {
+                    entity.base_flow_name for entity in self.config.entities
+                }
+                available_entity_flows = [
+                    entity.flow_name for entity in self.config.entities
+                ]
+
+                available_flows_str = ", ".join(sorted(available_base_flows))
+                entity_flows_str = (
+                    ", ".join(sorted(available_entity_flows))
+                    if available_entity_flows
+                    else "none"
+                )
+                raise ConfigError(
+                    f"No flows matched filter: {', '.join(self.flow_filter)}. "
+                    f"Available base flows: {available_flows_str}. "
+                    f"Available entity flows: {entity_flows_str}."
+                )
 
             # Run flows in parallel
             await self._run_flows()
@@ -630,12 +657,11 @@ class Coordinator:
         # Don't re-raise here - let _run_flows handle exception propagation
         # based on continue_on_error setting after all flows complete
 
-    async def _preview_flows(self) -> list:
+    async def _preview_flows(self, verbose: bool = False) -> None:
         """
         Preview all flows without moving data.
 
-        Returns:
-            List of preview info dicts, one per flow.
+        Returns preview results for CLI formatting.
         """
         if not self.flows:
             self.logger.warning("No flows to preview")
