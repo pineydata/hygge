@@ -111,9 +111,9 @@ class TestProgress:
             assert progress.total_rows_progress == 1_000_000
             assert progress.last_milestone_rows == 1_000_000
             mock_info.assert_called_once()
-            # Verify the log message format
+            # Verify the log message format (now uses "moved" instead of "PROCESSED")
             call_args = mock_info.call_args[0][0]
-            assert "PROCESSED" in call_args
+            assert "Milestone" in call_args or "moved" in call_args
             assert "1,000,000" in call_args
 
     @pytest.mark.asyncio

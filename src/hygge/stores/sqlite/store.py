@@ -123,8 +123,9 @@ class SqliteStore(Store, store_type="sqlite"):
                     # Re-raise if it's a different error
                     raise
 
-            # Log write progress using base class method
-            self._log_write_progress(len(df))
+            # Log write progress using base class method with table context
+            table_path = f"{self.db_path}::{self.table}"
+            self._log_write_progress(len(df), path=table_path)
 
             self.logger.debug(
                 f"Wrote {len(df):,} rows to SQLite table {self.table} "

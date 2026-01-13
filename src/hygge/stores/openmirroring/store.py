@@ -1171,8 +1171,10 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             data = buffer.getvalue()
             stored_staging_path = await adls_ops.upload_bytes(data, cloud_staging_path)
 
-            # Log and track (reusing parent's tracking logic)
-            self._log_write_progress(len(df))
+            # Log and track (reusing parent's tracking logic) with cloud path context
+            self._log_write_progress(
+                len(df), path=stored_staging_path or cloud_staging_path
+            )
             if not hasattr(self, "saved_paths"):
                 self.saved_paths = []
             self.saved_paths.append(stored_staging_path or cloud_staging_path)

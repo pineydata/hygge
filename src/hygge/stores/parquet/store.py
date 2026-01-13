@@ -148,8 +148,8 @@ class ParquetStore(Store, store_type="parquet"):
                 self.logger.error(f"Failed to create parquet file: {staging_path}")
                 raise StoreError(f"File was not created after write: {staging_path}")
 
-            # Log write progress using base class method
-            self._log_write_progress(len(df))
+            # Log write progress using base class method with path context
+            self._log_write_progress(len(df), path=str(staging_path))
 
             # Track path for moving to final location
             self.saved_paths.append(str(staging_path))

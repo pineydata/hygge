@@ -278,6 +278,9 @@ class Flow:
 
             await self._prepare_incremental_context()
 
+            # Log narrative journey context at DEBUG level
+            self._log_journey_start()
+
             # Start producer and consumer tasks
             producer = asyncio.create_task(
                 self._producer(queue, producer_done), name=f"{self.name}_producer"
@@ -475,6 +478,26 @@ class Flow:
             async for batch in self.home.read():
                 yield batch
 
+    def _log_journey_start(self) -> None:
+        """Log data journey start at DEBUG level."""
+        # Try common path attributes with fallback to generic labels
+        home_path = str(
+            getattr(self.home, "data_path", None)
+            or getattr(self.home, "path", None)
+            or getattr(self.home, "table_name", "source")
+        )
+        store_path = str(
+            getattr(self.store, "base_path", None)
+            or getattr(self.store, "path", None)
+            or getattr(self.store, "table_name", "destination")
+        )
+
+        self.logger.debug(f"🏠 Journey: {home_path} → {store_path}")
+
+        if self.run_type == "incremental" and self.initial_watermark_info:
+            wm = self.initial_watermark_info.get("watermark")
+            self.logger.debug(f"   📈 Incremental from: {wm}")
+
     async def _prepare_incremental_context(self) -> None:
         """Resolve watermark context for incremental runs."""
         self.initial_watermark_info = None
@@ -546,6 +569,12 @@ class Flow:
                     batch_rows = len(batch)
                     self.total_rows += batch_rows
                     self.batches_processed += 1
+
+                    # Log batch completion with narrative details (DEBUG)
+                    self.logger.debug(
+                        f"   📦 Batch {self.batches_processed} complete: "
+                        f"{batch_rows:,} rows ({self.total_rows:,} total)"
+                    )
 
                     # Notify coordinator of progress for milestone tracking
                     if self.progress_callback:
