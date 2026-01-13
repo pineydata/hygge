@@ -13,6 +13,7 @@ handles the orchestration details so you can focus on your data flows.
 Home and Store instantiation is delegated to Flow, keeping responsibilities
 clear and maintainable.
 """
+
 import asyncio
 import json
 from datetime import datetime, timezone
@@ -158,6 +159,60 @@ class Coordinator:
         self.journal: Optional[Journal] = None
         self._journal_cache: Dict[str, Journal] = {}
         self.flow_run_ids: Dict[str, str] = {}
+
+    async def preview(self, verbose: bool = False) -> list:
+        """
+        Preview what would run without moving data.
+
+        Args:
+            verbose: Passed through to CLI for formatting (not used by coordinator).
+
+        Returns:
+            List of preview info dicts for CLI formatting.
+        """
+        try:
+            # Load configuration if not already loaded
+            if self.config is None:
+                if not self._workspace:
+                    raise ConfigError(
+                        "No workspace available. Coordinator requires hygge.yml "
+                        "workspace configuration."
+                    )
+                self.config = self._workspace.prepare()
+                self.project_config = self._workspace.config
+
+            # Initialize connection pools (needed for preview connections)
+            await self._initialize_connection_pools()
+
+            # Create flows
+            self._create_flows()
+
+            # Validate that at least one flow was created (if filter specified)
+            if self.flow_filter and len(self.flows) == 0:
+                available_base_flows = {
+                    entity.base_flow_name for entity in self.config.entities
+                }
+                available_entity_flows = [
+                    entity.flow_name for entity in self.config.entities
+                ]
+                available_flows_str = ", ".join(sorted(available_base_flows))
+                entity_flows_str = (
+                    ", ".join(sorted(available_entity_flows))
+                    if available_entity_flows
+                    else "none"
+                )
+                raise ConfigError(
+                    f"No flows matched filter: {', '.join(self.flow_filter)}. "
+                    f"Available base flows: {available_flows_str}. "
+                    f"Available entity flows: {entity_flows_str}."
+                )
+
+            # Preview all flows - return results for CLI formatting
+            return await self._preview_flows(verbose=verbose)
+
+        finally:
+            # Clean up connection pools
+            await self._cleanup_connection_pools()
 
     async def run(self) -> None:
         """Run all configured flows."""
@@ -601,6 +656,26 @@ class Coordinator:
 
         # Don't re-raise here - let _run_flows handle exception propagation
         # based on continue_on_error setting after all flows complete
+
+    async def _preview_flows(self, verbose: bool = False) -> None:
+        """
+        Preview all flows without moving data.
+
+        Returns preview results for CLI formatting.
+        """
+        if not self.flows:
+            self.logger.warning("No flows to preview")
+            return []
+
+        self.logger.info(f"Previewing {len(self.flows)} flow(s)")
+
+        # Gather preview info from all flows
+        preview_results = []
+        for flow in self.flows:
+            preview_info = await flow.preview()
+            preview_results.append(preview_info)
+
+        return preview_results
 
     def _should_include_entity(self, entity: "Entity") -> bool:  # type: ignore
         """

@@ -3,6 +3,83 @@
 **Status:** Horizon 1 – First Priority
 **Scope:** CLI experience, messaging, user interaction
 
+## Progress & Next Steps
+
+### Completed ✅
+- **Comma-separated CLI arguments** - Clean syntax for multiple flows
+- **Enhanced `hygge debug`** - Warm validation with path checking and actionable guidance
+- **`--dry-run` flag** - Preview what flows would do without moving data or connecting
+
+### What We Built: `--dry-run` Flag ✅
+
+Preview what flows would do **without moving data or connecting to sources**. True "dry" preview - shows configuration without testing connections.
+
+**Usage:**
+```bash
+# Concise preview (one line per flow)
+hygge go --dry-run
+
+# Detailed preview
+hygge go --dry-run --verbose
+
+# Preview specific flows
+hygge go --dry-run --flow salesforce
+hygge go --dry-run --entity salesforce.Account,salesforce.Contact
+```
+
+**What it shows:**
+- Source → destination mapping
+- Incremental vs full load mode
+- Configuration warnings
+- Suggests `hygge debug` to test connections before running
+
+**Example output (concise):**
+```bash
+$ hygge go --dry-run
+
+🏡 hygge dry-run preview
+
+Would run 3 flow(s)
+
+✓ salesforce_Account          parquet → onelake (incremental)
+✓ salesforce_Contact          parquet → onelake (full load)
+⚠️  salesforce_Opportunity     parquet → onelake (full load)
+
+📊 Summary:
+   ✓ 3 flow(s) configured
+   ⚠️  1 flow(s) with warnings
+
+💡 Next steps:
+   • Test connections: hygge debug
+   • Run flows: hygge go
+```
+
+**Philosophy:**
+- **No connections** - truly dry, just config preview
+- **Fast** - no waiting for connections or queries
+- **Safe** - see what would happen before committing
+- **Complements `hygge debug`** - dry-run shows config, debug tests connections
+
+### Next Steps - Pick Your Path
+
+We've built configuration preview (`--dry-run`) and connection testing (`hygge debug`). Here are the natural next steps:
+
+**Option B: Narrative Progress Messages (Daily Experience)**
+- Transform "Processing 300,000 rows..." into storytelling
+- Show concrete details: batch numbers, file names, row counts
+- Use warm, approachable language throughout
+- **Why this matters**: Most visible improvement to daily usage
+- **Effort**: Medium-Large (2-3 sessions, touches core flow execution)
+
+**Option C: Friendly Error Messages (When Things Go Wrong)**
+- Replace stack traces with helpful guidance
+- Clear explanations with specific fixes
+- Context-aware suggestions
+- **Why this matters**: Turns frustration into guidance
+- **Effort**: Large (3-4 sessions, touches all components)
+
+**Recommendation**: Start with **Option A (`--dry-run`)** - it's high-impact, medium-effort, and builds on the debug work we just completed. It gives users confidence before running, which aligns perfectly with hygge's philosophy of comfort and reliability.
+
 ## Context
 
 We've been so focused on making hygge work that we haven't stopped to ask: **does it feel cozy to use?**

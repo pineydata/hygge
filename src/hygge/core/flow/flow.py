@@ -11,6 +11,7 @@ Following hygge's philosophy, Flow prioritizes:
 - **Reliability**: Automatic retries, graceful error handling, state management
 - **Flow over force**: Smooth batch processing that adapts to your data
 """
+
 import asyncio
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
@@ -145,6 +146,91 @@ class Flow:
     ) -> None:
         """Set callback for coordinator-level progress tracking."""
         self.progress_callback = callback
+
+    async def preview(self) -> Dict[str, Any]:
+        """
+        Preview this flow without moving data or connecting to sources.
+
+        Shows what would happen based on configuration without actually
+        connecting to home/store. This is truly "dry" - no connections,
+        no queries, just configuration preview.
+
+        Returns:
+            Dict with preview information including:
+            - flow_name: Name of the flow
+            - status: "ready" (always - we don't validate connections)
+            - home_info: Source configuration
+            - store_info: Destination configuration
+            - incremental_info: Watermark configuration if applicable
+            - warnings: List of warning messages
+        """
+        preview_info = {
+            "flow_name": self.name,
+            "entity_name": self.entity_name,
+            "base_flow_name": self.base_flow_name,
+            "status": "ready",
+            "home_info": {},
+            "store_info": {},
+            "incremental_info": {},
+            "warnings": [],
+        }
+
+        # Get home information from configuration (no connection)
+        home_type = type(self.home).__name__.replace("Home", "").lower()
+        preview_info["home_info"] = {
+            "type": home_type,
+        }
+
+        # Add path info if available
+        if hasattr(self.home, "data_path"):
+            preview_info["home_info"]["path"] = str(self.home.data_path)
+        elif hasattr(self.home, "path"):
+            preview_info["home_info"]["path"] = str(self.home.path)
+
+        # Add table/connection info if available
+        if hasattr(self.home, "table_name"):
+            preview_info["home_info"]["table"] = self.home.table_name
+        if hasattr(self.home, "connection_name"):
+            preview_info["home_info"]["connection"] = self.home.connection_name
+
+        # Get store information from configuration (no connection)
+        store_type = type(self.store).__name__.replace("Store", "").lower()
+        preview_info["store_info"] = {
+            "type": store_type,
+        }
+
+        # Add path info if available
+        if hasattr(self.store, "base_path"):
+            preview_info["store_info"]["path"] = str(self.store.base_path)
+        elif hasattr(self.store, "path"):
+            preview_info["store_info"]["path"] = str(self.store.path)
+
+        # Add store-specific info
+        if hasattr(self.store, "table_name"):
+            preview_info["store_info"]["table"] = self.store.table_name
+        if hasattr(self.store, "workspace"):
+            preview_info["store_info"]["workspace"] = self.store.workspace
+        if hasattr(self.store, "lakehouse"):
+            preview_info["store_info"]["lakehouse"] = self.store.lakehouse
+
+        # Get incremental/watermark information
+        if self.watermark and self.watermark_config:
+            preview_info["incremental_info"] = {
+                "enabled": True,
+                "watermark_column": self.watermark_config.get("column"),
+                "run_type": self.run_type,
+            }
+        else:
+            preview_info["incremental_info"] = {
+                "enabled": False,
+                "run_type": self.run_type,
+            }
+            if self.run_type == "full_drop":
+                preview_info["warnings"].append(
+                    "No incremental watermark configured - would process all rows"
+                )
+
+        return preview_info
 
     async def start(self) -> None:
         """

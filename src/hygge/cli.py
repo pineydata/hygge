@@ -146,8 +146,7 @@ source_config:
     click.echo("\nNext steps:")
     click.echo(f"  1. cd {project_name}")
     click.echo(
-        f"  2. Edit {flow_file.relative_to(project_dir)} to configure your "
-        "data sources"
+        f"  2. Edit {flow_file.relative_to(project_dir)} to configure your data sources"
     )
     click.echo("  3. Update paths in flow.yml to point to your actual data locations")
     click.echo("  4. Run: hygge go")
@@ -200,6 +199,11 @@ source_config:
     ),
 )
 @click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Preview what would happen without moving data",
+)
+@click.option(
     "--verbose",
     is_flag=True,
     help="Enable verbose logging",
@@ -219,6 +223,7 @@ def go(
     incremental: bool,
     full_drop: bool,
     concurrency: Optional[int],
+    dry_run: bool,
     verbose: bool,
     var: tuple,
 ):
@@ -367,15 +372,21 @@ def go(
         if concurrency is not None:
             coordinator.options["concurrency"] = concurrency
 
-        # Run flows
-        if flow_filter:
-            flow_list = ", ".join(flow_filter)
-            click.echo(f"Starting flows: {flow_list}")
+        # Run flows or preview
+        if dry_run:
+            # Preview mode - show what would happen
+            preview_results = asyncio.run(coordinator.preview(verbose=verbose))
+            _print_preview(preview_results, verbose=verbose, flow_filter=flow_filter)
         else:
-            click.echo("Starting all flows...")
+            # Normal execution
+            if flow_filter:
+                flow_list = ", ".join(flow_filter)
+                click.echo(f"Starting flows: {flow_list}")
+            else:
+                click.echo("Starting all flows...")
 
-        asyncio.run(coordinator.run())
-        click.echo("All flows completed successfully!")
+            asyncio.run(coordinator.run())
+            click.echo("All flows completed successfully!")
 
     except ConfigError as e:
         click.echo(f"Configuration error: {e}")
@@ -582,6 +593,132 @@ async def _test_mssql_connection(conn_name: str, conn_config: dict):
 
     except Exception:
         raise
+
+
+def _print_preview(preview_results: list, verbose: bool, flow_filter: Optional[list]):
+    """Print dry-run preview using click formatting."""
+    click.echo("\n🏡 hygge dry-run preview\n")
+
+    # Header
+    if flow_filter:
+        filter_str = ", ".join(flow_filter)
+        click.echo(f"Would run {len(preview_results)} flow(s) matching: {filter_str}")
+    else:
+        click.echo(f"Would run {len(preview_results)} flow(s)")
+    click.echo("")
+
+    # Show each flow
+    warning_count = 0
+    for result in preview_results:
+        if verbose:
+            _print_verbose_flow(result)
+        else:
+            _print_concise_flow(result)
+
+        if result.get("warnings"):
+            warning_count += 1
+
+    # Footer
+    click.echo("")
+    click.echo("📊 Summary:")
+    click.echo(f"   ✓ {len(preview_results)} flow(s) configured")
+    if warning_count > 0:
+        click.echo(f"   ⚠️  {warning_count} flow(s) with warnings")
+
+    click.echo("")
+    click.echo("💡 Next steps:")
+    if verbose and warning_count > 0:
+        click.echo("   • Review warnings above")
+    click.echo("   • Test connections: hygge debug")
+    if flow_filter:
+        click.echo(f"   • Run flows: hygge go --flow {','.join(flow_filter)}")
+    else:
+        click.echo("   • Run flows: hygge go")
+
+
+def _print_concise_flow(result: dict):
+    """Print one-line flow preview."""
+    flow_name = result["flow_name"]
+    warnings = result.get("warnings", [])
+    indicator = "⚠️ " if warnings else "✓"
+
+    home_info = result["home_info"]
+    store_info = result["store_info"]
+    home_type = home_info["type"]
+    store_type = store_info["type"]
+
+    incremental_info = result.get("incremental_info", {})
+    if incremental_info.get("enabled"):
+        mode = "(incremental)"
+    else:
+        mode = "(full load)"
+
+    click.echo(f"{indicator} {flow_name:30} {home_type} → {store_type} {mode}")
+
+
+def _print_verbose_flow(result: dict):
+    """Print detailed flow preview."""
+    flow_name = result["flow_name"]
+    entity_name = result.get("entity_name")
+    base_flow_name = result.get("base_flow_name")
+
+    click.echo("━" * 60)
+    if entity_name and entity_name != flow_name:
+        click.echo(f"Flow: {base_flow_name}.{entity_name}")
+    else:
+        click.echo(f"Flow: {flow_name}")
+    click.echo("━" * 60)
+    click.echo("")
+
+    # Source
+    home_info = result["home_info"]
+    click.echo("📥 Source")
+    click.echo(f"   Type: {home_info['type']}")
+    if home_info.get("path"):
+        click.echo(f"   Path: {home_info['path']}")
+    if home_info.get("table"):
+        click.echo(f"   Table: {home_info['table']}")
+    if home_info.get("connection"):
+        click.echo(f"   Connection: {home_info['connection']}")
+    click.echo("")
+
+    # Destination
+    store_info = result["store_info"]
+    click.echo("📤 Destination")
+    click.echo(f"   Type: {store_info['type']}")
+    if store_info.get("path"):
+        click.echo(f"   Path: {store_info['path']}")
+    if store_info.get("table"):
+        click.echo(f"   Table: {store_info['table']}")
+    if store_info.get("workspace"):
+        click.echo(f"   Workspace: {store_info['workspace']}")
+    if store_info.get("lakehouse"):
+        click.echo(f"   Lakehouse: {store_info['lakehouse']}")
+    click.echo("")
+
+    # Incremental
+    incremental_info = result.get("incremental_info", {})
+    if incremental_info.get("enabled"):
+        click.echo("💧 Incremental Mode: Enabled")
+        wm_col = incremental_info.get("watermark_column")
+        if wm_col:
+            click.echo(f"   Watermark column: {wm_col}")
+            click.echo(f"   Would process rows where {wm_col} > last_watermark")
+    else:
+        click.echo("💧 Mode: Full load")
+        click.echo("   Would process all rows")
+    click.echo("")
+
+    # Warnings
+    warnings = result.get("warnings", [])
+    if warnings:
+        for warning in warnings:
+            click.echo(f"⚠️  {warning}")
+        click.echo("")
+
+    click.echo("✓ Ready to preview")
+    click.echo("   (use 'hygge debug' to test connections)")
+    click.echo("")
 
 
 if __name__ == "__main__":
