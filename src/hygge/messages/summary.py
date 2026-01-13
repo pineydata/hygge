@@ -81,50 +81,151 @@ class Summary:
         # Add cozy spacing
         self.logger.info("")
 
-        # Hygge-style summary line - comfortable and clear
-        flow_word = "flow" if len(flow_results) == 1 else "flows"
-        self.logger.info(
-            f"Finished running {len(flow_results)} {flow_word} "
-            f"in {time_str} ({elapsed_time:.2f}s)."
-        )
-
-        # Final status line (green if all pass, red if failures)
+        # Celebratory completion or compassionate failure
         if failed == 0:
-            self.logger.info("Completed successfully", color_prefix="OK")
+            self._generate_success_summary(
+                flow_results, passed, skipped, total_rows, elapsed_time, time_str
+            )
         else:
-            self.logger.error("Completed with errors")
-
-        # Hygge-style status summary - natural and concise
-        if failed == 0 and skipped == 0:
-            # All passed - simple case
-            self.logger.info(f"{passed} {'flow' if passed == 1 else 'flows'} passed.")
-        else:
-            # Mixed results - show what matters
-            parts = []
-            if passed > 0:
-                parts.append(f"{passed} passed")
-            if failed > 0:
-                parts.append(f"{failed} failed")
-            if skipped > 0:
-                parts.append(f"{skipped} skipped")
-
-            status_str = ", ".join(parts)
-            self.logger.info(f"{status_str} ({len(flow_results)} total).")
-
-        # Optional: Show total rows processed
-        if total_rows > 0:
-            self.logger.info(f"Total rows processed: {total_rows:,}")
-            if elapsed_time > 0:
-                rate = total_rows / elapsed_time
-                self.logger.info(f"Overall rate: {rate:,.0f} rows/s")
+            self._generate_error_summary(
+                flow_results,
+                passed,
+                failed,
+                skipped,
+                total_rows,
+                elapsed_time,
+                time_str,
+            )
 
         # Add cozy spacing at end
         self.logger.info("")
 
-        # Show failed flow details - helpful, not just informative
+    def _generate_success_summary(
+        self,
+        flow_results: List[Dict[str, Any]],
+        passed: int,
+        skipped: int,
+        total_rows: int,
+        elapsed_time: float,
+        time_str: str,
+    ) -> None:
+        """Generate warm, celebratory success summary."""
+        self._log_success_header(passed, skipped)
+        self._log_success_stats(passed, skipped, total_rows, elapsed_time, time_str)
+        self._log_settled_flows(flow_results)
+
+    def _log_success_header(self, passed: int, skipped: int) -> None:
+        """Log celebratory header."""
+        if passed == 1 and skipped == 0:
+            self.logger.info("✨ All done! Your data is home.", color_prefix="OK")
+        else:
+            self.logger.info(
+                "✨ All done! Your data is cozy and settled.", color_prefix="OK"
+            )
+
+    def _log_success_stats(
+        self,
+        passed: int,
+        skipped: int,
+        total_rows: int,
+        elapsed_time: float,
+        time_str: str,
+    ) -> None:
+        """Log success statistics."""
+        self.logger.info("")
+        self.logger.info("📊 Summary:")
+
+        # Flow completion status
+        flow_word = "flow" if passed == 1 else "flows"
+        if skipped == 0:
+            self.logger.info(f"   • {passed} {flow_word} completed successfully")
+        else:
+            parts = []
+            if passed > 0:
+                parts.append(f"{passed} completed")
+            if skipped > 0:
+                parts.append(f"{skipped} skipped")
+            self.logger.info(f"   • {', '.join(parts)} ({passed + skipped} total)")
+
+        # Row count and timing
+        if total_rows > 0:
+            self.logger.info(f"   • {total_rows:,} rows moved to their new home")
+
+        if elapsed_time > 0:
+            rate = total_rows / elapsed_time if total_rows > 0 else 0
+            timing = f"   • Finished in {time_str}"
+            if rate > 0:
+                timing += f" ({rate:,.0f} rows/s)"
+            self.logger.info(timing)
+
+    def _log_settled_flows(self, flow_results: List[Dict[str, Any]]) -> None:
+        """Log where data settled for successful flows."""
+        passed_flows = [r for r in flow_results if r["status"] == "pass"]
+        if not passed_flows or len(passed_flows) > 10:
+            return  # Skip if no flows or too many to show
+
+        self.logger.info("")
+        self.logger.info("🏡 Your data is settled:")
+        for flow_result in passed_flows:
+            rows = flow_result.get("rows", 0)
+            rows_info = f"({rows:,} rows)" if rows > 0 else ""
+            self.logger.info(f"   ✓ {flow_result['name']} {rows_info}")
+
+    def _generate_error_summary(
+        self,
+        flow_results: List[Dict[str, Any]],
+        passed: int,
+        failed: int,
+        skipped: int,
+        total_rows: int,
+        elapsed_time: float,
+        time_str: str,
+    ) -> None:
+        """Generate compassionate error summary with guidance."""
+        self.logger.error("⚠️  Some flows need attention")
+        self._log_error_stats(passed, failed, skipped, total_rows, time_str)
+        self._log_failed_flows(flow_results)
+        self._log_next_steps()
+
+    def _log_error_stats(
+        self, passed: int, failed: int, skipped: int, total_rows: int, time_str: str
+    ) -> None:
+        """Log error summary statistics."""
+        self.logger.info("")
+        self.logger.info("📊 Summary:")
+
+        # Build status summary
+        parts = []
+        if passed > 0:
+            parts.append(f"{passed} succeeded")
         if failed > 0:
-            self.logger.error("Failed flows:")
-            for flow_result in flow_results:
-                if flow_result["status"] == "fail":
-                    error_msg = flow_result.get("error", "Unknown error")
-                    self.logger.error(f"  {flow_result['name']}: {error_msg}")
+            parts.append(f"{failed} failed")
+        if skipped > 0:
+            parts.append(f"{skipped} skipped")
+
+        total = passed + failed + skipped
+        self.logger.info(f"   • {', '.join(parts)} ({total} total)")
+
+        if total_rows > 0:
+            self.logger.info(f"   • {total_rows:,} rows processed")
+
+        self.logger.info(f"   • Ran for {time_str}")
+
+    def _log_failed_flows(self, flow_results: List[Dict[str, Any]]) -> None:
+        """Log details about failed flows."""
+        self.logger.info("")
+        self.logger.error("❌ Flows that need attention:")
+        for flow_result in flow_results:
+            if flow_result["status"] == "fail":
+                error_msg = flow_result.get("error", "Unknown error")
+                first_line = error_msg.split("\n")[0]  # Just first line for summary
+                self.logger.error(f"   • {flow_result['name']}")
+                self.logger.error(f"     {first_line}")
+
+    def _log_next_steps(self) -> None:
+        """Log helpful next steps for fixing errors."""
+        self.logger.info("")
+        self.logger.info("💡 Next steps:")
+        self.logger.info("   • Check the error messages above")
+        self.logger.info("   • Run: hygge debug --flow <flow_name>")
+        self.logger.info("   • Fix the issues and try again")

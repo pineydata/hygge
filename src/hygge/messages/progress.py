@@ -79,7 +79,8 @@ class Progress:
                 )
                 if elapsed > 0:
                     rate = milestone / elapsed
+                    # Narrative milestone message
                     self.logger.info(
-                        f"PROCESSED {milestone:,} rows in {elapsed:.1f}s "
+                        f"📊 Milestone: {milestone:,} rows moved in {elapsed:.1f}s "
                         f"({rate:,.0f} rows/s)"
                     )

@@ -353,21 +353,32 @@ class Store(ABC):
                 )
             return data
 
-    def _log_write_progress(self, rows_written: int) -> None:
+    def _log_write_progress(
+        self, rows_written: int, path: Optional[str] = None
+    ) -> None:
         """
-        Log write progress at regular intervals (DEBUG level).
+        Log write progress at regular intervals (DEBUG level) with narrative details.
 
         Called by subclasses after saving data. Accumulates rows
         and logs at progress_interval (matches home read cadence).
 
         Args:
             rows_written: Number of rows just written
+            path: Optional path where data was written (for narrative context)
         """
         self.rows_since_last_log += rows_written
 
         # Log only when we hit the progress interval (same as home reads)
         if self.rows_since_last_log >= self.progress_interval:
-            self.logger.debug(f"WROTE {self.rows_since_last_log:,} rows")
+            # Narrative progress message with concrete details
+            if path:
+                # Show where the data settled
+                self.logger.debug(
+                    f"✍️  Wrote {self.rows_since_last_log:,} rows → {path}"
+                )
+            else:
+                # Fallback for non-file stores
+                self.logger.debug(f"✍️  Wrote {self.rows_since_last_log:,} rows")
             self.rows_since_last_log = 0
 
     @abstractmethod

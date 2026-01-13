@@ -489,8 +489,8 @@ class ADLSStore(Store, store_type="adls"):
             # Upload to cloud staging location
             await adls_ops.upload_bytes(data, cloud_staging_path)
 
-            # Log write progress using base class method
-            self._log_write_progress(len(df))
+            # Log write progress using base class method with cloud path context
+            self._log_write_progress(len(df), path=cloud_staging_path)
 
             # Track cloud path for moving to final location
             if not hasattr(self, "saved_paths"):

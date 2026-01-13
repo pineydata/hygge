@@ -1,66 +1,60 @@
 ---
-title: PR Summary - Add --dry-run flag for previewing flows
+title: PR Summary - Narrative Progress & Completion Messages
 tags: [enhancement, feature]
 ---
 
 ## Overview
 
-- Add `--dry-run` flag to preview flow execution without moving data or connecting to sources/destinations
-- Users can verify configuration before running actual data movement
-- Supports both concise (one-line per flow) and verbose (detailed) output via `--verbose` flag
-- Refactored coordinator to eliminate ~40 lines of duplicated setup logic
+- Added warm, narrative progress messages with emojis and file paths during data movement
+- Enhanced completion summaries with celebratory success messages and compassionate error guidance
+- Streamlined code to maintain hygge balance - removed complexity, kept warmth
 
 ## Key Changes
 
-### CLI & Preview Output
+### Progress Messages
 
-- `src/hygge/cli.py`:
-  - Added `--dry-run` flag to `hygge go` command
-  - Implemented concise and verbose formatting for preview results
-  - Shows flow name, source → destination types, incremental/full load mode, and warnings
-  - Fail-fast on required fields instead of silent fallbacks
+- `src/hygge/messages/progress.py`:
+  - Changed milestone messages to use "moved" language with 📊 emoji for warmth
+- `src/hygge/core/store.py`:
+  - Added optional `path` parameter to `_log_write_progress()` to show where data is written
+- `src/hygge/stores/parquet/store.py`, `adls/store.py`, `sqlite/store.py`, `mssql/store.py`, `openmirroring/store.py`:
+  - Updated all stores to pass file/table paths to progress logger for concrete context
 
-### Flow Preview Logic
+### Flow Journey Logging
 
 - `src/hygge/core/flow/flow.py`:
-  - Added `Flow.preview()` method that extracts config info without I/O
-  - Returns home/store types, paths, incremental settings, and detected warnings
-  - True dry-run: no connections, no data reads, config-only inspection
+  - Added `_log_journey_start()` to log data journey at DEBUG level (source → destination)
+  - Added batch completion messages with running totals
 
-### Coordinator Orchestration
+### Completion Summaries
 
-- `src/hygge/core/coordinator.py`:
-  - Extracted `_prepare_for_execution()` to eliminate DRY violation between `preview()` and `run()`
-  - Added `preview()` method to orchestrate multi-flow previews
-  - Reduced code by 27 lines through refactoring
-
-### Documentation
-
-- `README.md`:
-  - Added "Preview What Would Run" section with usage examples
-  - Shows both concise and verbose output formats
-- `.gitignore`:
-  - Ignored test demo project directory
+- `src/hygge/messages/summary.py`:
+  - Split `generate_summary()` into focused methods for success and error cases
+  - Success: Celebratory messages with "✨ All done!" and detailed flow results
+  - Errors: Compassionate "⚠️ Some flows need attention" with helpful next steps
+  - Broke large methods into smaller helpers for better maintainability
 
 ### Tests
 
-- `tests/unit/hygge/test_dry_run.py`:
-  - 6 new tests covering flow preview, coordinator preview, and formatting
-  - Tests verify no-connection behavior and config-only inspection
+- `tests/unit/hygge/messages/test_completion_narrative.py`, `test_narrative_progress.py`: New behavioral tests for narrative improvements
+- `tests/unit/hygge/messages/test_summary.py`: Replaced 30+ brittle tests checking exact wording with 9 focused behavioral tests
+- `tests/unit/hygge/messages/test_progress.py`: Updated assertions to match new message format
+
+### Documentation
+
+- `.issues/hygge-feels-hyggesque.md`: Updated to mark narrative progress as complete
 
 ## Testing
 
-- All tests passing: `pytest tests/unit/hygge/test_dry_run.py` (6 tests)
-- Existing test suite continues to pass
-- Pre-commit hooks passing (ruff, formatting, etc.)
+All tests passing: 29 message tests collected, all passing
 
-## Philosophy Alignment
+## Hygge Balance
 
-- **Safety & Trust**: Preview before execution reduces risk
-- **Convention over Configuration**: Zero config needed, just add `--dry-run`
-- **Comfort Over Complexity**: Simple flag, natural output
-- **Fail Fast**: No silent fallbacks, clear error messages
+This PR maintains hygge's principle of **comfort without complexity**:
+- Net reduction: ~205 lines removed (simplified tests, streamlined flow methods)
+- Warmth added where it matters: user-visible progress and summaries
+- No maintenance burden: behavioral tests, not brittle message checks
 
 ---
 
-**Remember to add GitHub labels**: `enhancement`, `feature` for proper release notes categorization
+**Note**: Remember to add `enhancement` and `feature` labels to the PR for proper release note categorization.

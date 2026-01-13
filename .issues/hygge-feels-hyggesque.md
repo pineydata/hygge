@@ -9,7 +9,7 @@
 - **Comma-separated CLI arguments** - Clean syntax for running multiple flows without quoting complexity
 - **Enhanced `hygge debug`** - Your trusted companion that validates configuration, tests connections, and checks paths before you run
 - **`--dry-run` flag** - Preview exactly what would happen without connecting to sources or moving data
-- **Narrative progress messages** - Warm, storytelling progress with emojis and file paths ✨ **NEW**
+- **Narrative progress messages** - Transform mechanical updates into storytelling that keeps users connected to their data's journey ✨ **NEW**
 
 ### What We Built: `--dry-run` Flag ✅
 
@@ -81,13 +81,35 @@ With `--dry-run` complete, we now have:
 3. 🚧 **When things break**: Stack traces need friendly guidance
 
 **Option B: Narrative Progress Messages (Daily Experience)** 👈 *Recommended Next*
-- Transform "Processing 300,000 rows..." into storytelling
-- Show concrete details: batch numbers, file names, row counts
-- Use warm, approachable language throughout
-- **Why this matters**: Most visible improvement to daily usage - users see this every time they run hygge
-- **Why now**: We've built the "before" experience, now improve the "during" experience
-- **Effort**: Medium-Large (2-3 sessions, touches core flow execution)
-- **Files to touch**: `src/hygge/messages/progress.py`, `src/hygge/core/flow/flow.py`, flow execution
+
+Transform the running experience from mechanical updates into storytelling that keeps users connected to their data's journey.
+
+**The transformation:**
+- **Instead of**: "Processing 300,000 rows..."
+- **We want**: "Settling 300,000 rows into their new home...
+  - Reading batch 1/10 (30,000 rows) from users.parquet
+  - Writing to data/lake/users/2026-01-13.parquet
+  - Schema verified: 10 columns, all types match
+  - Batch complete, moving on..."
+
+**Why this is the right next step:**
+- **Most visible impact**: Users see progress messages every single time they run hygge - this is the daily experience
+- **Complete the journey**: We've built confidence *before* running (`debug` + `--dry-run`). Now make the *during* experience just as cozy
+- **Happy path first**: Get the core experience feeling right before tackling error cases
+- **Natural progression**: Foundation is solid, time to add warmth where users spend most of their time
+
+**What makes good progress messages:**
+- **Concrete details**: Actual file names, real row counts, specific batch numbers
+- **Clear stages**: Connect → Read → Transform → Write → Verify → Complete
+- **Warm language**: "Settling rows into their new home" not "Writing records to destination"
+- **Helpful context**: Show what's happening and why (schema verification, integrity checks)
+- **Sense of progress**: Clear indication of where we are in the journey
+
+**Implementation approach:**
+- **Effort**: Medium-Large (2-3 sessions)
+- **Core files**: `src/hygge/messages/progress.py`, `src/hygge/core/flow/flow.py`
+- **Strategy**: Enhance existing progress hooks with richer narrative context
+- **Testing**: Verify messages appear correctly in both normal and verbose modes
 
 **Option C: Friendly Error Messages (When Things Go Wrong)**
 - Replace stack traces with helpful guidance
@@ -124,24 +146,40 @@ Every interaction should feel like a friend is keeping you company – not like 
 
 ### Progress Messages That Tell a Story
 
-Replace generic, mechanical feedback with concrete, narrative updates:
+**The core principle:** Progress messages should feel like a friend narrating what's happening with your data, using concrete details and warm language.
 
-**Instead of:**
+**Current state (mechanical):**
 ```
 Processing 300,000 rows...
+Batch 1/10 complete
+Batch 2/10 complete
+...
+Done
 ```
 
-**Aim for:**
+**Desired state (narrative):**
 ```
-Settling 300,000 rows into their new home...
-- Connecting to source
-- Reading data batch 1/10 (30,000 rows)
-- Writing batch to destination: data/users.parquet
-- Schema mapped: 10 columns, 0 warnings
-- Verifying integrity and finishing up
+🏠 Moving 300,000 rows from users.parquet to data/lake/users
+
+📖 Reading batch 1/10
+   • Source: data/source/users.parquet
+   • Rows: 30,000
+   • Columns: 10 (id, name, email, created_at, ...)
+
+✍️  Writing to destination
+   • Target: data/lake/users/2026-01-13.parquet
+   • Schema verified: all types match
+   • Batch complete (30,000 rows settled)
+
+📖 Reading batch 2/10...
 ```
 
-Progress messages should clearly tell the user what's happening—data counts, files, batches, finishing steps—in plain, approachable language.
+**What makes this better:**
+- **Concrete paths**: Show actual file names users can verify
+- **Clear stages**: Reading, writing, verifying - not just "processing"
+- **Human scale**: Row counts and batch progress give a sense of movement
+- **Warm language**: "Settled" instead of "written", "moving" instead of "transferring"
+- **Actionable info**: Users can see exactly what files are being touched
 
 ### Errors That Guide You Home
 

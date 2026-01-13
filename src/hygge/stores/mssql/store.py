@@ -197,8 +197,9 @@ class MssqlStore(Store, store_type="mssql"):
         self.batches_written += 1
         self.rows_written += len(df)
 
-        # Log write progress using base class method (DEBUG level)
-        self._log_write_progress(len(df))
+        # Log write progress using base class method (DEBUG level) with table context
+        table_path = f"{self.temp_table}"
+        self._log_write_progress(len(df), path=table_path)
 
         # Detailed batch info at DEBUG level
         rows_per_sec = len(df) / elapsed if elapsed > 0 else 0
