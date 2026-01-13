@@ -160,11 +160,15 @@ class Coordinator:
         self._journal_cache: Dict[str, Journal] = {}
         self.flow_run_ids: Dict[str, str] = {}
 
-    async def _prepare_for_execution(self) -> None:
+    async def _prepare_for_execution(self, skip_connection_pools: bool = False) -> None:
         """
         Load config, initialize pools, and create flows.
 
         Shared setup logic for both run() and preview().
+
+        Args:
+            skip_connection_pools: If True, skip connection pool initialization.
+                Used during dry-run preview to avoid connecting to databases.
         """
         # Load configuration if not already loaded
         if self.config is None:
@@ -176,8 +180,9 @@ class Coordinator:
             self.config = self._workspace.prepare()
             self.project_config = self._workspace.config
 
-        # Initialize connection pools
-        await self._initialize_connection_pools()
+        # Initialize connection pools (skip for dry-run preview)
+        if not skip_connection_pools:
+            await self._initialize_connection_pools()
 
         # Create flows
         self._create_flows()
@@ -210,7 +215,8 @@ class Coordinator:
             List of preview info dicts for CLI formatting.
         """
         try:
-            await self._prepare_for_execution()
+            # Skip connection pool initialization during dry-run
+            await self._prepare_for_execution(skip_connection_pools=True)
             return await self._preview_flows()
 
         finally:
