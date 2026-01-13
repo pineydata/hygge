@@ -480,7 +480,7 @@ class Flow:
 
     def _log_journey_start(self) -> None:
         """Log data journey start at DEBUG level."""
-        # Simple attribute access for logging - no fallbacks, fail if missing
+        # Try common path attributes with fallback to generic labels
         home_path = str(
             getattr(self.home, "data_path", None)
             or getattr(self.home, "path", None)

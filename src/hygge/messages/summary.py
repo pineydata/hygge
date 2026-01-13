@@ -116,7 +116,10 @@ class Summary:
 
     def _log_success_header(self, passed: int, skipped: int) -> None:
         """Log celebratory header."""
-        if passed == 1 and skipped == 0:
+        if passed == 0:
+            # All flows skipped - no data moved
+            self.logger.info("✨ All flows skipped - no data moved", color_prefix="OK")
+        elif passed == 1 and skipped == 0:
             self.logger.info("✨ All done! Your data is home.", color_prefix="OK")
         else:
             self.logger.info(
@@ -227,5 +230,5 @@ class Summary:
         self.logger.info("")
         self.logger.info("💡 Next steps:")
         self.logger.info("   • Check the error messages above")
-        self.logger.info("   • Run: hygge debug --flow <flow_name>")
+        self.logger.info("   • Run: hygge debug")
         self.logger.info("   • Fix the issues and try again")
