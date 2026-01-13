@@ -203,7 +203,7 @@ store:
                 assert "Project configuration is valid" in result.output
                 assert "Project: test_project" in result.output
                 assert "Flows directory: flows" in result.output
-                assert "Number of entities: 1" in result.output
+                assert "Total flows: 1" in result.output
                 assert "test_flow" in result.output
 
             finally:
@@ -219,7 +219,10 @@ store:
                 result = cli_runner.invoke(hygge, ["debug"])
 
                 assert result.exit_code == 1
-                assert "Configuration error" in result.output
+                assert (
+                    "Configuration Error" in result.output
+                    or "Configuration error" in result.output
+                )
 
             finally:
                 os.chdir(original_cwd)
@@ -277,7 +280,99 @@ columns:
                 result = cli_runner.invoke(hygge, ["debug"])
 
                 assert result.exit_code == 0
-                assert "Entities: 1" in result.output
+                assert "entities ready to move" in result.output
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_debug_shows_warm_messages(self, cli_runner):
+        """Test that hygge debug shows warm, friendly messages."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create project structure
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+"""
+            )
+
+            # Create the paths so validation passes
+            (temp_path / "data" / "source").mkdir(parents=True)
+            (temp_path / "data").mkdir(exist_ok=True)
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                result = cli_runner.invoke(hygge, ["debug"])
+
+                assert result.exit_code == 0
+                # Check for warm welcome
+                assert "🏡" in result.output or "hygge debug" in result.output
+                # Check for friendly icons
+                assert "✓" in result.output
+                # Check for next steps
+                assert "Next steps" in result.output or "hygge go" in result.output
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_debug_validates_missing_paths(self, cli_runner):
+        """Test that hygge debug warns about missing paths."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create project with flow pointing to non-existent paths
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+
+            flow_file = flow_dir / "flow.yml"
+            flow_file.write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/missing_source"
+store:
+  type: "parquet"
+  path: "data/destination"
+"""
+            )
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                result = cli_runner.invoke(hygge, ["debug"])
+
+                assert result.exit_code == 0
+                # Should show path validation
+                assert "Validating paths" in result.output
+                # Should show warning about missing path
+                assert "⚠️" in result.output or "doesn't exist" in result.output.lower()
 
             finally:
                 os.chdir(original_cwd)
@@ -663,6 +758,151 @@ store:
 
                 # Should succeed with custom concurrency
                 assert result.exit_code == 0
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_go_with_multiple_flows_comma_separated(self, cli_runner):
+        """Test that hygge go --flow accepts comma-separated flow names."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            # Create project with multiple flows
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            # Create first flow
+            flow1_dir = flows_dir / "flow1"
+            flow1_dir.mkdir()
+            (flow1_dir / "flow.yml").write_text(
+                """
+name: "flow1"
+home:
+  type: "parquet"
+  path: "data/flow1"
+store:
+  type: "parquet"
+  path: "out/flow1"
+"""
+            )
+
+            # Create second flow
+            flow2_dir = flows_dir / "flow2"
+            flow2_dir.mkdir()
+            (flow2_dir / "flow.yml").write_text(
+                """
+name: "flow2"
+home:
+  type: "parquet"
+  path: "data/flow2"
+store:
+  type: "parquet"
+  path: "out/flow2"
+"""
+            )
+
+            # Create data directories and files for both flows
+            (temp_path / "data" / "flow1").mkdir(parents=True)
+            (temp_path / "data" / "flow2").mkdir(parents=True)
+            (temp_path / "out" / "flow1").mkdir(parents=True)
+            (temp_path / "out" / "flow2").mkdir(parents=True)
+            test_data = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+            test_data.write_parquet(temp_path / "data" / "flow1" / "test.parquet")
+            test_data.write_parquet(temp_path / "data" / "flow2" / "test.parquet")
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                # Test comma-separated flows: --flow flow1,flow2
+                result = cli_runner.invoke(hygge, ["go", "--flow", "flow1,flow2"])
+
+                # Should succeed and run both flows
+                assert result.exit_code == 0
+                assert "Starting flows: flow1, flow2" in result.output
+
+            finally:
+                os.chdir(original_cwd)
+
+    def test_go_with_multiple_entities_comma_separated(self, cli_runner):
+        """Test that hygge go --entity accepts comma-separated entity names."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+
+            hygge_file = temp_path / "hygge.yml"
+            hygge_file.write_text('name: "test_project"\nflows_dir: "flows"')
+
+            flows_dir = temp_path / "flows"
+            flows_dir.mkdir()
+
+            flow_dir = flows_dir / "test_flow"
+            flow_dir.mkdir()
+            (flow_dir / "flow.yml").write_text(
+                """
+name: "test_flow"
+home:
+  type: "parquet"
+  path: "data/source"
+store:
+  type: "parquet"
+  path: "data/destination"
+"""
+            )
+
+            # Create entities directory
+            entities_dir = flow_dir / "entities"
+            entities_dir.mkdir()
+
+            (entities_dir / "users.yml").write_text(
+                """
+name: "users"
+columns:
+  - id
+  - name
+"""
+            )
+
+            (entities_dir / "orders.yml").write_text(
+                """
+name: "orders"
+columns:
+  - id
+  - user_id
+"""
+            )
+
+            # Create data directories and files for both entities
+            (temp_path / "data" / "source" / "users").mkdir(parents=True)
+            (temp_path / "data" / "source" / "orders").mkdir(parents=True)
+            (temp_path / "data" / "destination" / "users").mkdir(parents=True)
+            (temp_path / "data" / "destination" / "orders").mkdir(parents=True)
+
+            test_data_users = pl.DataFrame({"id": [1, 2, 3], "name": ["a", "b", "c"]})
+            test_data_users.write_parquet(
+                temp_path / "data" / "source" / "users" / "test.parquet"
+            )
+
+            test_data_orders = pl.DataFrame({"id": [1, 2], "user_id": [1, 2]})
+            test_data_orders.write_parquet(
+                temp_path / "data" / "source" / "orders" / "test.parquet"
+            )
+
+            original_cwd = Path.cwd()
+            os.chdir(temp_path)
+
+            try:
+                # Test comma-separated entities: --entity flow.entity1,flow.entity2
+                result = cli_runner.invoke(
+                    hygge, ["go", "--entity", "test_flow.users,test_flow.orders"]
+                )
+
+                # Should succeed and run both entity flows
+                assert result.exit_code == 0
+                assert "test_flow_users" in result.output
+                assert "test_flow_orders" in result.output
 
             finally:
                 os.chdir(original_cwd)

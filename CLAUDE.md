@@ -6,6 +6,8 @@ A cozy, comfortable data movement framework that makes data feel at home.
 
 **Always ask permission before running terminal commands** - Request explicit approval before executing any commands that could affect the system. Provide guidance and code suggestions, but ask before running commands.
 
+**Always be candid and direct** - If a request is confusing or risks over-engineering feel free to be direct and challenge my assumptions.
+
 ## Project Overview
 
 hygge (pronounced "hoo-ga") is a data movement framework for solo developers/small teams. **Not a commercial product** - focus on comfort over enterprise rigor.

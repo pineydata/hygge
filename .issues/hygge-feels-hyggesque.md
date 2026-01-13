@@ -110,6 +110,94 @@ Replace technical errors with helpful guidance:
 - Point to relevant documentation
 - Make users feel supported, not abandoned
 
+## Recent CLI Improvements
+
+### Enhanced `hygge debug` Command ✅
+Your trusted companion that makes sure everything feels right before you run.
+
+**Before:** Basic configuration validation with technical output
+**After:** Warm, helpful guidance with actionable insights
+
+**What it does now:**
+- 🏡 **Warm welcome** - Feels like a friend checking in
+- ✓ **Configuration validation** - Clear, friendly status messages
+- 📋 **Flow discovery** - Shows all your flows in a readable format
+- 🔌 **Connection testing** - Tests database connections with helpful feedback
+- 📁 **Path validation** - Checks that source/destination paths exist
+- ✨ **Success summary** - Clear next steps when everything looks good
+- ❌ **Helpful error messages** - Actionable guidance when things need attention
+
+**Example output:**
+```
+🏡 hygge debug - Let's make sure everything feels right
+
+✓ Project configuration is valid
+  Project: my_project
+  Flows directory: flows
+  Total flows: 3
+
+📋 Discovered Flows:
+  • salesforce
+    3 entities ready to move
+      - Account
+      - Contact
+      - Opportunity
+
+🔌 Testing 1 database connection(s)...
+  my_database
+    Type: mssql
+    Server: localhost
+    Database: prod
+    ✓ Connection successful!
+
+📁 Validating paths...
+  ⚠️  Home path doesn't exist: data/source
+     Flow: users_to_lake
+     💡 Create it: mkdir -p data/source
+
+✨ Everything looks good!
+   Your hygge project is ready to go.
+
+💡 Next steps:
+   • Run: hygge go
+   • Or run specific flows: hygge go --flow flow_name
+```
+
+### Comma-Separated Flow Arguments ✅
+Clean, simple syntax for running multiple flows without quoting headaches.
+
+**Single flow:**
+```bash
+hygge go --flow salesforce
+```
+
+**Multiple flows (comma-separated, no spaces needed):**
+```bash
+hygge go --flow flow1,flow2,flow3
+```
+
+**Multiple entities:**
+```bash
+hygge go --entity salesforce.Involvement,salesforce.Account,salesforce.Contact
+```
+
+**Real-world examples:**
+```bash
+# Run multiple flows at once
+hygge go --flow salesforce,users_to_lake,orders_to_warehouse
+
+# Run specific entities from a flow
+hygge go --entity salesforce.Account,salesforce.Contact,salesforce.Opportunity
+
+# Combine with other flags
+hygge go --flow salesforce,users --incremental --concurrency 4
+```
+
+**Help text is now clearer:**
+- Shows both single and multiple examples
+- Explicitly mentions comma-separation for multiple values
+- Format: `--flow flow1,flow2,flow3` (no spaces around commas needed, but tolerated)
+
 ## Success Criteria
 
 After this work:

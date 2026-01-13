@@ -159,21 +159,22 @@ source_config:
 @click.option(
     "--flow",
     "-f",
-    multiple=True,
+    "flow_names",
     help=(
-        "Run specific flow(s) by name. Can be specified multiple times or "
-        "comma-separated. Supports base flow names (e.g., 'salesforce') or "
+        "Run specific flow(s) by name (comma-separated for multiple). "
+        "Supports base flow names (e.g., 'salesforce') or "
         "entity flow names (e.g., 'salesforce_Involvement'). "
-        "Example: --flow salesforce --flow users_to_lake"
+        "Examples: --flow salesforce OR --flow flow1,flow2,flow3"
     ),
 )
 @click.option(
     "--entity",
     "-e",
-    multiple=True,
+    "entity_names",
     help=(
-        "Run specific entity(ies) within a flow. Format: flow.entity. "
-        "Example: --entity salesforce.Involvement --entity salesforce.Account"
+        "Run specific entity(ies) within a flow (comma-separated for multiple). "
+        "Format: flow.entity. "
+        "Examples: --entity salesforce.Account OR --entity flow1.users,flow1.orders"
     ),
 )
 @click.option(
@@ -213,8 +214,8 @@ source_config:
     ),
 )
 def go(
-    flow: tuple,
-    entity: tuple,
+    flow_names: Optional[str],
+    entity_names: Optional[str],
     incremental: bool,
     full_drop: bool,
     concurrency: Optional[int],
@@ -237,16 +238,14 @@ def go(
         # Parse flow filter from --flow and --entity options
         flow_filter = []
 
-        # Parse --flow options (can be comma-separated)
-        for flow_str in flow:
-            # Split comma-separated flows
-            flows = [f.strip() for f in flow_str.split(",") if f.strip()]
+        # Parse --flow option (comma-separated string)
+        if flow_names:
+            flows = [f.strip() for f in flow_names.split(",") if f.strip()]
             flow_filter.extend(flows)
 
-        # Parse --entity options (format: flow.entity)
-        for entity_str in entity:
-            # Split comma-separated entities
-            entities = [e.strip() for e in entity_str.split(",") if e.strip()]
+        # Parse --entity option (comma-separated, format: flow.entity)
+        if entity_names:
+            entities = [e.strip() for e in entity_names.split(",") if e.strip()]
             for entity_spec in entities:
                 if "." not in entity_spec:
                     click.echo(
@@ -393,14 +392,17 @@ def debug():
     logger = get_logger("hygge.cli.debug")
 
     try:
+        # Warm welcome
+        click.echo("🏡 hygge debug - Let's make sure everything feels right\n")
+
         # Use Workspace to load configuration
         workspace = Workspace.find()
         config = workspace.prepare()
 
-        click.echo("Project configuration is valid")
-        click.echo("Project: {}".format(workspace.name))
-        click.echo("Flows directory: {}".format(workspace.flows_dir))
-        click.echo("Number of entities: {}".format(len(config.entities)))
+        click.echo("✓ Project configuration is valid")
+        click.echo(f"  Project: {workspace.name}")
+        click.echo(f"  Flows directory: {workspace.flows_dir}")
+        click.echo(f"  Total flows: {len(config.entities)}\n")
 
         # Group entities by base_flow_name
         flows_dict = {}
@@ -410,29 +412,29 @@ def debug():
                 flows_dict[base_flow] = []
             flows_dict[base_flow].append(entity)
 
-        # List flows and their entities
+        # List flows and their entities with warm messaging
+        click.echo("📋 Discovered Flows:")
         for base_flow_name, entities in flows_dict.items():
-            click.echo(f"   {base_flow_name}")
+            click.echo(f"  • {base_flow_name}")
             if len(entities) > 1 or (len(entities) == 1 and entities[0].entity_name):
-                click.echo(f"      Entities: {len(entities)}")
+                click.echo(f"    {len(entities)} entities ready to move")
                 for entity in entities:
                     if entity.entity_name:
-                        click.echo(
-                            f"         - {entity.entity_name} ({entity.flow_name})"
-                        )
+                        click.echo(f"      - {entity.entity_name}")
                     else:
-                        click.echo(f"         - {entity.flow_name} (implicit)")
+                        click.echo("      - (direct flow)")
+        click.echo()
 
         # Test all configured connections
         connections = config.connections
         if connections:
-            click.echo(f"\nTesting {len(connections)} database connections...")
+            click.echo(f"🔌 Testing {len(connections)} database connection(s)...\n")
 
             for conn_name, conn_config in connections.items():
-                click.echo(f"\n   Testing connection: {conn_name}")
-                click.echo(f"      Type: {conn_config.get('type', 'unknown')}")
-                click.echo(f"      Server: {conn_config.get('server', 'unknown')}")
-                click.echo(f"      Database: {conn_config.get('database', 'unknown')}")
+                click.echo(f"  {conn_name}")
+                click.echo(f"    Type: {conn_config.get('type', 'unknown')}")
+                click.echo(f"    Server: {conn_config.get('server', 'unknown')}")
+                click.echo(f"    Database: {conn_config.get('database', 'unknown')}")
 
                 try:
                     # Test the connection based on type
@@ -442,34 +444,110 @@ def debug():
                         asyncio.run(_test_mssql_connection(conn_name, conn_config))
                     else:
                         click.echo(
-                            f"      WARNING: Connection type "
-                            f"'{conn_type}' not supported"
+                            f"    ⚠️  Connection type '{conn_type}' "
+                            "not yet supported for testing"
                         )
 
                 except Exception as e:
-                    click.echo(f"      Connection failed: {str(e)}")
-                    # Show more detailed error information
-                    import traceback
-
-                    click.echo(f"      Error details: {traceback.format_exc()}")
+                    click.echo("    ❌ Connection failed")
+                    click.echo(f"    Problem: {str(e)}")
+                    click.echo("    💡 Try: Check your credentials and network access")
+                click.echo()
         else:
-            click.echo("\nNo database connections configured")
+            click.echo("ℹ️  No database connections configured (that's okay!)\n")
+
+        # Add path validation for flows
+        click.echo("📁 Validating paths...")
+        _validate_flow_paths(config, workspace)
+
+        # Success summary
+        click.echo("\n✨ Everything looks good!")
+        click.echo("   Your hygge project is ready to go.")
+        click.echo("\n💡 Next steps:")
+        click.echo("   • Run: hygge go")
+        click.echo("   • Or run specific flows: hygge go --flow flow_name")
 
         logger.info("Project configuration debug completed")
 
     except ConfigError as e:
-        click.echo(f"Configuration error: {e}")
+        click.echo("\n❌ Configuration Error")
+        click.echo(f"   {e}")
+        click.echo("\n💡 What to do:")
+        click.echo("   • Check your hygge.yml and flow.yml files")
+        click.echo("   • Make sure all required fields are present")
+        click.echo("   • Verify YAML syntax is correct")
         sys.exit(1)
     except Exception as e:
-        click.echo(f"Error: {e}")
+        click.echo("\n❌ Unexpected Error")
+        click.echo(f"   {e}")
+        click.echo("\n💡 This might help:")
+        click.echo("   • Check file permissions")
+        click.echo("   • Verify you're in a hygge project directory")
+        click.echo("   • Look for a hygge.yml file in the current or parent directory")
         logger.error(f"Error debugging configuration: {e}")
         sys.exit(1)
 
 
+def _validate_flow_paths(config, workspace):
+    """Validate that paths referenced in flows exist and are accessible."""
+    from pathlib import Path
+
+    issues_found = []
+    paths_checked = 0
+
+    for entity in config.entities:
+        flow_config = entity.flow_config
+
+        # Check home paths (for parquet homes)
+        home = flow_config.home
+        if isinstance(home, dict):
+            home_type = home.get("type", "")
+            if home_type == "parquet":
+                home_path = home.get("path")
+                if home_path:
+                    paths_checked += 1
+                    full_path = Path(workspace.root) / home_path
+                    if not full_path.exists():
+                        issues_found.append(
+                            f"  ⚠️  Home path doesn't exist: {home_path}"
+                        )
+                        issues_found.append(f"     Flow: {entity.base_flow_name}")
+                        issues_found.append(f"     💡 Create it: mkdir -p {home_path}")
+
+        # Check store paths (for parquet stores)
+        store = flow_config.store
+        if isinstance(store, dict):
+            store_type = store.get("type", "")
+            if store_type == "parquet":
+                store_path = store.get("path")
+                if store_path:
+                    paths_checked += 1
+                    full_path = Path(workspace.root) / store_path
+                    # For stores, check if parent directory exists
+                    # (store path will be created)
+                    parent = full_path.parent
+                    if not parent.exists():
+                        issues_found.append(
+                            f"  ⚠️  Store parent directory " f"doesn't exist: {parent}"
+                        )
+                        issues_found.append(f"     Flow: {entity.base_flow_name}")
+                        issues_found.append(f"     💡 Create it: mkdir -p {parent}")
+
+    if issues_found:
+        warning_count = len([i for i in issues_found if i.startswith("  ⚠️")])
+        click.echo(f"  Found issues with {warning_count} path(s):")
+        for issue in issues_found:
+            click.echo(issue)
+        click.echo()
+    else:
+        if paths_checked > 0:
+            click.echo(f"  ✓ All {paths_checked} path(s) look good\n")
+        else:
+            click.echo("  ℹ️  No local paths to validate\n")
+
+
 async def _test_mssql_connection(conn_name: str, conn_config: dict):
     """Test MSSQL connection with detailed feedback."""
-    click.echo("      Connecting...")
-
     try:
         # Import here to avoid circular imports
         from hygge.connections import MssqlConnection
@@ -487,20 +565,19 @@ async def _test_mssql_connection(conn_name: str, conn_config: dict):
         )
 
         # Test connection
-        click.echo("      Testing query...")
         connection = await connection_factory.get_connection()
 
         # Run a simple test query
         cursor = connection.cursor()
         cursor.execute("SELECT 1 as test_value")
-        result = cursor.fetchone()
+        cursor.fetchone()  # Just test the query works
         cursor.close()
         connection.close()
 
-        click.echo(f"      Connection successful! Test query returned: {result[0]}")
+        click.echo("    ✓ Connection successful!")
 
     except Exception as e:
-        raise Exception(f"MSSQL connection test failed: {str(e)}")
+        raise Exception(f"{str(e)}")
 
 
 if __name__ == "__main__":
