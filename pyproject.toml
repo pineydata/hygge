@@ -1,6 +1,6 @@
 [project]
 name = "hygge"
-version = "0.6.0"
+version = "0.6.1"
 description = "Modern data movement framework"
 authors = [
     {name = "Nick Teff", email = "nick@pineydata.com"},
