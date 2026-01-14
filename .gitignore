@@ -8,6 +8,11 @@ utils/
 logs/
 data/
 
+# Working directories (not part of the package)
+.issues/
+.llm/
+.progress/
+
 # Python
 __pycache__/
 *.py[cod]
