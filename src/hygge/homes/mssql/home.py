@@ -6,7 +6,7 @@ and efficient batching with Polars.
 """
 import asyncio
 import re
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import polars as pl
 from pydantic import Field, model_validator
@@ -354,6 +354,83 @@ class MssqlHome(Home, home_type="mssql"):
             return f"{stripped_query} AND {filter_clause}{suffix}"
 
         return f"{stripped_query} WHERE {filter_clause}{suffix}"
+
+    async def find_keys(self, key_columns: List[str]) -> Optional[pl.DataFrame]:
+        """
+        Find all current key values in MSSQL database.
+
+        Simplified approach: SELECT TOP 0 gets schema (works even if table is empty),
+        then SELECT DISTINCT gets data. If table is empty (first time), returns
+        empty DataFrame with correct schema.
+
+        Args:
+            key_columns: List of key column names to find
+
+        Returns:
+            DataFrame with key columns, or None if empty/not found
+
+        Raises:
+            HomeError: If query fails or key_columns invalid
+        """
+        if not key_columns:
+            return None
+
+        # Build SELECT query for key columns only
+        columns_str = ", ".join([f"[{col}]" for col in key_columns])
+
+        # Use table from config
+        # Note: MssqlHome may not have entity_name attribute - verify or pass via config
+        table = self.config.table
+        # If entity substitution is needed, it should be handled in MssqlHomeConfig
+        # or passed explicitly. For Option 6, deletion_source.table is already resolved.
+
+        if not table:
+            raise HomeError(
+                "Cannot find keys: table not configured. "
+                "find_keys() requires table configuration, not custom queries. "
+                "Please configure 'table' in MssqlHomeConfig."
+            )
+
+        # Query schema first using SELECT TOP 0 (works even if table is empty)
+        # This gives us the actual column types (string, UUID, etc.) not just Int64
+        schema_query = f"SELECT TOP 0 {columns_str} FROM {table}"
+        schema_dfs = []
+        async for batch_df in self._stream_query(schema_query):
+            schema_dfs.append(batch_df)
+
+        # Get schema from schema query result
+        if not schema_dfs or len(schema_dfs) == 0:
+            # Schema query failed - connection or permissions issue
+            raise HomeError(
+                f"Failed to determine schema for key columns {key_columns}. "
+                "Cannot query table schema - this may indicate a connection or "
+                "permissions issue."
+            )
+
+        schema_df = schema_dfs[0]
+        # Extract schema dict from the DataFrame (even if empty, it has the schema)
+        schema_dict = {col: schema_df[col].dtype for col in key_columns}
+
+        # Query actual data (if table is empty, this returns no rows - that's fine)
+        query = f"SELECT DISTINCT {columns_str} FROM {table}"
+        dfs = []
+        async for batch_df in self._stream_query(query):
+            dfs.append(batch_df)
+
+        if not dfs:
+            # Table is empty (first time) - return empty DataFrame with correct schema
+            return pl.DataFrame(schema=schema_dict)
+
+        return pl.concat(dfs)
+
+    def supports_key_finding(self) -> bool:
+        """
+        Check if this home supports key finding for deletion detection.
+
+        Returns:
+            True if find_keys() is implemented and supported
+        """
+        return True
 
     async def _cleanup_connection(self) -> None:
         """Clean up connection based on ownership."""

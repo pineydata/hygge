@@ -1166,3 +1166,119 @@ class TestOpenMirroringStoreLastLoadedAt:
 
         # Should return unchanged
         assert result.equals(df)
+
+
+class TestOpenMirroringStoreDeletionDetection:
+    """Test deletion detection for full_drop runs."""
+
+    @pytest.mark.asyncio
+    async def test_before_flow_start_skips_for_incremental(self):
+        """Test that before_flow_start() skips for incremental runs."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            deletion_source={"server": "test", "database": "testdb"},
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("incremental")  # Not full_drop
+
+        # Should return early without doing anything
+        await store.before_flow_start()
+
+        # Verify no deletion paths were tracked
+        assert not hasattr(store, "_deletion_paths") or len(store._deletion_paths) == 0
+
+    @pytest.mark.asyncio
+    async def test_before_flow_start_skips_when_no_deletion_source(self):
+        """Test that before_flow_start() skips when deletion_source not configured."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            # deletion_source not configured
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("full_drop")
+
+        # Should return early without doing anything
+        await store.before_flow_start()
+
+        # Verify no deletion paths were tracked
+        assert not hasattr(store, "_deletion_paths") or len(store._deletion_paths) == 0
+
+    @pytest.mark.asyncio
+    async def test_mark_all_target_as_deleted_with_valid_target(self):
+        """Test _mark_all_target_as_deleted() with valid target."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            deletion_source={
+                "server": "test",
+                "database": "testdb",
+                "schema": "dbo",
+                "table": "users",
+            },
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("full_drop")
+
+        # Mock MssqlHome.find_keys() to return test keys
+        mock_keys = pl.DataFrame({"id": [1, 2, 3]})
+        mock_home = AsyncMock()
+        mock_home.find_keys = AsyncMock(return_value=mock_keys)
+
+        # Mock write to track what gets written
+        store.write = AsyncMock()
+        store._flush_buffer = AsyncMock()
+        store.saved_paths = []
+
+        # Call the implementation directly with mocked home
+        await store._mark_all_target_as_deleted_impl(mock_home)
+
+        # Verify find_keys was called with correct key columns
+        mock_home.find_keys.assert_called_once_with(["id"])
+
+        # Verify write was called (deletions should be written)
+        assert store.write.called
+
+    @pytest.mark.asyncio
+    async def test_mark_all_target_as_deleted_with_empty_target(self):
+        """Test _mark_all_target_as_deleted() with empty target."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            deletion_source={"server": "test", "database": "testdb"},
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("full_drop")
+
+        # Mock MssqlHome.find_keys() to return empty DataFrame
+        empty_keys = pl.DataFrame(schema={"id": pl.Int64})
+        mock_home = AsyncMock()
+        mock_home.find_keys = AsyncMock(return_value=empty_keys)
+
+        store.write = AsyncMock()
+
+        # Call the implementation directly with mocked home
+        await store._mark_all_target_as_deleted_impl(mock_home)
+
+        # Verify find_keys was called
+        mock_home.find_keys.assert_called_once_with(["id"])
+
+        # Verify write was NOT called (empty target, nothing to delete)
+        assert not store.write.called

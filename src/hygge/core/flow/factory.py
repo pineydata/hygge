@@ -56,6 +56,7 @@ class FlowFactory:
         coordinator_name: str,
         connection_pools: Dict[str, Any],
         journal_cache: Dict[str, Journal],
+        connections: Optional[Dict[str, Any]] = None,
         flow_overrides: Optional[Dict[str, Any]] = None,
         get_or_create_journal: Optional[Callable] = None,
         logger: Optional[Any] = None,
@@ -99,6 +100,19 @@ class FlowFactory:
         # Get home and store configs
         home_config = flow_config.get_home_config()
         store_config = flow_config.get_store_config()
+
+        # Resolve deletion_source connection name if needed
+        # (before creating store)
+        if (
+            store_config
+            and hasattr(store_config, "deletion_source")
+            and store_config.deletion_source
+        ):
+            if connections is None:
+                connections = {}
+            store_config = FlowFactory._resolve_deletion_source(
+                store_config, connections, flow_name, None, log
+            )
 
         # Validate configs are accessible
         if not home_config:
@@ -180,6 +194,7 @@ class FlowFactory:
         coordinator_name: str,
         connection_pools: Dict[str, Any],
         journal_cache: Dict[str, Journal],
+        connections: Optional[Dict[str, Any]] = None,
         get_or_create_journal: Optional[Callable] = None,
         logger: Optional[Any] = None,
         flow_class: Optional[type] = None,
@@ -215,6 +230,23 @@ class FlowFactory:
         # Get home and store configs from merged flow config
         home_config = flow_config.get_home_config()
         store_config = flow_config.get_store_config()
+
+        # Resolve deletion_source connection name if needed
+        # (before creating store)
+        if (
+            store_config
+            and hasattr(store_config, "deletion_source")
+            and store_config.deletion_source
+        ):
+            if connections is None:
+                connections = {}
+            store_config = FlowFactory._resolve_deletion_source(
+                store_config,
+                connections,
+                entity.base_flow_name,
+                entity.entity_name,
+                log,
+            )
 
         # Validate configs are accessible with specific error messages
         if not home_config:
@@ -403,6 +435,127 @@ class FlowFactory:
         )
 
         return store
+
+    @staticmethod
+    def _resolve_deletion_source(
+        store_config: Any,
+        connections: Dict[str, Any],
+        flow_name: str,
+        entity_name: Optional[str],
+        logger: Any,
+    ) -> Any:
+        """
+        Resolve deletion_source connection name to connection dict.
+
+        If deletion_source is a string (connection name), looks it up in connections
+        and merges with any additional fields (schema, table). If it's already a dict,
+        returns store_config unchanged.
+
+        Args:
+            store_config: Store configuration (may be modified)
+            connections: Available connections dict from hygge.yml
+            flow_name: Flow name for error messages
+            entity_name: Optional entity name for error messages
+            logger: Logger instance
+
+        Returns:
+            Store config with resolved deletion_source (may be same object or new)
+
+        Raises:
+            ConfigError: If connection name not found or invalid
+        """
+        if (
+            not hasattr(store_config, "deletion_source")
+            or not store_config.deletion_source
+        ):
+            return store_config
+
+        deletion_source = store_config.deletion_source
+
+        # If it's already a dict, no resolution needed
+        if isinstance(deletion_source, dict):
+            return store_config
+
+        # If it's a string, resolve connection name
+        if isinstance(deletion_source, str):
+            conn_name = deletion_source
+            context = f"flow '{flow_name}'"
+            if entity_name:
+                context = f"entity '{entity_name}' in {context}"
+
+            # Look up connection in connections dict
+            if not connections or conn_name not in connections:
+                raise ConfigError(
+                    f"{context}: deletion_source connection '{conn_name}' "
+                    f"not found in hygge.yml connections. "
+                    f"Available connections: "
+                    f"{list(connections.keys()) if connections else 'none'}"
+                )
+
+            conn_config = connections[conn_name]
+
+            # Validate connection type
+            if conn_config.get("type") != "mssql":
+                raise ConfigError(
+                    f"{context}: deletion_source connection '{conn_name}' "
+                    f"must be type 'mssql', got '{conn_config.get('type')}'. "
+                    f"Full-drop deletion marking requires MSSQL connections."
+                )
+
+            # Extract server and database from connection
+            server = conn_config.get("server")
+            database = conn_config.get("database")
+
+            if not server or not database:
+                raise ConfigError(
+                    f"{context}: deletion_source connection '{conn_name}' "
+                    f"must have 'server' and 'database' fields. "
+                    f"Got: {list(conn_config.keys())}"
+                )
+
+            # Build resolved deletion_source dict
+            # Merge with any schema/table from store_config if specified
+            resolved_deletion_source = {
+                "server": server,
+                "database": database,
+            }
+
+            # Add schema if specified in store_config or default to "dbo"
+            if (
+                hasattr(store_config, "deletion_schema")
+                and store_config.deletion_schema
+            ):
+                resolved_deletion_source["schema"] = store_config.deletion_schema
+            else:
+                resolved_deletion_source["schema"] = "dbo"  # Default
+
+            # Add table if specified in store_config,
+            # otherwise will default to entity_name at runtime
+            if hasattr(store_config, "deletion_table") and store_config.deletion_table:
+                resolved_deletion_source["table"] = store_config.deletion_table
+
+            # Update store_config with resolved deletion_source
+            # Create new config object to avoid mutating original
+            config_dict = store_config.model_dump()
+            config_dict["deletion_source"] = resolved_deletion_source
+
+            # Recreate store config with resolved deletion_source
+            from hygge.stores.openmirroring import OpenMirroringStoreConfig
+
+            resolved_store_config = OpenMirroringStoreConfig(**config_dict)
+
+            logger.debug(
+                f"{context}: Resolved deletion_source connection '{conn_name}' to "
+                f"server={server}, database={database}"
+            )
+
+            return resolved_store_config
+
+        # Invalid type
+        raise ConfigError(
+            f"deletion_source must be a connection name (string) or dict, "
+            f"got {type(deletion_source)}"
+        )
 
     @staticmethod
     def _get_or_create_journal(

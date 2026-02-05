@@ -15,7 +15,10 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    from hygge.homes.mssql import MssqlHome
 
 import polars as pl
 from pydantic import Field, field_validator, model_validator
@@ -133,6 +136,53 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         ),
     )
 
+    # Optional: Deletion detection for full_drop runs
+    deletion_source: Optional[Union[str, Dict[str, Any]]] = Field(
+        default=None,
+        description=(
+            "Target database connection for marking deletions before full_drop. "
+            "Can be a connection name (string) referencing hygge.yml connections, "
+            "or a dict with server/database. "
+            "When specified, all target rows are marked as deleted before "
+            "full_drop runs. "
+            "If connection name is used, schema and table can be specified "
+            "separately. "
+            "Example: 'fabric_mirror' or "
+            "{server: 'fabric-mirror.database.windows.net', database: 'MirroredDB'}"
+        ),
+    )
+
+    # Optional: schema and table when using connection name
+    deletion_schema: Optional[str] = Field(
+        default="dbo",
+        description=(
+            "Schema name for deletion_source table (when using connection name). "
+            "Defaults to 'dbo'. Ignored if deletion_source is a dict with "
+            "'schema' field."
+        ),
+    )
+    deletion_table: Optional[str] = Field(
+        default=None,
+        description=(
+            "Table name for deletion_source (defaults to entity_name when using "
+            "connection name). "
+            "Ignored if deletion_source is a dict with 'table' field."
+        ),
+    )
+
+    # Optional: Delay between moving deletion files and new data files
+    deletion_processing_delay: float = Field(
+        default=2.0,
+        ge=0.0,
+        le=60.0,
+        description=(
+            "Delay in seconds between moving deletion files and new data files "
+            "in full_drop mode. "
+            "Ensures OpenMirroring processes deletions before new data arrives. "
+            "Default: 2.0 seconds. Increase if you experience ordering issues."
+        ),
+    )
+
     # Optional: Mirror hygge journal into Fabric as append-only table
     mirror_journal: bool = Field(
         default=False,
@@ -192,6 +242,31 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         raise ValueError(
             f"key_columns must be a string or list of strings, got {type(v)}"
         )
+
+    @model_validator(mode="after")
+    def validate_deletion_source(self):
+        """Validate deletion_source configuration if provided."""
+        if self.deletion_source is not None:
+            if isinstance(self.deletion_source, str):
+                # Connection name - validation happens in FlowFactory resolution
+                if not self.deletion_source.strip():
+                    raise ValueError("deletion_source connection name cannot be empty")
+            elif isinstance(self.deletion_source, dict):
+                # Inline dict - validate required fields
+                if (
+                    "server" not in self.deletion_source
+                    or "database" not in self.deletion_source
+                ):
+                    raise ValueError(
+                        "deletion_source dict must contain 'server' and 'database' "
+                        "for marking deletions before full_drop"
+                    )
+            else:
+                raise ValueError(
+                    f"deletion_source must be a connection name (string) or dict, "
+                    f"got {type(self.deletion_source)}"
+                )
+        return self
 
     @model_validator(mode="after")
     def build_open_mirroring_path(self):
@@ -359,6 +434,20 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         self._schema_tmp_path = None
         self._table_folder_prepared = False
         self.sequence_counter = None
+        self._sequence_counter_explicitly_set = (
+            False  # Flag to prevent re-initialization
+        )
+
+        # Reset deletion detection tracking for each run
+        self._deletions_checked = False
+        self._deletion_metrics = {
+            "column_based_deletions": 0,
+            "query_based_deletions": 0,
+            "full_drop_deletions": 0,
+        }
+
+        # Track deletion file paths separately for ordered move in finish()
+        self._deletion_paths = []
 
         if hasattr(self, "saved_paths"):
             self.saved_paths = []
@@ -370,6 +459,200 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 "Run configured for full_drop: landing zone will be truncated "
                 "before new files are published."
             )
+
+            # Warn if deletion_source is not configured for full_drop
+            # Deletion detection is important for full_drop to ensure deleted
+            # rows in the source are properly removed from the mirrored database.
+            if not self.config.deletion_source:
+                self.logger.warning(
+                    "full_drop mode is being used without deletion_source "
+                    "configured. "
+                    "Deleted rows in the source will NOT be removed from the "
+                    "mirrored database. "
+                    "Consider configuring deletion_source to enable deletion "
+                    "detection. "
+                    "Example: deletion_source: 'fabric_mirror' "
+                    "(connection name) or "
+                    "{server: 'fabric-mirror.database.windows.net', "
+                    "database: 'MirroredDB'}"
+                )
+
+            # CRITICAL: For full_drop with deletion_source, reset sequence counter
+            # to starting_sequence - 1 BEFORE deletions are written.
+            # This ensures deletions (written in before_flow_start()) get lower
+            # sequence numbers (1, 2, 3...) than new data (4, 5, 6...).
+            # OpenMirroring processes files in sequence order, so deletions are
+            # processed first.
+            #
+            # Without this explicit reset, _initialize_sequence_counter() would
+            # read existing files in LandingZone (which persists between runs)
+            # and continue from high numbers, breaking the ordering.
+            if self.config.deletion_source:
+                self.sequence_counter = self.starting_sequence - 1
+                self._sequence_counter_explicitly_set = True
+                self.logger.debug(
+                    f"full_drop mode with deletion_source: Reset sequence "
+                    f"counter to {self.starting_sequence - 1} "
+                    f"(deletions will get sequence numbers "
+                    f"starting from {self.starting_sequence}, "
+                    f"new data will get higher numbers)"
+                )
+
+    async def before_flow_start(self) -> None:
+        """
+        Pre-hook method called by Flow before normal flow execution starts.
+
+        For full_drop runs with deletion_source configured: Mark all target
+        rows as deleted. This ensures deletions are processed by OpenMirroring
+        before new data flows in.
+
+        Called by Flow._execute_flow() after _prepare_incremental_context()
+        but before starting producer/consumer tasks.
+        """
+        # Only for full_drop runs
+        if not self.full_drop_mode:
+            return
+
+        # Only if deletion_source is configured
+        if not self.config.deletion_source:
+            return
+
+        # Mark all target rows as deleted
+        await self._mark_all_target_as_deleted()
+
+    async def _mark_all_target_as_deleted(self) -> None:
+        """
+        Mark all rows in target as deleted before full_drop.
+
+        Simple approach: Query target for all keys, mark everything as deleted.
+        No source comparison needed - we're doing a full refresh anyway.
+
+        Delete markers are written to _tmp (idempotent), then atomically moved
+        to LandingZone in finish() along with all other data.
+
+        Raises:
+            StoreError: If key_columns not set, deletion_source invalid, or query fails
+        """
+        if not self.key_columns or len(self.key_columns) == 0:
+            raise StoreError(
+                "key_columns is required for marking deletions before full_drop. "
+                "Please specify key_columns in the store config."
+            )
+
+        # deletion_source should already be resolved to dict by FlowFactory
+        # (connection names resolved, inline dicts used as-is)
+        if not isinstance(self.config.deletion_source, dict):
+            raise StoreError(
+                "deletion_source must be resolved to dict before use. "
+                "This should have been done by FlowFactory."
+            )
+
+        # Extract connection info from deletion_source (already resolved)
+        server = self.config.deletion_source.get("server")
+        database = self.config.deletion_source.get("database")
+        schema = self.config.deletion_source.get("schema", "dbo")
+        table = self.config.deletion_source.get("table", self.entity_name)
+
+        if not server or not database:
+            raise StoreError(
+                "deletion_source must contain 'server' and 'database' "
+                "for marking deletions before full_drop"
+            )
+
+        # Build table path
+        table_path = f"{schema}.{table}" if schema else table
+
+        # Create MSSQLHome config for target database
+        from hygge.homes.mssql import MssqlHome, MssqlHomeConfig
+
+        target_home_config = MssqlHomeConfig(
+            type="mssql",
+            server=server,
+            database=database,
+            table=table_path,
+        )
+
+        target_home = MssqlHome("_full_drop_target", target_home_config)
+
+        try:
+            # Apply retry logic for transient connection errors
+            from hygge.utility.exceptions import (
+                HomeConnectionError,
+                StoreConnectionError,
+            )
+            from hygge.utility.retry import with_retry
+
+            retry_decorated = with_retry(
+                retries=3,
+                delay=2,
+                exceptions=(StoreConnectionError, HomeConnectionError),
+                timeout=300,
+                logger_name="hygge.store.openmirroring",
+            )(self._mark_all_target_as_deleted_impl)
+
+            await retry_decorated(target_home)
+
+        except (StoreError, ValueError) as e:
+            # Configuration errors - fail fast
+            self.logger.error(
+                f"Failed to mark target rows as deleted (configuration error): {str(e)}"
+            )
+            raise StoreError(
+                f"Failed to mark target rows as deleted before full_drop: {str(e)}. "
+                f"This is a configuration error - please fix and retry."
+            ) from e
+        # Connection cleanup is handled by find_keys() via _stream_query()
+        # which calls _cleanup_connection() in its finally block
+
+    async def _mark_all_target_as_deleted_impl(self, target_home: "MssqlHome") -> None:
+        """
+        Implementation of marking all target rows as deleted.
+
+        Separated for retry logic wrapper.
+        """
+        # Query ALL keys from target database
+        self.logger.info("Querying target database for all keys before full_drop")
+
+        # Use find_keys() method to get only key columns (with proper schema inference)
+        target_keys = await target_home.find_keys(self.key_columns)
+
+        if target_keys is None or len(target_keys) == 0:
+            self.logger.info(
+                "No target keys found - nothing to mark as deleted "
+                "(first run or empty table)"
+            )
+            return
+
+        # Mark everything as deleted
+        delete_markers = target_keys.with_columns(pl.lit(2).alias("__rowMarker__"))
+
+        self.logger.info(
+            f"Marking {len(delete_markers):,} row(s) as deleted before full_drop"
+        )
+
+        # Track metrics for observability
+        # Note: _deletion_metrics is initialized in configure_for_run()
+        self._deletion_metrics["full_drop_deletions"] += len(delete_markers)
+
+        # Track current saved_paths count before write
+        # (to capture all paths added during deletion write)
+        paths_before = len(getattr(self, "saved_paths", []))
+
+        # Write delete markers to _tmp (idempotent - full_drop mode writes to _tmp)
+        # Track deletion file paths separately so they can be moved first in finish()
+        # These will be moved to LandingZone BEFORE new data in finish()
+        await self.write(delete_markers)
+        if hasattr(self, "data_buffer") and self.data_buffer:
+            await self._flush_buffer()
+
+        # Track deletion file paths separately for ordered move in finish()
+        # Capture all paths added during this deletion write (handles multiple batches)
+        paths_after = len(getattr(self, "saved_paths", []))
+        if not hasattr(self, "_deletion_paths"):
+            self._deletion_paths = []
+        # Add all paths added during this deletion write
+        if paths_after > paths_before:
+            self._deletion_paths.extend(self.saved_paths[paths_before:paths_after])
 
     async def write(self, data: pl.DataFrame) -> None:
         """
@@ -426,7 +709,23 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         For sequential mode: extracts from 20-digit filenames
         For timestamp mode: extracts sequence from
         timestamp_microseconds_sequence.parquet format
+
+        Note: For full_drop runs with deletion_source, the sequence counter
+        is explicitly set in configure_for_run() to ensure deletions get lower
+        sequence numbers than new data. This method will not override that.
         """
+        # If sequence counter was explicitly set (e.g., for full_drop
+        # deletions), do not re-initialize from existing files
+        if (
+            hasattr(self, "_sequence_counter_explicitly_set")
+            and self._sequence_counter_explicitly_set
+        ):
+            self.logger.debug(
+                "Sequence counter was explicitly set (e.g., for full_drop deletions), "
+                "skipping initialization from existing files"
+            )
+            return
+
         if self.sequence_counter is not None:
             return  # Already initialized
 
@@ -1186,6 +1485,28 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             self.logger.error(f"Failed to save to Open Mirroring store: {str(e)}")
             raise StoreError(f"Failed to save to Open Mirroring store: {str(e)}")
 
+    def get_deletion_metrics(self) -> Dict[str, int]:
+        """
+        Get deletion metrics for journal tracking.
+
+        Returns a dictionary with deletion counts by type:
+        - 'full_drop_deletions': Rows marked as deleted in full_drop mode
+        - 'query_based_deletions': Rows marked as deleted via query-based
+            detection
+        - 'column_based_deletions': Rows marked as deleted via column-based
+            detection
+
+        Returns:
+            Dictionary with deletion counts (all values are 0 if no deletions)
+        """
+        if hasattr(self, "_deletion_metrics"):
+            return self._deletion_metrics.copy()
+        return {
+            "full_drop_deletions": 0,
+            "query_based_deletions": 0,
+            "column_based_deletions": 0,
+        }
+
     async def finish(self) -> None:
         """
         Finish writing data to Open Mirroring store.
@@ -1221,15 +1542,74 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 # Step 1: Delete production folder (ACID: only after all writes succeed)
                 await self._delete_table_folder()
 
-                # Step 2: Move all data files from _tmp to production
-                # Collect any errors but continue moving files to minimize data loss
+                # Step 2: Move files from _tmp to production in order
+                # If deletion_source is configured, move deletion files FIRST,
+                # then wait for processing delay, then move new data files.
+                # This ensures OpenMirroring processes deletions before new data.
                 adls_ops = self._get_adls_ops()
                 move_errors = []
 
-                if hasattr(self, "saved_paths") and self.saved_paths:
-                    for staging_path_str in self.saved_paths:
-                        if not staging_path_str:
+                # Step 2a: Move deletion files FIRST (if any)
+                if hasattr(self, "_deletion_paths") and self._deletion_paths:
+                    self.logger.debug(
+                        f"Moving {len(self._deletion_paths)} deletion file(s) "
+                        f"from _tmp to production"
+                    )
+                    for deletion_path in self._deletion_paths:
+                        if not deletion_path:
                             continue
+
+                        # Build final path: replace _tmp with LandingZone
+                        if "_tmp" in deletion_path:
+                            final_path = self._convert_tmp_to_production_path(
+                                deletion_path
+                            )
+                        else:
+                            continue
+
+                        try:
+                            await adls_ops.move_file(deletion_path, final_path)
+                            self.logger.debug(
+                                f"Moved deletion file "
+                                f"{PathHelper.get_filename(deletion_path)} "
+                                f"from _tmp to production"
+                            )
+                        except Exception as e:
+                            filename = PathHelper.get_filename(deletion_path)
+                            error_msg = (
+                                f"Failed to move deletion file {filename}: {str(e)}"
+                            )
+                            move_errors.append(error_msg)
+                            self.logger.error(error_msg)
+
+                    # Wait for configurable delay to ensure OpenMirroring processes
+                    # deletions before new data arrives
+                    delay_seconds = self.config.deletion_processing_delay
+                    if delay_seconds > 0:
+                        self.logger.debug(
+                            f"Waiting {delay_seconds} seconds for deletion files "
+                            f"to be processed before moving new data files"
+                        )
+                        await asyncio.sleep(delay_seconds)
+
+                # Step 2b: Move new data files (everything else in saved_paths)
+                if hasattr(self, "saved_paths") and self.saved_paths:
+                    # Filter out deletion paths (already moved)
+                    deletion_paths_set = set(getattr(self, "_deletion_paths", []))
+                    new_data_paths = [
+                        path
+                        for path in self.saved_paths
+                        if path and path not in deletion_paths_set
+                    ]
+
+                    if new_data_paths:
+                        self.logger.debug(
+                            f"Moving {len(new_data_paths)} new data file(s) "
+                            f"from _tmp to production"
+                        )
+                        for staging_path_str in new_data_paths:
+                            if not staging_path_str:
+                                continue
 
                         # Build final path: replace _tmp with LandingZone
                         if "_tmp" in staging_path_str:
@@ -1238,8 +1618,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                             )
                         else:
                             # Fallback: build final path from staging path
-                            # This should not happen in full_drop mode (all paths should
-                            # contain _tmp), but we handle it defensively
+                            # This should not happen in full_drop mode (all paths
+                            # should contain _tmp), but we handle it defensively
                             self.logger.warning(
                                 f"full_drop mode: staging path '{staging_path_str}' "
                                 "does not contain '_tmp'. This is unexpected and may "
