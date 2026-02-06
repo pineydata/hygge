@@ -57,8 +57,9 @@ class PathHelper:
         """
         path_str = str(path) if path else ""
         if entity_name and "{entity}" in path_str:
-            return path_str.replace("{entity}", entity_name)
-        return path_str
+            path_str = path_str.replace("{entity}", entity_name)
+        # Normalize to forward slashes for consistency with join() and YAML-safe paths
+        return Path(path_str).as_posix() if path_str else ""
 
     @staticmethod
     def join(*parts: Union[str, Path]) -> str:

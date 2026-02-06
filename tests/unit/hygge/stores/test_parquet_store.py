@@ -9,6 +9,7 @@ Following hygge's testing principles:
 """
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -319,6 +320,10 @@ class TestParquetStoreDataWriting:
 class TestParquetStoreErrorHandling:
     """Test ParquetStore error handling and edge cases."""
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="/nonexistent path behavior differs on Windows",
+    )
     def test_write_to_invalid_directory(self):
         """Test writing to invalid directory path."""
         config = ParquetStoreConfig(path="/nonexistent/invalid/path")
@@ -362,6 +367,10 @@ class TestParquetStoreErrorHandling:
         assert len(output_files) == 0
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="os.chmod permission semantics differ on Windows",
+    )
     async def test_write_permission_error(self, temp_store_dir):
         """Test handling of permission errors."""
         config = ParquetStoreConfig(path=str(temp_store_dir))

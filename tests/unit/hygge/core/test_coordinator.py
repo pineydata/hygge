@@ -26,6 +26,11 @@ from hygge.stores.parquet.store import ParquetStore, ParquetStoreConfig  # noqa:
 from hygge.utility.exceptions import ConfigError
 
 
+def _path_for_yaml(p) -> str:
+    """Path as YAML-safe string (forward slashes) for Windows."""
+    return Path(p).as_posix()
+
+
 class TestCoordinatorConfig:
     """Test CoordinatorConfig validation and creation."""
 
@@ -242,7 +247,7 @@ class TestCoordinatorJournalIntegration:
 name: "test_project"
 flows_dir: "flows"
 journal:
-  path: "{journal_dir}"
+  path: "{_path_for_yaml(journal_dir)}"
 """
         )
 
@@ -259,10 +264,10 @@ journal:
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{tmp_path / 'source.parquet'}"
+  path: "{_path_for_yaml(tmp_path / 'source.parquet')}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest'}"
+  path: "{_path_for_yaml(tmp_path / 'dest')}"
 run_type: "incremental"
 watermark:
   primary_key: "id"
@@ -320,10 +325,10 @@ flows_dir: "flows"
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{tmp_path / 'source.parquet'}"
+  path: "{_path_for_yaml(tmp_path / 'source.parquet')}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest'}"
+  path: "{_path_for_yaml(tmp_path / 'dest')}"
 """
         )
 
@@ -380,10 +385,10 @@ flows_dir: "flows"
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{tmp_path / 'source.parquet'}"
+  path: "{_path_for_yaml(tmp_path / 'source.parquet')}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest'}"
+  path: "{_path_for_yaml(tmp_path / 'dest')}"
 entities:
   - "users"
   - "orders"
@@ -1563,10 +1568,10 @@ flows_dir: "flows"
 name: "flow_{i}"
 home:
   type: "parquet"
-  path: "{tmp_path / f'source_{i}.parquet'}"
+  path: "{_path_for_yaml(tmp_path / f'source_{i}.parquet')}"
 store:
   type: "parquet"
-  path: "{tmp_path / f'dest_{i}'}"
+  path: "{_path_for_yaml(tmp_path / f'dest_{i}')}"
 """
             )
 
@@ -1613,10 +1618,10 @@ options:
 name: "flow_{i}"
 home:
   type: "parquet"
-  path: "{tmp_path / f'source_{i}.parquet'}"
+  path: "{_path_for_yaml(tmp_path / f'source_{i}.parquet')}"
 store:
   type: "parquet"
-  path: "{tmp_path / f'dest_{i}'}"
+  path: "{_path_for_yaml(tmp_path / f'dest_{i}')}"
 """
             )
 
@@ -1656,10 +1661,10 @@ connections:
 name: "flow_{i}"
 home:
   type: "parquet"
-  path: "{tmp_path / f'source_{i}.parquet'}"
+  path: "{_path_for_yaml(tmp_path / f'source_{i}.parquet')}"
 store:
   type: "parquet"
-  path: "{tmp_path / f'dest_{i}'}"
+  path: "{_path_for_yaml(tmp_path / f'dest_{i}')}"
 """
             )
 
@@ -1715,10 +1720,10 @@ options:
 name: "flow_{i}"
 home:
   type: "parquet"
-  path: "{tmp_path / f'source_{i}.parquet'}"
+  path: "{_path_for_yaml(tmp_path / f'source_{i}.parquet')}"
 store:
   type: "parquet"
-  path: "{tmp_path / f'dest_{i}'}"
+  path: "{_path_for_yaml(tmp_path / f'dest_{i}')}"
 """
             )
 
@@ -1791,10 +1796,10 @@ options:
 name: "flow_1"
 home:
   type: "parquet"
-  path: "{tmp_path / 'source.parquet'}"
+  path: "{_path_for_yaml(tmp_path / 'source.parquet')}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest'}"
+  path: "{_path_for_yaml(tmp_path / 'dest')}"
 """
         )
 

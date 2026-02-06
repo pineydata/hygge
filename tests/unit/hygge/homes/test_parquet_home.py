@@ -8,6 +8,7 @@ Following hygge's testing principles:
 - Verify configuration system integration
 """
 import os
+import sys
 import tempfile
 from pathlib import Path
 
@@ -368,6 +369,10 @@ class TestParquetHomeErrorHandling:
     """Test ParquetHome error handling and edge cases."""
 
     @pytest.mark.asyncio
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="os.chmod permission semantics differ on Windows",
+    )
     async def test_read_permission_error(self):
         """Test handling of permission errors."""
         with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:

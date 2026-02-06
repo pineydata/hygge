@@ -40,6 +40,11 @@ import pytest
 from hygge import Coordinator
 
 
+def _path_for_yaml(p) -> str:
+    """Path as YAML-safe string (forward slashes) so backslashes don't break parsing on Windows."""
+    return Path(p).as_posix()
+
+
 @pytest.fixture
 def landing_zone_setup():
     """
@@ -47,20 +52,21 @@ def landing_zone_setup():
 
     Expected pattern: home_path/{entity}/*.parquet (directories with parquet files)
     """
-    temp_dir = tempfile.mkdtemp()
+    workspace_tmp = Path(__file__).resolve().parent
+    temp_dir = tempfile.mkdtemp(dir=str(workspace_tmp))
     temp_path = Path(temp_dir)
 
     # Create landing zone directory
     landing_zone = temp_path / "landing_zone"
-    landing_zone.mkdir()
+    landing_zone.mkdir(parents=True, exist_ok=True)
 
     # Create data lake directory
     data_lake = temp_path / "data_lake"
-    data_lake.mkdir()
+    data_lake.mkdir(parents=True, exist_ok=True)
 
     # Create entity directories with parquet files (expected pattern)
     users_dir = landing_zone / "users"
-    users_dir.mkdir()
+    users_dir.mkdir(parents=True, exist_ok=True)
 
     # Split users data across multiple files (realistic!)
     users_df1 = pl.DataFrame(
@@ -83,7 +89,7 @@ def landing_zone_setup():
 
     # Orders entity with multiple files
     orders_dir = landing_zone / "orders"
-    orders_dir.mkdir()
+    orders_dir.mkdir(parents=True, exist_ok=True)
 
     orders_df1 = pl.DataFrame(
         {
@@ -105,7 +111,7 @@ def landing_zone_setup():
 
     # Products entity with single file in directory
     products_dir = landing_zone / "products"
-    products_dir.mkdir()
+    products_dir.mkdir(parents=True, exist_ok=True)
 
     products_df = pl.DataFrame(
         {
@@ -127,7 +133,7 @@ def landing_zone_setup():
         },
     }
 
-    shutil.rmtree(temp_dir)
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @pytest.fixture
@@ -137,14 +143,15 @@ def landing_zone_edge_case():
 
     Tests that single files work, though directories are the expected pattern.
     """
-    temp_dir = tempfile.mkdtemp()
+    workspace_tmp = Path(__file__).resolve().parent
+    temp_dir = tempfile.mkdtemp(dir=str(workspace_tmp))
     temp_path = Path(temp_dir)
 
     landing_zone = temp_path / "landing_zone"
-    landing_zone.mkdir()
+    landing_zone.mkdir(parents=True, exist_ok=True)
 
     data_lake = temp_path / "data_lake"
-    data_lake.mkdir()
+    data_lake.mkdir(parents=True, exist_ok=True)
 
     # Single parquet files (not directories)
     users_df = pl.DataFrame(
@@ -173,7 +180,7 @@ def landing_zone_edge_case():
         },
     }
 
-    shutil.rmtree(temp_dir)
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 class TestEntityPattern:
@@ -204,10 +211,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{_path_for_yaml(setup['landing_zone'])}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{_path_for_yaml(setup['data_lake'])}"
 entities:
   - users
   - orders
@@ -271,12 +278,12 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{_path_for_yaml(setup['landing_zone'])}"
   options:
     batch_size: 500
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{_path_for_yaml(setup['data_lake'])}"
   options:
     batch_size: 1000
     compression: "gzip"
@@ -326,10 +333,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{_path_for_yaml(setup['landing_zone'])}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{_path_for_yaml(setup['data_lake'])}"
 entities:
   - users
   - orders
@@ -370,10 +377,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{_path_for_yaml(setup['landing_zone'])}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{_path_for_yaml(setup['data_lake'])}"
 entities:
   - users
   - nonexistent_entity
@@ -418,10 +425,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{_path_for_yaml(setup['landing_zone'])}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{_path_for_yaml(setup['data_lake'])}"
 entities:
   - users
   - orders
@@ -437,10 +444,10 @@ entities:
 name: "standalone_flow"
 home:
   type: "parquet"
-  path: "{standalone_file}"
+  path: "{_path_for_yaml(standalone_file)}"
 store:
   type: "parquet"
-  path: "{setup['data_lake'] / 'standalone'}"
+  path: "{_path_for_yaml(setup['data_lake'] / 'standalone')}"
 """
         )
 
@@ -482,10 +489,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{_path_for_yaml(setup['landing_zone'])}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{_path_for_yaml(setup['data_lake'])}"
 entities:
   - users
 """
@@ -531,10 +538,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{_path_for_yaml(setup['landing_zone'])}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{_path_for_yaml(setup['data_lake'])}"
 entities:
   - users.parquet
   - orders.parquet

@@ -271,7 +271,7 @@ class TestStoreStaging:
         # Then should stage with correct filename
         assert len(path_store.saved_paths) > 0
         staged_path = path_store.saved_paths[0]
-        assert "staging/test_1.parquet" in str(staged_path)
+        assert "staging/test_1.parquet" in Path(staged_path).as_posix()
 
     @pytest.mark.asyncio
     async def test_store_collects_filenames_correctly(self, path_store, sample_data):
@@ -327,7 +327,7 @@ class TestStoreFinish:
         # Then should move files to final location
         assert len(path_store.moved_files) > 0
         for staging_path, final_path in path_store.moved_files:
-            assert str(final_path).startswith("final/")
+            assert Path(final_path).as_posix().startswith("final/")
 
 
 class TestStoreProgressTracking:

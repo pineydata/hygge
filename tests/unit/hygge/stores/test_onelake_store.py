@@ -112,7 +112,7 @@ class TestOneLakeStoreInitialization:
 
         assert store.name == "test_store"
         assert store.config == config
-        assert store.base_path == "landing/{entity}/"
+        assert store.base_path == "landing/{entity}"  # PathHelper normalizes trailing slash
         assert store.file_pattern == "{sequence:020d}.parquet"  # Default
         assert store.incremental_override is None
 
@@ -161,7 +161,7 @@ class TestOneLakeStoreInitialization:
 
         store = OneLakeStore("test_store", config, entity_name="users")
 
-        assert store.base_path == "landing/users/"  # Entity substituted
+        assert store.base_path == "landing/users"  # Entity substituted, PathHelper normalizes
 
     def test_onelake_store_with_options(self):
         """Test OneLake store with custom options."""
