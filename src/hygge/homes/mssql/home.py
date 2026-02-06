@@ -145,6 +145,23 @@ class MssqlHome(Home, home_type="mssql"):
         async for batch in self._stream_query(incremental_query):
             yield batch
 
+    async def _run_single_query(self, query: str) -> pl.DataFrame:
+        """
+        Run a query once and return a single DataFrame.
+
+        Uses read_database without iter_batches so we always get one result
+        (e.g. SELECT TOP 0 returns 0 rows but with correct schema). Used by
+        find_keys() for schema detection when streaming would yield zero batches.
+
+        Does not cleanup connection; caller is responsible (e.g. _stream_query
+        will cleanup after a subsequent call).
+        """
+        await self._acquire_connection()
+        engine = get_engine("thread_pool")
+        return await engine.execute(
+            lambda: pl.read_database(query, self._connection)
+        )
+
     async def _stream_query(self, query: str) -> AsyncIterator[pl.DataFrame]:
         """
         Execute a query and yield batches using streaming extraction.
@@ -392,24 +409,21 @@ class MssqlHome(Home, home_type="mssql"):
                 "Please configure 'table' in MssqlHomeConfig."
             )
 
-        # Query schema first using SELECT TOP 0 (works even if table is empty)
-        # This gives us the actual column types (string, UUID, etc.) not just Int64
+        # Query schema using SELECT TOP 0 (works even if table is empty).
+        # Use one-shot read so we always get one DataFrame with correct schema;
+        # streaming can yield zero batches for empty results and would fail schema detection.
         schema_query = f"SELECT TOP 0 {columns_str} FROM {table}"
-        schema_dfs = []
-        async for batch_df in self._stream_query(schema_query):
-            schema_dfs.append(batch_df)
-
-        # Get schema from schema query result
-        if not schema_dfs or len(schema_dfs) == 0:
-            # Schema query failed - connection or permissions issue
+        try:
+            schema_df = await self._run_single_query(schema_query)
+        except Exception as e:
             raise HomeError(
                 f"Failed to determine schema for key columns {key_columns}. "
-                "Cannot query table schema - this may indicate a connection or "
-                "permissions issue."
-            )
+                f"Cannot query table schema - this may indicate a connection or "
+                f"permissions issue. {e!s}"
+            ) from e
+        finally:
+            await self._cleanup_connection()
 
-        schema_df = schema_dfs[0]
-        # Extract schema dict from the DataFrame (even if empty, it has the schema)
         schema_dict = {col: schema_df[col].dtype for col in key_columns}
 
         # Query actual data (if table is empty, this returns no rows - that's fine)
