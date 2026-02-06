@@ -681,7 +681,7 @@ class Flow:
                 watermark_type = self.watermark.get_watermark_type()
                 watermark_value = self.watermark.serialize_watermark()
 
-            # Record in journal (deletion counts skipped for now)
+            # Record in journal (deletion counts are not persisted)
             finish_time = datetime.now(timezone.utc)
             await self.journal.record_entity_run(
                 coordinator_run_id=self.coordinator_run_id,

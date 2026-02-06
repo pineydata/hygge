@@ -97,7 +97,7 @@ options:
         # Create flows directory
         flows_path = project_dir / flows_dir
         flows_path.mkdir(exist_ok=True)
-        click.echo("Created flows directory: {}".format(flows_path))
+        click.echo(f"Created flows directory: {flows_path}")
 
         # Create example flow
         example_flow_dir = flows_path / "example_flow"
@@ -120,7 +120,7 @@ defaults:
 
         flow_file = example_flow_dir / "flow.yml"
         flow_file.write_text(flow_content)
-        click.echo("Created example flow: {}".format(flow_file))
+        click.echo(f"Created example flow: {flow_file}")
 
         # Create example entities directory
         entities_dir = example_flow_dir / "entities"

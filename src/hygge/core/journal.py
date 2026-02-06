@@ -178,9 +178,6 @@ class Journal:
         if location is None:
             raise ConfigError("Journal config must specify either 'path' or 'location'")
 
-        if location == "default":
-            location = "store"
-
         if location == "store":
             if self._store_supports_remote_journal(store_config):
                 self._setup_remote_storage(store, store_config)
