@@ -1214,8 +1214,8 @@ class TestOpenMirroringStoreDeletionDetection:
         assert not hasattr(store, "_deletion_paths") or len(store._deletion_paths) == 0
 
     @pytest.mark.asyncio
-    async def test_mark_all_target_as_deleted_with_valid_target(self):
-        """Test _mark_all_target_as_deleted() with valid target."""
+    async def test_query_target_keys_with_valid_target(self):
+        """Test _query_target_keys_impl() with valid target."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -1244,17 +1244,18 @@ class TestOpenMirroringStoreDeletionDetection:
         store.saved_paths = []
 
         # Call the implementation directly with mocked home
-        await store._mark_all_target_as_deleted_impl(mock_home)
+        await store._query_target_keys_impl(mock_home)
 
         # Verify find_keys was called with correct key columns
         mock_home.find_keys.assert_called_once_with(["id"])
 
-        # Verify write was called (deletions should be written)
-        assert store.write.called
+        # Verify target keys were stored
+        assert store._target_keys_for_deletion is not None
+        assert len(store._target_keys_for_deletion) == 3
 
     @pytest.mark.asyncio
-    async def test_mark_all_target_as_deleted_with_empty_target(self):
-        """Test _mark_all_target_as_deleted() with empty target."""
+    async def test_query_target_keys_with_empty_target(self):
+        """Test _query_target_keys_impl() with empty target."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -1275,10 +1276,235 @@ class TestOpenMirroringStoreDeletionDetection:
         store.write = AsyncMock()
 
         # Call the implementation directly with mocked home
-        await store._mark_all_target_as_deleted_impl(mock_home)
+        await store._query_target_keys_impl(mock_home)
 
         # Verify find_keys was called
         mock_home.find_keys.assert_called_once_with(["id"])
 
-        # Verify write was NOT called (empty target, nothing to delete)
-        assert not store.write.called
+        # Verify target keys were set to None (empty target)
+        assert store._target_keys_for_deletion is None
+
+    @pytest.mark.asyncio
+    async def test_query_target_keys_fails_when_table_missing(self):
+        """Test _query_target_keys() fails fast when table is missing."""
+        from hygge.utility.exceptions import StoreError
+
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            deletion_source={"server": "test", "database": "testdb"},
+            # No table specified
+        )
+
+        # Store created without entity_name (edge case - shouldn't happen in practice)
+        store = OpenMirroringStore("test_store", config, entity_name=None)
+        store.configure_for_run("full_drop")
+
+        # Should fail fast with clear error message
+        with pytest.raises(StoreError, match="deletion_source must specify 'table'"):
+            await store._query_target_keys()
+
+    @pytest.mark.asyncio
+    async def test_write_deletion_markers_tracks_paths(self):
+        """Test _write_deletion_markers() tracks deletion paths correctly."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            deletion_source={"server": "test", "database": "testdb"},
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("full_drop")
+
+        # Set up target keys (simulating before_flow_start() already ran)
+        target_keys = pl.DataFrame({"id": [1, 2, 3, 4, 5]})
+        store._target_keys_for_deletion = target_keys
+
+        # Mock write to simulate file creation
+        store.saved_paths = []
+        write_call_count = 0
+
+        async def mock_write(df):
+            nonlocal write_call_count
+            write_call_count += 1
+            # Simulate file path being added to saved_paths
+            store.saved_paths.append(f"/tmp/deletion_file_{write_call_count}.parquet")
+
+        store.write = AsyncMock(side_effect=mock_write)
+        store._flush_buffer = AsyncMock()
+
+        # Track paths before write
+        paths_before = len(store.saved_paths)
+
+        # Write deletion markers
+        await store._write_deletion_markers()
+
+        # Verify paths were tracked separately
+        paths_after = len(store.saved_paths)
+        assert (
+            paths_after > paths_before
+        ), "Deletion files should be added to saved_paths"
+        assert hasattr(store, "_deletion_paths"), "_deletion_paths should exist"
+        assert len(store._deletion_paths) == (
+            paths_after - paths_before
+        ), "All deletion paths should be tracked separately"
+        assert all(
+            path in store._deletion_paths for path in store.saved_paths[paths_before:]
+        ), "All paths added during deletion write should be in _deletion_paths"
+
+    @pytest.mark.asyncio
+    async def test_finish_moves_deletion_files_before_new_data(self):
+        """Test that finish() moves deletion files BEFORE new data files."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            deletion_source={"server": "test", "database": "testdb"},
+            deletion_processing_delay=0,  # No delay for test
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("full_drop")
+
+        # Set up both deletion and new data paths
+        # Note: Deletion paths are also in saved_paths (they're written via write())
+        deletion_path_1 = "/MyMirror/Files/_tmp/users/deletion_1.parquet"
+        deletion_path_2 = "/MyMirror/Files/_tmp/users/deletion_2.parquet"
+        new_data_path_1 = "/MyMirror/Files/_tmp/users/new_data_1.parquet"
+        new_data_path_2 = "/MyMirror/Files/_tmp/users/new_data_2.parquet"
+
+        store._deletion_paths = [deletion_path_1, deletion_path_2]
+        store.saved_paths = [
+            deletion_path_1,  # Also in saved_paths
+            deletion_path_2,  # Also in saved_paths
+            new_data_path_1,  # New data
+            new_data_path_2,  # New data
+        ]
+
+        # Mock ADLS operations
+        mock_adls = AsyncMock()
+        mock_adls.file_system_client = MagicMock()
+        mock_adls.delete_directory = AsyncMock()
+
+        # Track move_file call order
+        move_calls = []
+
+        async def track_move(source, dest):
+            move_calls.append((source, dest))
+
+        mock_adls.move_file = AsyncMock(side_effect=track_move)
+        mock_adls.file_system_client.get_directory_client = MagicMock()
+        mock_adls.file_system_client.get_file_client = MagicMock()
+
+        store.data_buffer = None  # No buffered data
+
+        with patch.object(store, "_get_adls_ops", return_value=mock_adls):
+            with patch.object(store, "_delete_table_folder", new_callable=AsyncMock):
+                # Mock parent finish to avoid actual file operations
+                with patch.object(
+                    store.__class__.__bases__[0], "finish", new_callable=AsyncMock
+                ):
+                    await store.finish()
+
+        # Verify deletion files moved FIRST
+        assert len(move_calls) >= 4, "Should have moved at least 4 files"
+        assert move_calls[0][0] == deletion_path_1, "First file should be deletion_1"
+        assert move_calls[1][0] == deletion_path_2, "Second file should be deletion_2"
+
+        # Verify new data files moved AFTER deletions
+        assert move_calls[2][0] == new_data_path_1, "Third file should be new_data_1"
+        assert move_calls[3][0] == new_data_path_2, "Fourth file should be new_data_2"
+
+        # Verify deletion paths were filtered out from new_data_paths
+        # (new_data_paths should not include deletion paths)
+        new_data_move_calls = move_calls[2:]
+        assert deletion_path_1 not in [
+            call[0] for call in new_data_move_calls
+        ], "Deletion paths should not be in new data moves"
+        assert deletion_path_2 not in [
+            call[0] for call in new_data_move_calls
+        ], "Deletion paths should not be in new data moves"
+
+    @pytest.mark.asyncio
+    async def test_sequence_counter_reserves_numbers_for_deletions(self):
+        """Test that sequence numbers are reserved for deletions before new data."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            deletion_source={"server": "test", "database": "testdb"},
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("full_drop")
+
+        # Simulate existing file in LandingZone (sequence 12)
+        store.sequence_counter = 12
+
+        # Set up target keys (will be set by mocked _query_target_keys)
+        target_keys = pl.DataFrame({"id": [1, 2, 3]})
+
+        # Mock _query_target_keys to set target keys without database connection
+        async def mock_query_target_keys():
+            store._target_keys_for_deletion = target_keys
+
+        store._query_target_keys = AsyncMock(side_effect=mock_query_target_keys)
+        store._initialize_sequence_counter = AsyncMock()
+
+        # Mock write and get_next_filename to track sequence numbers used for deletions
+        deletion_sequence_numbers = []
+
+        async def mock_write(df):
+            # Get next filename to see sequence number
+            filename = await store.get_next_filename()
+            deletion_sequence_numbers.append(filename)
+
+        store.write = AsyncMock(side_effect=mock_write)
+        store._flush_buffer = AsyncMock()
+
+        # Call before_flow_start() which:
+        # 1. Queries target keys (mocked)
+        # 2. Reserves sequence numbers
+        # 3. Writes deletion markers (mocked write tracks sequence numbers)
+        await store.before_flow_start()
+
+        # Verify sequence numbers were reserved for deletions
+        assert (
+            store._deletion_sequence_start == 13
+        ), "Deletions should start at 13 (after existing file 12)"
+        assert (
+            store.sequence_counter >= 13
+        ), "Sequence counter should be >= 13 after writing deletions"
+
+        # Verify deletions used reserved sequence numbers (13, 14, 15...)
+        assert len(deletion_sequence_numbers) > 0, "Should have written deletion files"
+
+        # Extract sequence numbers from filenames
+        import re
+
+        for filename in deletion_sequence_numbers:
+            # Extract sequence from filename
+            if store.file_detection == "timestamp":
+                match = re.search(r"_(\d{6})\.parquet$", filename)
+                if match:
+                    seq = int(match.group(1))
+                    assert (
+                        13 <= seq < 113
+                    ), f"Sequence {seq} should be in reserved range 13-112"
+            else:
+                match = re.search(r"^(\d{20})\.parquet$", filename)
+                if match:
+                    seq = int(match.group(1))
+                    assert (
+                        13 <= seq < 113
+                    ), f"Sequence {seq} should be in reserved range 13-112"

@@ -278,7 +278,8 @@ class Flow:
 
             await self._prepare_incremental_context()
 
-            # Call store pre-hook if it exists (for deletion detection, etc.)
+            # Call store pre-hook if it exists (for querying target keys, etc.)
+            # This is safe - it's read-only and happens before extraction
             if hasattr(self.store, "before_flow_start"):
                 await self.store.before_flow_start()
 
@@ -307,6 +308,16 @@ class Flow:
             # since the consumer failed and task_done() may not have been called
             if consumer_exception is None:
                 await queue.join()
+
+            # CRITICAL: Verify deletion files exist (they were written in
+            # before_flow_start()). Deletion files are in _tmp and will only be
+            # moved to production after extraction succeeds (in finish()). This
+            # ensures we don't delete data if extraction fails.
+            # Call store post-extraction hook if it exists (for verification, etc.)
+            if consumer_exception is None and hasattr(
+                self.store, "after_extraction_succeeds"
+            ):
+                await self.store.after_extraction_succeeds()
 
             # Ensure all data is written (only if no consumer error)
             if consumer_exception is None:
@@ -671,14 +682,10 @@ class Flow:
                 watermark_value = self.watermark.serialize_watermark()
 
             # Get deletion metrics from store if available
-            deletion_count_full_drop = None
             deletion_count_query = None
             deletion_count_column = None
             if hasattr(self.store, "get_deletion_metrics"):
                 deletion_metrics = self.store.get_deletion_metrics()
-                deletion_count_full_drop = (
-                    deletion_metrics.get("full_drop_deletions", 0) or None
-                )
                 deletion_count_query = (
                     deletion_metrics.get("query_based_deletions", 0) or None
                 )
@@ -686,8 +693,6 @@ class Flow:
                     deletion_metrics.get("column_based_deletions", 0) or None
                 )
                 # Only include non-zero counts (None means not applicable)
-                if deletion_count_full_drop == 0:
-                    deletion_count_full_drop = None
                 if deletion_count_query == 0:
                     deletion_count_query = None
                 if deletion_count_column == 0:
@@ -712,7 +717,6 @@ class Flow:
                 watermark_type=watermark_type,
                 watermark=watermark_value,
                 message=final_message,
-                deletion_count_full_drop=deletion_count_full_drop,
                 deletion_count_query=deletion_count_query,
                 deletion_count_column=deletion_count_column,
             )

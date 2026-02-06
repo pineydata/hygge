@@ -144,6 +144,33 @@ class Home(ABC):
         if total_rows % self.row_multiplier == 0:
             self.logger.debug(f"READ {total_rows:,} rows")
 
+    async def find_keys(self, key_columns: list) -> Optional[pl.DataFrame]:
+        """
+        Find all current key values in the data source.
+
+        Default implementation returns None (not supported).
+        Subclasses should override this if they support key finding.
+
+        Args:
+            key_columns: List of key column names to find
+
+        Returns:
+            DataFrame with key columns, or None if not supported
+        """
+        return None
+
+    def supports_key_finding(self) -> bool:
+        """
+        Check if this home supports key finding for deletion detection.
+
+        Default implementation returns False.
+        Subclasses should override this if they support key finding.
+
+        Returns:
+            True if find_keys() is implemented and supported
+        """
+        return False
+
     def _log_completion(self, total_rows: int) -> None:
         """Log completion summary at DEBUG level (coordinator shows OK line)."""
         if self.start_time:
