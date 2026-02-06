@@ -115,6 +115,8 @@ class Journal:
         "watermark_type": pl.Utf8,  # Nullable
         "watermark": pl.Utf8,  # Nullable
         "message": pl.Utf8,  # Nullable
+        "deletion_count_query": pl.Int64,  # Nullable - query-based deletions
+        "deletion_count_column": pl.Int64,  # Nullable - column-based deletions
         "schema_version": pl.Utf8,
     }
 
@@ -463,6 +465,8 @@ class Journal:
         watermark_type: Optional[str] = None,
         watermark: Optional[str] = None,
         message: Optional[str] = None,
+        deletion_count_query: Optional[int] = None,
+        deletion_count_column: Optional[int] = None,
     ) -> str:
         """
         Record entity run and return entity_run_id.
@@ -490,6 +494,10 @@ class Journal:
                 "datetime", "int", "string", or None
             watermark: Watermark value (string representation, None if no watermark)
             message: Error message, skip reason, config mismatch message, or None
+            deletion_count_query: Number of rows marked as deleted via query-based
+                detection (None if not applicable)
+            deletion_count_column: Number of rows marked as deleted via column-based
+                detection (None if not applicable)
 
         Returns:
             entity_run_id (deterministic hash)
@@ -518,6 +526,8 @@ class Journal:
             "watermark_type": watermark_type,
             "watermark": watermark,
             "message": message,
+            "deletion_count_query": deletion_count_query,
+            "deletion_count_column": deletion_count_column,
             "schema_version": self.SCHEMA_VERSION,
         }
 
@@ -535,9 +545,19 @@ class Journal:
                 # Mark mirror as dirty (deferred publish)
                 await self._mirror_sink.append(new_row_df)
 
+        # Build deletion summary for logging
+        deletion_summary = []
+        if deletion_count_query:
+            deletion_summary.append(f"query={deletion_count_query}")
+        if deletion_count_column:
+            deletion_summary.append(f"column={deletion_count_column}")
+        deletion_str = (
+            f", deletions=[{', '.join(deletion_summary)}]" if deletion_summary else ""
+        )
+
         self.logger.debug(
             f"Recorded entity run: {coordinator}/{flow}/{entity} "
-            f"(status={status}, rows={row_count})"
+            f"(status={status}, rows={row_count}{deletion_str})"
         )  # noqa: E501
 
         return entity_run_id

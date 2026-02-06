@@ -434,3 +434,50 @@ class TestMssqlHomeInitialization:
 
         assert home.options["batch_size"] == 25_000
         assert home.options["custom"] == "value"
+
+
+class TestMssqlHomeFindKeys:
+    """Test find_keys() method for deletion detection."""
+
+    @pytest.mark.asyncio
+    async def test_find_keys_returns_none_for_empty_key_columns(self):
+        """Test that find_keys() returns None for empty key_columns."""
+        config = MssqlHomeConfig(
+            type="mssql",
+            server="test.database.windows.net",
+            database="testdb",
+            table="dbo.users",
+        )
+        home = MssqlHome("test", config)
+
+        result = await home.find_keys([])
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_find_keys_raises_error_for_missing_table(self):
+        """Test that find_keys() raises error when table not configured."""
+        config = MssqlHomeConfig(
+            type="mssql",
+            server="test.database.windows.net",
+            database="testdb",
+            query="SELECT * FROM users",  # Custom query, no table
+        )
+        home = MssqlHome("test", config)
+
+        from hygge.utility.exceptions import HomeError
+
+        with pytest.raises(HomeError, match="table not configured"):
+            await home.find_keys(["id"])
+
+    def test_supports_key_finding_returns_true(self):
+        """Test that supports_key_finding() returns True."""
+        config = MssqlHomeConfig(
+            type="mssql",
+            server="test.database.windows.net",
+            database="testdb",
+            table="dbo.users",
+        )
+        home = MssqlHome("test", config)
+
+        assert home.supports_key_finding() is True

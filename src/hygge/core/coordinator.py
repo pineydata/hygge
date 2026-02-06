@@ -436,6 +436,7 @@ class Coordinator:
                     coordinator_run_id=self.coordinator_run_id,
                     coordinator_name=self.coordinator_name,
                     connection_pools=self.connection_pools,
+                    connections=self.config.connections,
                     journal_cache=self._journal_cache,
                     get_or_create_journal=self._get_or_create_journal_instance,
                     logger=self.logger,
