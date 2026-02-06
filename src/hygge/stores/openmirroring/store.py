@@ -154,11 +154,12 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
 
     # Optional: schema and table when using connection name
     deletion_schema: Optional[str] = Field(
-        default="dbo",
+        default=None,
         description=(
             "Schema name for deletion_source table (when using connection name). "
-            "Defaults to 'dbo'. Ignored if deletion_source is a dict with "
-            "'schema' field."
+            "When unset, the store's schema (store.schema / schema_name) is used "
+            "if set, else 'dbo'. Set only to override. Ignored if deletion_source "
+            "is a dict with 'schema' field."
         ),
     )
     deletion_table: Optional[str] = Field(
@@ -466,10 +467,13 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 "before new files are published."
             )
 
-            # Warn if deletion_source is not configured for full_drop
-            # Deletion detection is important for full_drop to ensure deleted
-            # rows in the source are properly removed from the mirrored database.
-            if not self.config.deletion_source:
+            # Warn if deletion_source is not configured for full_drop (skip for
+            # journal mirror store, which intentionally has no deletion_source).
+            journal_table = getattr(
+                self.config, "journal_table_name", "__hygge_journal"
+            )
+            is_journal_mirror = self.entity_name == journal_table
+            if not self.config.deletion_source and not is_journal_mirror:
                 self.logger.debug(
                     "deletion_source is unset on store config (expected when "
                     "connection name in flow was not resolved from hygge.yml)"
