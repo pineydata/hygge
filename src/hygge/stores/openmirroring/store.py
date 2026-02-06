@@ -470,17 +470,19 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             # Deletion detection is important for full_drop to ensure deleted
             # rows in the source are properly removed from the mirrored database.
             if not self.config.deletion_source:
+                self.logger.debug(
+                    "deletion_source is unset on store config (expected when "
+                    "connection name in flow was not resolved from hygge.yml)"
+                )
                 self.logger.warning(
                     "full_drop mode is being used without deletion_source "
                     "configured. "
                     "Deleted rows in the source will NOT be removed from the "
                     "mirrored database. "
-                    "Consider configuring deletion_source to enable deletion "
-                    "detection. "
-                    "Example: deletion_source: 'fabric_mirror' "
-                    "(connection name) or "
-                    "{server: 'fabric-mirror.database.windows.net', "
-                    "database: 'MirroredDB'}"
+                    "If your flow has deletion_source: '<connection_name>', "
+                    "ensure that name exists under connections in hygge.yml. "
+                    "Alternatively use inline form: deletion_source: "
+                    "{server: '...', database: '...', schema: 'istar'}."
                 )
 
             # Note: Sequence counter reset for deletions happens in

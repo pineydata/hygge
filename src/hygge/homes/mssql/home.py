@@ -173,7 +173,8 @@ class MssqlHome(Home, home_type="mssql"):
                 batch_num += 1
                 total_rows += batch_rows
 
-                if len(batch_df) > 0:
+                # Always yield first batch (needed for schema from SELECT TOP 0 in find_keys)
+                if batch_num == 1 or len(batch_df) > 0:
                     yield batch_df
 
             if batch_num == 0:

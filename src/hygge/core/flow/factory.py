@@ -520,14 +520,16 @@ class FlowFactory:
                 "database": database,
             }
 
-            # Add schema if specified in store_config or default to "dbo"
+            # Schema: use deletion_schema if set, else store's schema (e.g. istar), else "dbo"
             if (
                 hasattr(store_config, "deletion_schema")
                 and store_config.deletion_schema
             ):
                 resolved_deletion_source["schema"] = store_config.deletion_schema
+            elif hasattr(store_config, "schema_name") and store_config.schema_name:
+                resolved_deletion_source["schema"] = store_config.schema_name
             else:
-                resolved_deletion_source["schema"] = "dbo"  # Default
+                resolved_deletion_source["schema"] = "dbo"
 
             # Add table if specified in store_config,
             # otherwise will default to entity_name at runtime
