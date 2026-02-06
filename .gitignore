@@ -1,5 +1,5 @@
 # Your existing project-specific entries
-.cursor
+
 .ruff_cache
 elk/
 config/
