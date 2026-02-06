@@ -15,6 +15,7 @@ dependencies = [
     "tenacity>=9.0.0",
     "colorama>=0.4.6",
     "click>=8.0.0",
+    "tzdata>=2024.1; sys_platform == 'win32'",  # IANA tz data for zoneinfo on Windows (Python 3.12+)
 ]
 requires-python = ">=3.11"
 

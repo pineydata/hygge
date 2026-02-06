@@ -75,6 +75,8 @@ htmlcov/
 *.cover
 *.py,cover
 .hypothesis/
+# Integration test temp dirs (created under tests/integration/)
+tests/integration/tmp*/
 
 # Jupyter Notebook
 .ipynb_checkpoints

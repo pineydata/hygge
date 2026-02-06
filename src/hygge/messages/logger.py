@@ -199,3 +199,28 @@ class HyggeLogger:
 def get_logger(name: str) -> HyggeLogger:
     """Get a configured logger instance."""
     return HyggeLogger(name)
+
+
+def close_hygge_file_handlers() -> None:
+    """
+    Close and remove all FileHandlers from hygge loggers.
+
+    Call this when the CLI exits so that log files (e.g. logs/hygge.log) are
+    released. On Windows, an open file cannot be deleted, so tests that use
+    a temp dir and then run the CLI would fail during temp dir teardown
+    unless we close the file first.
+    """
+    try:
+        manager = logging.Logger.manager
+    except AttributeError:
+        return
+    for name, logger in getattr(manager, "loggerDict", {}).items():
+        if not isinstance(logger, logging.Logger) or not name.startswith("hygge"):
+            continue
+        for handler in list(logger.handlers):
+            if isinstance(handler, logging.FileHandler):
+                try:
+                    handler.close()
+                except Exception:
+                    pass
+                logger.removeHandler(handler)

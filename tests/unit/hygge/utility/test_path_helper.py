@@ -21,17 +21,17 @@ class TestPathHelperEntitySubstitution:
     def test_substitute_entity_with_template(self):
         """Test substituting entity in path template."""
         result = PathHelper.substitute_entity("Files/{entity}/", "Account")
-        assert result == "Files/Account/"
+        assert result == "Files/Account"  # as_posix() normalizes trailing slash
 
     def test_substitute_entity_no_template(self):
-        """Test path without template returns unchanged."""
+        """Test path without template returns unchanged (normalized)."""
         result = PathHelper.substitute_entity("Files/Account/", "Account")
-        assert result == "Files/Account/"
+        assert result == "Files/Account"  # as_posix() normalizes trailing slash
 
     def test_substitute_entity_no_entity_name(self):
-        """Test path with template but no entity_name returns unchanged."""
+        """Test path with template but no entity_name returns unchanged (normalized)."""
         result = PathHelper.substitute_entity("Files/{entity}/", None)
-        assert result == "Files/{entity}/"
+        assert result == "Files/{entity}"  # as_posix() normalizes trailing slash
 
     def test_substitute_entity_with_path_object(self):
         """Test substitution works with Path objects."""

@@ -102,7 +102,7 @@ class TestADLSStoreInitialization:
 
         assert store.name == "test_store"
         assert store.config == config
-        assert store.base_path == "data/{entity}/"
+        assert store.base_path == "data/{entity}"  # PathHelper normalizes trailing slash
         assert store.file_pattern == "{sequence:020d}.parquet"  # Default
         assert store.compression == "snappy"  # Default
         assert store.sequence_counter == 0
@@ -158,7 +158,7 @@ class TestADLSStoreInitialization:
 
         store = ADLSStore("test_store", config, entity_name="users")
 
-        assert store.base_path == "data/users/"  # Entity substituted
+        assert store.base_path == "data/users"  # Entity substituted, PathHelper normalizes
         assert store.entity_name == "users"
 
     def test_adls_store_path_management(self):

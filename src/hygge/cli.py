@@ -14,7 +14,7 @@ import click
 
 from hygge import Coordinator
 from hygge.core.workspace import Workspace
-from hygge.messages import get_logger
+from hygge.messages import close_hygge_file_handlers, get_logger
 from hygge.utility.exceptions import ConfigError
 
 
@@ -62,25 +62,26 @@ def init(project_name: str, flows_dir: str, force: bool):
 
     PROJECT_NAME: Name of the project and directory to create
     """
-    logger = get_logger("hygge.cli.init")
+    try:
+        logger = get_logger("hygge.cli.init")
 
-    current_dir = Path.cwd()
-    project_dir = current_dir / project_name
+        current_dir = Path.cwd()
+        project_dir = current_dir / project_name
 
-    # Check if project directory already exists
-    if project_dir.exists() and not force:
-        click.echo(
-            f"Project directory '{project_name}' already exists in {current_dir}"
-        )
-        click.echo("Use --force to overwrite it")
-        sys.exit(1)
+        # Check if project directory already exists
+        if project_dir.exists() and not force:
+            click.echo(
+                f"Project directory '{project_name}' already exists in {current_dir}"
+            )
+            click.echo("Use --force to overwrite it")
+            sys.exit(1)
 
-    # Create project directory
-    project_dir.mkdir(exist_ok=True)
-    click.echo(f"Created project directory: {project_dir}")
+        # Create project directory
+        project_dir.mkdir(exist_ok=True)
+        click.echo(f"Created project directory: {project_dir}")
 
-    # Create hygge.yml
-    hygge_content = f"""name: "{project_name}"
+        # Create hygge.yml
+        hygge_content = f"""name: "{project_name}"
 flows_dir: "{flows_dir}"
 
 # Project-level options
@@ -89,21 +90,21 @@ options:
   continue_on_error: false
 """
 
-    hygge_file = project_dir / "hygge.yml"
-    hygge_file.write_text(hygge_content)
-    click.echo(f"Created hygge.yml for project '{project_name}'")
+        hygge_file = project_dir / "hygge.yml"
+        hygge_file.write_text(hygge_content)
+        click.echo(f"Created hygge.yml for project '{project_name}'")
 
-    # Create flows directory
-    flows_path = project_dir / flows_dir
-    flows_path.mkdir(exist_ok=True)
-    click.echo("Created flows directory: {}".format(flows_path))
+        # Create flows directory
+        flows_path = project_dir / flows_dir
+        flows_path.mkdir(exist_ok=True)
+        click.echo("Created flows directory: {}".format(flows_path))
 
-    # Create example flow
-    example_flow_dir = flows_path / "example_flow"
-    example_flow_dir.mkdir(exist_ok=True)
+        # Create example flow
+        example_flow_dir = flows_path / "example_flow"
+        example_flow_dir.mkdir(exist_ok=True)
 
-    # Create example flow.yml
-    flow_content = """name: "example_flow"
+        # Create example flow.yml
+        flow_content = """name: "example_flow"
 home:
   type: "parquet"
   path: "data/source"
@@ -117,16 +118,16 @@ defaults:
   batch_size: 10000
 """
 
-    flow_file = example_flow_dir / "flow.yml"
-    flow_file.write_text(flow_content)
-    click.echo("Created example flow: {}".format(flow_file))
+        flow_file = example_flow_dir / "flow.yml"
+        flow_file.write_text(flow_content)
+        click.echo("Created example flow: {}".format(flow_file))
 
-    # Create example entities directory
-    entities_dir = example_flow_dir / "entities"
-    entities_dir.mkdir(exist_ok=True)
+        # Create example entities directory
+        entities_dir = example_flow_dir / "entities"
+        entities_dir.mkdir(exist_ok=True)
 
-    # Create example entity
-    entity_content = """name: "users"
+        # Create example entity
+        entity_content = """name: "users"
 columns:
   - id
   - name
@@ -138,20 +139,22 @@ source_config:
   where: "created_at > '2024-01-01'"
 """
 
-    entity_file = entities_dir / "users.yml"
-    entity_file.write_text(entity_content)
-    click.echo(f"Created example entity: {entity_file}")
+        entity_file = entities_dir / "users.yml"
+        entity_file.write_text(entity_content)
+        click.echo(f"Created example entity: {entity_file}")
 
-    click.echo("\nhygge project initialized successfully!")
-    click.echo("\nNext steps:")
-    click.echo(f"  1. cd {project_name}")
-    click.echo(
-        f"  2. Edit {flow_file.relative_to(project_dir)} to configure your data sources"
-    )
-    click.echo("  3. Update paths in flow.yml to point to your actual data locations")
-    click.echo("  4. Run: hygge go")
+        click.echo("\nhygge project initialized successfully!")
+        click.echo("\nNext steps:")
+        click.echo(f"  1. cd {project_name}")
+        click.echo(
+            f"  2. Edit {flow_file.relative_to(project_dir)} to configure your data sources"
+        )
+        click.echo("  3. Update paths in flow.yml to point to your actual data locations")
+        click.echo("  4. Run: hygge go")
 
-    logger.info(f"Initialized hygge project '{project_name}' in {project_dir}")
+        logger.info(f"Initialized hygge project '{project_name}' in {project_dir}")
+    finally:
+        close_hygge_file_handlers()
 
 
 @hygge.command()
@@ -228,275 +231,281 @@ def go(
     var: tuple,
 ):
     """Execute flows in the current hygge project."""
-    logger = get_logger("hygge.cli.go")
-
-    if verbose:
-        # TODO: Set log level to DEBUG
-        pass
-
-    # Validate run_type flags
-    if incremental and full_drop:
-        click.echo("Error: Cannot specify both --incremental and --full-drop")
-        sys.exit(1)
-
     try:
-        # Parse flow filter from --flow and --entity options
-        flow_filter = []
+        logger = get_logger("hygge.cli.go")
 
-        # Parse --flow option (comma-separated string)
-        if flow_names:
-            flows = [f.strip() for f in flow_names.split(",") if f.strip()]
-            flow_filter.extend(flows)
+        if verbose:
+            # TODO: Set log level to DEBUG
+            pass
 
-        # Parse --entity option (comma-separated, format: flow.entity)
-        if entity_names:
-            entities = [e.strip() for e in entity_names.split(",") if e.strip()]
-            for entity_spec in entities:
-                if "." not in entity_spec:
+        # Validate run_type flags
+        if incremental and full_drop:
+            click.echo("Error: Cannot specify both --incremental and --full-drop")
+            sys.exit(1)
+
+        try:
+            # Parse flow filter from --flow and --entity options
+            flow_filter = []
+
+            # Parse --flow option (comma-separated string)
+            if flow_names:
+                flows = [f.strip() for f in flow_names.split(",") if f.strip()]
+                flow_filter.extend(flows)
+
+            # Parse --entity option (comma-separated, format: flow.entity)
+            if entity_names:
+                entities = [e.strip() for e in entity_names.split(",") if e.strip()]
+                for entity_spec in entities:
+                    if "." not in entity_spec:
+                        click.echo(
+                            f"Error: Invalid --entity format: {entity_spec}. "
+                            f"Use flow.entity (e.g., salesforce.Involvement)"
+                        )
+                        sys.exit(1)
+                    flow_name, entity_name = entity_spec.split(".", 1)
+                    # Convert to entity flow name format
+                    entity_flow_name = f"{flow_name}_{entity_name}"
+                    flow_filter.append(entity_flow_name)
+
+            # Parse CLI variable overrides
+            # Supports: flow.<flow_name>.field=value (flow-level overrides)
+            flow_overrides = {}  # Flow-specific overrides
+
+            for var_str in var:
+                # Format: flow.<flow_name>.full_drop=true
+                if "=" not in var_str:
+                    example = "flow.mssql_to_mirrored_db.full_drop=true"
                     click.echo(
-                        f"Error: Invalid --entity format: {entity_spec}. "
-                        f"Use flow.entity (e.g., salesforce.Involvement)"
+                        f"Error: Invalid --var format: {var_str}. "
+                        f"Use flow.<flow_name>.field=value "
+                        f"(e.g., {example})"
                     )
                     sys.exit(1)
-                flow_name, entity_name = entity_spec.split(".", 1)
-                # Convert to entity flow name format
-                entity_flow_name = f"{flow_name}_{entity_name}"
-                flow_filter.append(entity_flow_name)
 
-        # Parse CLI variable overrides
-        # Supports: flow.<flow_name>.field=value (flow-level overrides)
-        flow_overrides = {}  # Flow-specific overrides
+                key, value = var_str.split("=", 1)
+                key_parts = key.split(".")
 
-        for var_str in var:
-            # Format: flow.<flow_name>.full_drop=true
-            if "=" not in var_str:
-                example = "flow.mssql_to_mirrored_db.full_drop=true"
-                click.echo(
-                    f"Error: Invalid --var format: {var_str}. "
-                    f"Use flow.<flow_name>.field=value "
-                    f"(e.g., {example})"
-                )
-                sys.exit(1)
+                if len(key_parts) < 3 or key_parts[0] != "flow":
+                    click.echo(
+                        "Error: --var must start with 'flow.<flow_name>.' "
+                        "(e.g., flow.mssql_to_mirrored_db.full_drop=true)"
+                    )
+                    sys.exit(1)
 
-            key, value = var_str.split("=", 1)
-            key_parts = key.split(".")
+                # Format: flow.<flow_name>.field
+                flow_name = key_parts[1]
+                field_parts = key_parts[2:]
 
-            if len(key_parts) < 3 or key_parts[0] != "flow":
-                click.echo(
-                    "Error: --var must start with 'flow.<flow_name>.' "
-                    "(e.g., flow.mssql_to_mirrored_db.full_drop=true)"
-                )
-                sys.exit(1)
+                if flow_name not in flow_overrides:
+                    flow_overrides[flow_name] = {}
 
-            # Format: flow.<flow_name>.field
-            flow_name = key_parts[1]
-            field_parts = key_parts[2:]
+                # Build nested dict for the field path
+                current = flow_overrides[flow_name]
+                for part in field_parts[:-1]:
+                    if part not in current:
+                        current[part] = {}
+                    current = current[part]
 
-            if flow_name not in flow_overrides:
-                flow_overrides[flow_name] = {}
+                final_key = field_parts[-1]
+                current[final_key] = _parse_var_value(value)
 
-            # Build nested dict for the field path
-            current = flow_overrides[flow_name]
-            for part in field_parts[:-1]:
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
+            # Use Workspace to load configuration (replaces temp coordinator hack)
+            workspace = Workspace.find()
+            config = workspace.prepare()
 
-            final_key = field_parts[-1]
-            current[final_key] = _parse_var_value(value)
-
-        # Use Workspace to load configuration (replaces temp coordinator hack)
-        workspace = Workspace.find()
-        config = workspace.prepare()
-
-        # Apply run_type override if specified
-        if incremental:
-            run_type_override = "incremental"
-        elif full_drop:
-            run_type_override = "full_drop"
-        else:
-            run_type_override = None
-
-        # If run_type override specified, apply to all flows (filtered or all)
-        if run_type_override:
-            # Determine which base flows to override
-            if flow_filter:
-                # Extract base flow names from filter
-                base_flow_names = set()
-                for flow_name in flow_filter:
-                    # Check if it's an entity flow (contains underscore)
-                    if "_" in flow_name:
-                        # Try to extract base flow name
-                        parts = flow_name.rsplit("_", 1)
-                        if len(parts) == 2:
-                            potential_base = parts[0]
-                            # Check if this base flow exists in config entities
-                            if any(
-                                e.base_flow_name == potential_base
-                                for e in config.entities
-                            ):
-                                base_flow_names.add(potential_base)
-                                continue
-                    # Not an entity flow or base flow not found, use as-is
-                    if any(
-                        e.flow_name == flow_name or e.base_flow_name == flow_name
-                        for e in config.entities
-                    ):
-                        # Find the base flow name
-                        for entity in config.entities:
-                            if (
-                                entity.flow_name == flow_name
-                                or entity.base_flow_name == flow_name
-                            ):
-                                base_flow_names.add(entity.base_flow_name)
-                                break
+            # Apply run_type override if specified
+            if incremental:
+                run_type_override = "incremental"
+            elif full_drop:
+                run_type_override = "full_drop"
             else:
-                # Apply to all flows - get unique base flow names from entities
-                base_flow_names = {e.base_flow_name for e in config.entities}
+                run_type_override = None
 
-            # Apply run_type override to all base flows
-            for base_flow_name in base_flow_names:
-                if base_flow_name not in flow_overrides:
-                    flow_overrides[base_flow_name] = {}
-                flow_overrides[base_flow_name]["run_type"] = run_type_override
+            # If run_type override specified, apply to all flows (filtered or all)
+            if run_type_override:
+                # Determine which base flows to override
+                if flow_filter:
+                    # Extract base flow names from filter
+                    base_flow_names = set()
+                    for flow_name in flow_filter:
+                        # Check if it's an entity flow (contains underscore)
+                        if "_" in flow_name:
+                            # Try to extract base flow name
+                            parts = flow_name.rsplit("_", 1)
+                            if len(parts) == 2:
+                                potential_base = parts[0]
+                                # Check if this base flow exists in config entities
+                                if any(
+                                    e.base_flow_name == potential_base
+                                    for e in config.entities
+                                ):
+                                    base_flow_names.add(potential_base)
+                                    continue
+                        # Not an entity flow or base flow not found, use as-is
+                        if any(
+                            e.flow_name == flow_name or e.base_flow_name == flow_name
+                            for e in config.entities
+                        ):
+                            # Find the base flow name
+                            for entity in config.entities:
+                                if (
+                                    entity.flow_name == flow_name
+                                    or entity.base_flow_name == flow_name
+                                ):
+                                    base_flow_names.add(entity.base_flow_name)
+                                    break
+                else:
+                    # Apply to all flows - get unique base flow names from entities
+                    base_flow_names = {e.base_flow_name for e in config.entities}
 
-        # Create coordinator with prepared config and final overrides
-        # Pass config directly to avoid Workspace.find() being called again
-        coordinator = Coordinator(
-            config=config,
-            flow_overrides=flow_overrides if flow_overrides else None,
-            flow_filter=flow_filter if flow_filter else None,
-        )
+                # Apply run_type override to all base flows
+                for base_flow_name in base_flow_names:
+                    if base_flow_name not in flow_overrides:
+                        flow_overrides[base_flow_name] = {}
+                    flow_overrides[base_flow_name]["run_type"] = run_type_override
 
-        # Apply CLI concurrency override (will override config options)
-        if concurrency is not None:
-            coordinator.options["concurrency"] = concurrency
+            # Create coordinator with prepared config and final overrides
+            # Pass config directly to avoid Workspace.find() being called again
+            coordinator = Coordinator(
+                config=config,
+                flow_overrides=flow_overrides if flow_overrides else None,
+                flow_filter=flow_filter if flow_filter else None,
+            )
 
-        # Run flows or preview
-        if dry_run:
-            # Preview mode - show what would happen
-            preview_results = asyncio.run(coordinator.preview())
-            _print_preview(preview_results, verbose=verbose, flow_filter=flow_filter)
-        else:
-            # Normal execution
-            if flow_filter:
-                flow_list = ", ".join(flow_filter)
-                click.echo(f"Starting flows: {flow_list}")
+            # Apply CLI concurrency override (will override config options)
+            if concurrency is not None:
+                coordinator.options["concurrency"] = concurrency
+
+            # Run flows or preview
+            if dry_run:
+                # Preview mode - show what would happen
+                preview_results = asyncio.run(coordinator.preview())
+                _print_preview(preview_results, verbose=verbose, flow_filter=flow_filter)
             else:
-                click.echo("Starting all flows...")
+                # Normal execution
+                if flow_filter:
+                    flow_list = ", ".join(flow_filter)
+                    click.echo(f"Starting flows: {flow_list}")
+                else:
+                    click.echo("Starting all flows...")
 
-            asyncio.run(coordinator.run())
-            click.echo("All flows completed successfully!")
+                asyncio.run(coordinator.run())
+                click.echo("All flows completed successfully!")
 
-    except ConfigError as e:
-        click.echo(f"Configuration error: {e}")
-        sys.exit(1)
-    except Exception as e:
-        click.echo(f"Error: {e}")
-        logger.error(f"Error running flows: {e}")
-        sys.exit(1)
+        except ConfigError as e:
+            click.echo(f"Configuration error: {e}")
+            sys.exit(1)
+        except Exception as e:
+            click.echo(f"Error: {e}")
+            logger.error(f"Error running flows: {e}")
+            sys.exit(1)
+    finally:
+        close_hygge_file_handlers()
 
 
 @hygge.command()
 def debug():
     """Debug hygge project configuration and test all connections."""
-    logger = get_logger("hygge.cli.debug")
-
     try:
-        # Warm welcome
-        click.echo("🏡 hygge debug - Let's make sure everything feels right\n")
+        logger = get_logger("hygge.cli.debug")
 
-        # Use Workspace to load configuration
-        workspace = Workspace.find()
-        config = workspace.prepare()
+        try:
+            # Warm welcome
+            click.echo("🏡 hygge debug - Let's make sure everything feels right\n")
 
-        click.echo("✓ Project configuration is valid")
-        click.echo(f"  Project: {workspace.name}")
-        click.echo(f"  Flows directory: {workspace.flows_dir}")
-        click.echo(f"  Total flows: {len(config.entities)}\n")
+            # Use Workspace to load configuration
+            workspace = Workspace.find()
+            config = workspace.prepare()
 
-        # Group entities by base_flow_name
-        flows_dict = {}
-        for entity in config.entities:
-            base_flow = entity.base_flow_name
-            if base_flow not in flows_dict:
-                flows_dict[base_flow] = []
-            flows_dict[base_flow].append(entity)
+            click.echo("✓ Project configuration is valid")
+            click.echo(f"  Project: {workspace.name}")
+            click.echo(f"  Flows directory: {workspace.flows_dir}")
+            click.echo(f"  Total flows: {len(config.entities)}\n")
 
-        # List flows and their entities with warm messaging
-        click.echo("📋 Discovered Flows:")
-        for base_flow_name, entities in flows_dict.items():
-            click.echo(f"  • {base_flow_name}")
-            if len(entities) > 1 or (len(entities) == 1 and entities[0].entity_name):
-                click.echo(f"    {len(entities)} entities ready to move")
-                for entity in entities:
-                    if entity.entity_name:
-                        click.echo(f"      - {entity.entity_name}")
-                    else:
-                        click.echo("      - (direct flow)")
-        click.echo()
+            # Group entities by base_flow_name
+            flows_dict = {}
+            for entity in config.entities:
+                base_flow = entity.base_flow_name
+                if base_flow not in flows_dict:
+                    flows_dict[base_flow] = []
+                flows_dict[base_flow].append(entity)
 
-        # Test all configured connections
-        connections = config.connections
-        if connections:
-            click.echo(f"🔌 Testing {len(connections)} database connection(s)...\n")
+            # List flows and their entities with warm messaging
+            click.echo("📋 Discovered Flows:")
+            for base_flow_name, entities in flows_dict.items():
+                click.echo(f"  • {base_flow_name}")
+                if len(entities) > 1 or (len(entities) == 1 and entities[0].entity_name):
+                    click.echo(f"    {len(entities)} entities ready to move")
+                    for entity in entities:
+                        if entity.entity_name:
+                            click.echo(f"      - {entity.entity_name}")
+                        else:
+                            click.echo("      - (direct flow)")
+            click.echo()
 
-            for conn_name, conn_config in connections.items():
-                click.echo(f"  {conn_name}")
-                click.echo(f"    Type: {conn_config.get('type', 'unknown')}")
-                click.echo(f"    Server: {conn_config.get('server', 'unknown')}")
-                click.echo(f"    Database: {conn_config.get('database', 'unknown')}")
+            # Test all configured connections
+            connections = config.connections
+            if connections:
+                click.echo(f"🔌 Testing {len(connections)} database connection(s)...\n")
 
-                try:
-                    # Test the connection based on type
-                    conn_type = conn_config.get("type", "").lower()
+                for conn_name, conn_config in connections.items():
+                    click.echo(f"  {conn_name}")
+                    click.echo(f"    Type: {conn_config.get('type', 'unknown')}")
+                    click.echo(f"    Server: {conn_config.get('server', 'unknown')}")
+                    click.echo(f"    Database: {conn_config.get('database', 'unknown')}")
 
-                    if conn_type == "mssql":
-                        asyncio.run(_test_mssql_connection(conn_name, conn_config))
-                    else:
-                        click.echo(
-                            f"    ⚠️  Connection type '{conn_type}' "
-                            "not yet supported for testing"
-                        )
+                    try:
+                        # Test the connection based on type
+                        conn_type = conn_config.get("type", "").lower()
 
-                except Exception as e:
-                    click.echo("    ❌ Connection failed")
-                    click.echo(f"    Problem: {str(e)}")
-                    click.echo("    💡 Try: Check your credentials and network access")
-                click.echo()
-        else:
-            click.echo("ℹ️  No database connections configured (that's okay!)\n")
+                        if conn_type == "mssql":
+                            asyncio.run(_test_mssql_connection(conn_name, conn_config))
+                        else:
+                            click.echo(
+                                f"    ⚠️  Connection type '{conn_type}' "
+                                "not yet supported for testing"
+                            )
 
-        # Add path validation for flows
-        click.echo("📁 Validating paths...")
-        _validate_flow_paths(config, workspace)
+                    except Exception as e:
+                        click.echo("    ❌ Connection failed")
+                        click.echo(f"    Problem: {str(e)}")
+                        click.echo("    💡 Try: Check your credentials and network access")
+                    click.echo()
+            else:
+                click.echo("ℹ️  No database connections configured (that's okay!)\n")
 
-        # Success summary
-        click.echo("\n✨ Everything looks good!")
-        click.echo("   Your hygge project is ready to go.")
-        click.echo("\n💡 Next steps:")
-        click.echo("   • Run: hygge go")
-        click.echo("   • Or run specific flows: hygge go --flow flow_name")
+            # Add path validation for flows
+            click.echo("📁 Validating paths...")
+            _validate_flow_paths(config, workspace)
 
-        logger.info("Project configuration debug completed")
+            # Success summary
+            click.echo("\n✨ Everything looks good!")
+            click.echo("   Your hygge project is ready to go.")
+            click.echo("\n💡 Next steps:")
+            click.echo("   • Run: hygge go")
+            click.echo("   • Or run specific flows: hygge go --flow flow_name")
 
-    except ConfigError as e:
-        click.echo("\n❌ Configuration Error")
-        click.echo(f"   {e}")
-        click.echo("\n💡 What to do:")
-        click.echo("   • Check your hygge.yml and flow.yml files")
-        click.echo("   • Make sure all required fields are present")
-        click.echo("   • Verify YAML syntax is correct")
-        sys.exit(1)
-    except Exception as e:
-        click.echo("\n❌ Unexpected Error")
-        click.echo(f"   {e}")
-        click.echo("\n💡 This might help:")
-        click.echo("   • Check file permissions")
-        click.echo("   • Verify you're in a hygge project directory")
-        click.echo("   • Look for a hygge.yml file in the current or parent directory")
-        logger.error(f"Error debugging configuration: {e}")
-        sys.exit(1)
+            logger.info("Project configuration debug completed")
+
+        except ConfigError as e:
+            click.echo("\n❌ Configuration Error")
+            click.echo(f"   {e}")
+            click.echo("\n💡 What to do:")
+            click.echo("   • Check your hygge.yml and flow.yml files")
+            click.echo("   • Make sure all required fields are present")
+            click.echo("   • Verify YAML syntax is correct")
+            sys.exit(1)
+        except Exception as e:
+            click.echo("\n❌ Unexpected Error")
+            click.echo(f"   {e}")
+            click.echo("\n💡 This might help:")
+            click.echo("   • Check file permissions")
+            click.echo("   • Verify you're in a hygge project directory")
+            click.echo("   • Look for a hygge.yml file in the current or parent directory")
+            logger.error(f"Error debugging configuration: {e}")
+            sys.exit(1)
+    finally:
+        close_hygge_file_handlers()
 
 
 def _validate_flow_paths(config, workspace):

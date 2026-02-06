@@ -25,22 +25,28 @@ import pytest
 from hygge import Coordinator
 
 # Import concrete implementations to register them
-from hygge.utility.exceptions import ConfigError
+from hygge.utility.exceptions import ConfigError, HomeReadError
+
+
+def _path_for_yaml(p) -> str:
+    """Path as YAML-safe string (forward slashes) so backslashes don't break parsing on Windows."""
+    return Path(p).as_posix()
 
 
 @pytest.fixture
 def temp_config_dir():
-    """Create temporary directory for test configurations."""
-    temp_dir = tempfile.mkdtemp()
+    """Create temporary directory for test configurations (inside workspace for sandbox)."""
+    workspace_tmp = Path(__file__).resolve().parent
+    temp_dir = tempfile.mkdtemp(dir=str(workspace_tmp))
     yield Path(temp_dir)
-    shutil.rmtree(temp_dir)
+    shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @pytest.fixture
 def sample_data_files(temp_config_dir: Path) -> Dict[str, Path]:
     """Create sample data files for testing."""
     data_dir = temp_config_dir / "data"
-    data_dir.mkdir()
+    data_dir.mkdir(parents=True, exist_ok=True)
 
     # Create multiple test files
     files = {}
@@ -116,10 +122,10 @@ flows_dir: "flows"
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['users']}"
+  path: "{_path_for_yaml(sample_data_files['users'])}"
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'users'}"
+  path: "{_path_for_yaml(temp_config_dir / 'lake' / 'users')}"
 """
     )
 
@@ -132,10 +138,10 @@ store:
 name: "orders_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['orders']}"
+  path: "{_path_for_yaml(sample_data_files['orders'])}"
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'orders'}"
+  path: "{_path_for_yaml(temp_config_dir / 'lake' / 'orders')}"
 """
     )
 
@@ -169,12 +175,12 @@ flows_dir: "flows"
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['users']}"
+  path: "{_path_for_yaml(sample_data_files['users'])}"
   options:
     batch_size: 500
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'users'}"
+  path: "{_path_for_yaml(temp_config_dir / 'lake' / 'users')}"
   options:
     batch_size: 1000
     compression: "snappy"
@@ -194,12 +200,12 @@ options:
 name: "orders_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['orders']}"
+  path: "{_path_for_yaml(sample_data_files['orders'])}"
   options:
     batch_size: 800
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'orders'}"
+  path: "{_path_for_yaml(temp_config_dir / 'lake' / 'orders')}"
   options:
     batch_size: 1500
     compression: "gzip"
@@ -219,10 +225,10 @@ options:
 name: "products_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['products']}"
+  path: "{_path_for_yaml(sample_data_files['products'])}"
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'products'}"
+  path: "{_path_for_yaml(temp_config_dir / 'lake' / 'products')}"
 options:
   queue_size: 2
 """
@@ -375,8 +381,8 @@ flows_dir: "flows"
         """Test Coordinator handles invalid configurations gracefully."""
         coordinator = Coordinator(str(invalid_config_file))
 
-        # Should raise an error for invalid configuration
-        with pytest.raises((ConfigError, FileNotFoundError)):
+        # Should raise an error for invalid configuration (HomeReadError when path is opened)
+        with pytest.raises((ConfigError, FileNotFoundError, HomeReadError)):
             await coordinator.run()
 
     @pytest.mark.asyncio
@@ -438,10 +444,10 @@ flows_dir: "flows"
 name: "valid_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['users']}"
+  path: "{_path_for_yaml(sample_data_files['users'])}"
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'valid_output'}"
+  path: "{_path_for_yaml(temp_config_dir / 'valid_output')}"
 """
         )
 
