@@ -1215,7 +1215,7 @@ class TestOpenMirroringStoreDeletionDetection:
 
     @pytest.mark.asyncio
     async def test_query_target_keys_with_valid_target(self):
-        """Test _query_target_keys_impl() with valid target."""
+        """Test _query_target_keys_impl() with valid target (streaming mode)."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -1233,56 +1233,96 @@ class TestOpenMirroringStoreDeletionDetection:
         store = OpenMirroringStore("test_store", config, entity_name="users")
         store.configure_for_run("full_drop")
 
-        # Mock MssqlHome.find_keys() to return test keys
+        # Mock keys to be streamed
         mock_keys = pl.DataFrame({"id": [1, 2, 3]})
+        mock_schema = pl.DataFrame(schema={"id": pl.Int64})
+
+        # Create async iterator for _stream_query
+        async def mock_stream_query(query):
+            yield mock_keys
+
         mock_home = AsyncMock()
-        mock_home.find_keys = AsyncMock(return_value=mock_keys)
+        mock_home.config = AsyncMock()
+        mock_home.config.table = "dbo.users"
+        mock_home._run_single_query = AsyncMock(return_value=mock_schema)
+        mock_home._cleanup_connection = AsyncMock()
+        mock_home._stream_query = mock_stream_query
 
         # Mock write to track what gets written
         store.write = AsyncMock()
         store._flush_buffer = AsyncMock()
         store.saved_paths = []
+        store._reserve_sequence_numbers_for_deletions = AsyncMock()
 
         # Call the implementation directly with mocked home
         await store._query_target_keys_impl(mock_home)
 
-        # Verify find_keys was called with correct key columns
-        mock_home.find_keys.assert_called_once_with(["id"])
+        # Verify schema query was called
+        mock_home._run_single_query.assert_called_once()
+        assert "SELECT TOP 0" in mock_home._run_single_query.call_args[0][0]
 
-        # Verify target keys were stored
-        assert store._target_keys_for_deletion is not None
-        assert len(store._target_keys_for_deletion) == 3
+        # Verify write was called with deletion markers
+        store.write.assert_called_once()
+        written_df = store.write.call_args[0][0]
+        assert "__rowMarker__" in written_df.columns
+        assert written_df["__rowMarker__"][0] == 2
+        assert len(written_df) == 3
+
+        # Verify deletion markers were written (not stored in memory)
+        assert store._target_keys_for_deletion is None
+        assert store._deletion_markers_written is True
 
     @pytest.mark.asyncio
     async def test_query_target_keys_with_empty_target(self):
-        """Test _query_target_keys_impl() with empty target."""
+        """Test _query_target_keys_impl() with empty target (streaming mode)."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
             mirror_name="MyMirror",
             key_columns=["id"],
             row_marker=0,
-            deletion_source={"server": "test", "database": "testdb"},
+            deletion_source={
+                "server": "test",
+                "database": "testdb",
+                "table": "users",
+            },
         )
 
         store = OpenMirroringStore("test_store", config, entity_name="users")
         store.configure_for_run("full_drop")
 
-        # Mock MssqlHome.find_keys() to return empty DataFrame
-        empty_keys = pl.DataFrame(schema={"id": pl.Int64})
+        # Mock empty schema and empty stream
+        mock_schema = pl.DataFrame(schema={"id": pl.Int64})
+
+        # Create async iterator that yields nothing (empty table)
+        async def mock_stream_query_empty(query):
+            # Empty async generator - no yields means it's empty
+            # We need at least one yield (even unreachable) to make it a generator
+            if False:
+                yield pl.DataFrame()  # Unreachable but makes it a generator
+
         mock_home = AsyncMock()
-        mock_home.find_keys = AsyncMock(return_value=empty_keys)
+        mock_home.config = AsyncMock()
+        mock_home.config.table = "dbo.users"
+        mock_home._run_single_query = AsyncMock(return_value=mock_schema)
+        mock_home._cleanup_connection = AsyncMock()
+        mock_home._stream_query = mock_stream_query_empty
 
         store.write = AsyncMock()
+        store._reserve_sequence_numbers_for_deletions = AsyncMock()
 
         # Call the implementation directly with mocked home
         await store._query_target_keys_impl(mock_home)
 
-        # Verify find_keys was called
-        mock_home.find_keys.assert_called_once_with(["id"])
+        # Verify schema query was called
+        mock_home._run_single_query.assert_called_once()
 
-        # Verify target keys were set to None (empty target)
+        # Verify write was NOT called (empty table)
+        store.write.assert_not_called()
+
+        # Verify deletion markers were marked as written (nothing to write)
         assert store._target_keys_for_deletion is None
+        assert store._deletion_markers_written is True
 
     @pytest.mark.asyncio
     async def test_query_target_keys_fails_when_table_missing(self):

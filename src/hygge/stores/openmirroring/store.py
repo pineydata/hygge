@@ -638,7 +638,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 retries=3,
                 delay=2,
                 exceptions=(StoreConnectionError, HomeConnectionError),
-                timeout=300,
+                timeout=600,  # Increased timeout for large tables (10 minutes)
                 logger_name="hygge.store.openmirroring",
             )(self._query_target_keys_impl)
 
@@ -660,28 +660,106 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         """
         Implementation of querying target keys.
 
+        Streams keys directly from database and writes deletion markers in batches
+        to avoid loading all keys into memory at once. This prevents memory issues
+        and timeouts for large tables.
+
         Separated for retry logic wrapper.
         """
-        # Query ALL keys from target database
-        self.logger.debug("Querying target database for all keys (pre-hook)")
+        # Query ALL keys from target database using streaming to avoid memory issues
+        self.logger.info("Querying target database for all keys (streaming mode)")
 
-        # Use find_keys() method to get only key columns (with proper schema inference)
-        target_keys = await target_home.find_keys(self.key_columns)
+        # Build SELECT query for key columns only
+        columns_str = ", ".join([f"[{col}]" for col in self.key_columns])
+        table = target_home.config.table
 
-        if target_keys is None or len(target_keys) == 0:
-            self.logger.debug(
+        if not table:
+            raise StoreError(
+                "Cannot query target keys: table not configured in deletion_source"
+            )
+
+        # Query schema first using SELECT TOP 0 (works even if table is empty)
+        # This validates the table exists and we can query it
+        schema_query = f"SELECT TOP 0 {columns_str} FROM {table}"
+        try:
+            await target_home._run_single_query(schema_query)
+        except Exception as e:
+            raise StoreError(
+                f"Failed to determine schema for key columns {self.key_columns}. "
+                f"Cannot query table schema - this may indicate a connection or "
+                f"permissions issue. {e!s}"
+            ) from e
+        finally:
+            await target_home._cleanup_connection()
+
+        # Note: SELECT TOP 0 always returns 0 rows but with correct schema
+        # We'll detect empty table during streaming (no batches returned)
+
+        # Stream keys and write deletion markers in batches
+        # This avoids loading all keys into memory at once
+        query = f"SELECT DISTINCT {columns_str} FROM {table}"
+
+        # Reserve sequence numbers for deletions before writing
+        await self._reserve_sequence_numbers_for_deletions()
+
+        # Track metrics
+        total_keys = 0
+        batch_count = 0
+        paths_before = len(getattr(self, "saved_paths", []))
+
+        # Initialize deletion paths tracking
+        if not hasattr(self, "_deletion_paths"):
+            self._deletion_paths = []
+
+        # Stream keys and write deletion markers in batches
+        async for batch_df in target_home._stream_query(query):
+            if len(batch_df) == 0:
+                continue
+
+            batch_count += 1
+            total_keys += len(batch_df)
+
+            # Mark batch as deleted
+            delete_markers = batch_df.with_columns(pl.lit(2).alias("__rowMarker__"))
+
+            # Write delete markers to _tmp (idempotent - full_drop mode writes to _tmp)
+            await self.write(delete_markers)
+            if hasattr(self, "data_buffer") and self.data_buffer:
+                await self._flush_buffer()
+
+            # Log progress every 10 batches or for first/last batch
+            if batch_count % 10 == 0 or batch_count == 1:
+                self.logger.info(
+                    f"Streaming deletion markers: {total_keys:,} keys processed "
+                    f"({batch_count} batch(es))"
+                )
+
+        # Track deletion file paths separately for ordered move in finish()
+        paths_after = len(getattr(self, "saved_paths", []))
+        if paths_after > paths_before:
+            self._deletion_paths.extend(self.saved_paths[paths_before:paths_after])
+
+        if total_keys == 0:
+            self.logger.info(
                 "No target keys found - nothing to mark as deleted "
                 "(first run or empty table)"
             )
             self._target_keys_for_deletion = None
-            return
+        else:
+            self.logger.info(
+                f"Queried and wrote {total_keys:,} deletion marker(s) in {batch_count} "
+                f"batch(es) - will be moved to production after extraction succeeds"
+            )
+            # Track metrics for observability
+            if not hasattr(self, "_deletion_metrics"):
+                self._deletion_metrics = {}
+            self._deletion_metrics.setdefault("full_drop_deletions", 0)
+            self._deletion_metrics["full_drop_deletions"] += total_keys
 
-        # Store keys for writing deletion markers after extraction succeeds
-        self._target_keys_for_deletion = target_keys
-        self.logger.debug(
-            f"Queried {len(target_keys):,} target key(s) - will write "
-            f"deletion markers after extraction succeeds"
-        )
+        # Mark that deletion markers have been written
+        self._deletion_markers_written = True
+        # Don't store keys in memory - they've already been written
+        self._target_keys_for_deletion = None
 
     async def _reserve_sequence_numbers_for_deletions(self) -> None:
         """
@@ -735,7 +813,18 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         CRITICAL: Files are written to _tmp, but only moved to production after
         extraction succeeds (in finish()). This ensures we don't delete data if
         extraction fails.
+
+        Note: If deletion markers were already written during _query_target_keys_impl
+        (streaming mode), this method will skip writing.
         """
+        # Check if deletion markers were already written during streaming
+        if getattr(self, "_deletion_markers_written", False):
+            self.logger.debug(
+                "Deletion markers already written during key query "
+                "(streaming mode) - skipping"
+            )
+            return
+
         if (
             self._target_keys_for_deletion is None
             or len(self._target_keys_for_deletion) == 0
