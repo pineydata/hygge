@@ -72,17 +72,14 @@ class TestOpenMirroringStoreDeletionIntegration:
     @pytest.mark.asyncio
     async def test_before_flow_start_writes_deletion_markers(self, store):
         """Test that before_flow_start() writes deletion markers to _tmp."""
-        # Mock _query_target_keys and _write_deletion_markers
+        # In streaming mode, before_flow_start() only calls _query_target_keys()
+        # which handles sequence reservation and marker writing internally
         store._query_target_keys = AsyncMock()
-        store._write_deletion_markers = AsyncMock()
-        store._reserve_sequence_numbers_for_deletions = AsyncMock()
 
         await store.before_flow_start()
 
-        # Verify all methods were called
+        # Verify _query_target_keys was called (it handles everything internally)
         assert store._query_target_keys.called
-        assert store._reserve_sequence_numbers_for_deletions.called
-        assert store._write_deletion_markers.called
 
     def test_configure_for_run_resets_deletion_tracking(self, store):
         """Test that configure_for_run() resets deletion tracking."""

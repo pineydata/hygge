@@ -1482,7 +1482,12 @@ class TestOpenMirroringStoreDeletionDetection:
             mirror_name="MyMirror",
             key_columns=["id"],
             row_marker=0,
-            deletion_source={"server": "test", "database": "testdb"},
+            deletion_source={
+                "server": "test",
+                "database": "testdb",
+                "schema": "dbo",
+                "table": "users",
+            },
         )
 
         store = OpenMirroringStore("test_store", config, entity_name="users")
@@ -1491,31 +1496,46 @@ class TestOpenMirroringStoreDeletionDetection:
         # Simulate existing file in LandingZone (sequence 12)
         store.sequence_counter = 12
 
-        # Set up target keys (will be set by mocked _query_target_keys)
-        target_keys = pl.DataFrame({"id": [1, 2, 3]})
+        # Mock keys to be streamed
+        mock_keys = pl.DataFrame({"id": [1, 2, 3]})
+        mock_schema = pl.DataFrame(schema={"id": pl.Int64})
 
-        # Mock _query_target_keys to set target keys without database connection
-        async def mock_query_target_keys():
-            store._target_keys_for_deletion = target_keys
+        # Create async iterator for _stream_query
+        async def mock_stream_query(query):
+            yield mock_keys
 
-        store._query_target_keys = AsyncMock(side_effect=mock_query_target_keys)
-        store._initialize_sequence_counter = AsyncMock()
+        mock_home = AsyncMock()
+        mock_home.config = AsyncMock()
+        mock_home.config.table = "dbo.users"
+        mock_home._run_single_query = AsyncMock(return_value=mock_schema)
+        mock_home._cleanup_connection = AsyncMock()
+        mock_home._stream_query = mock_stream_query
 
         # Mock write and get_next_filename to track sequence numbers used for deletions
         deletion_sequence_numbers = []
+        store.saved_paths = []
 
         async def mock_write(df):
             # Get next filename to see sequence number
             filename = await store.get_next_filename()
             deletion_sequence_numbers.append(filename)
+            # Simulate file path being added to saved_paths
+            store.saved_paths.append(
+                f"/tmp/deletion_file_{len(store.saved_paths)}.parquet"
+            )
 
         store.write = AsyncMock(side_effect=mock_write)
         store._flush_buffer = AsyncMock()
+        store._initialize_sequence_counter = AsyncMock()
 
-        # Call before_flow_start() which:
-        # 1. Queries target keys (mocked)
-        # 2. Reserves sequence numbers
-        # 3. Writes deletion markers (mocked write tracks sequence numbers)
+        # Mock _query_target_keys to call _query_target_keys_impl with mocked home
+        async def mock_query_target_keys():
+            await store._query_target_keys_impl(mock_home)
+
+        store._query_target_keys = AsyncMock(side_effect=mock_query_target_keys)
+
+        # Call before_flow_start() which queries target keys and writes deletion markers
+        # in streaming mode (sequence reservation happens during query)
         await store.before_flow_start()
 
         # Verify sequence numbers were reserved for deletions

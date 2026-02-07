@@ -499,8 +499,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         For full_drop runs with deletion_source configured:
         1. Query target database for all keys (read-only, safe)
-        2. Reserve sequence numbers for deletions (lower numbers)
-        3. Write deletion markers to _tmp FIRST (before new data)
+        2. Stream keys and write deletion markers to _tmp in batches (streaming mode)
+        3. Reserve sequence numbers for deletions (handled during query)
 
         Flow:
         - Deletion files written to _tmp (sequence 13, 14, 15...)
@@ -510,6 +510,10 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         Safety: Deletion files are in _tmp and only moved to production after
         extraction succeeds (in finish()). This ensures we don't delete data if
         extraction fails.
+
+        Note: In streaming mode, deletion markers are written directly during
+        _query_target_keys() to avoid loading all keys into memory. Sequence
+        numbers are reserved automatically during the query process.
 
         Called by Flow._execute_flow() after _prepare_incremental_context()
         but before starting producer/consumer tasks.
@@ -522,16 +526,9 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         if not self.config.deletion_source:
             return
 
-        # Query target keys (safe, read-only operation)
+        # Query target keys and write deletion markers in streaming mode
+        # This handles sequence reservation and marker writing internally
         await self._query_target_keys()
-
-        # Reserve sequence numbers for deletions BEFORE new data is written
-        # This ensures deletions get lower sequence numbers (processed first)
-        await self._reserve_sequence_numbers_for_deletions()
-
-        # Write deletion markers to _tmp FIRST (before new data)
-        # They will only be moved to production after extraction succeeds
-        await self._write_deletion_markers()
 
     async def after_extraction_succeeds(self) -> None:
         """
@@ -702,6 +699,16 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         # Reserve sequence numbers for deletions before writing
         await self._reserve_sequence_numbers_for_deletions()
 
+        # Use reserved sequence numbers for deletions
+        # This ensures deletions get lower sequence numbers than new data
+        if self._deletion_sequence_start is not None:
+            self.sequence_counter = self._deletion_sequence_start - 1
+            self._sequence_counter_explicitly_set = True
+            self.logger.debug(
+                f"Using reserved sequence numbers for deletions starting at "
+                f"{self._deletion_sequence_start}"
+            )
+
         # Track metrics
         total_keys = 0
         batch_count = 0
@@ -761,6 +768,19 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         # Don't store keys in memory - they've already been written
         self._target_keys_for_deletion = None
 
+        # Restore sequence counter to start new data after the reserved block
+        # (sequence_counter was set to _deletion_sequence_start - 1 for deletions,
+        # now restore it to where new data should start)
+        if (
+            hasattr(self, "_new_data_sequence_start")
+            and self._new_data_sequence_start is not None
+        ):
+            self.sequence_counter = self._new_data_sequence_start - 1
+            self.logger.debug(
+                f"Restored sequence counter to {self._new_data_sequence_start} "
+                f"for new data (after deletion reserved block)"
+            )
+
     async def _reserve_sequence_numbers_for_deletions(self) -> None:
         """
         Reserve sequence numbers for deletions before new data is written.
@@ -787,17 +807,20 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         # (e.g., if last file was 12, deletions start at 13)
         self._deletion_sequence_start = self.sequence_counter + 1
 
-        # Advance sequence counter to start new data after the reserved block
+        # Store where new data should start (after the reserved block)
         # (e.g., if deletions start at 13, new data starts at 113)
-        self.sequence_counter = (
-            self._deletion_sequence_start + deletion_reservation_size - 1
+        self._new_data_sequence_start = (
+            self._deletion_sequence_start + deletion_reservation_size
         )
+
+        # Advance sequence counter to start new data after the reserved block
+        # (e.g., if deletions start at 13, new data starts at 113, so counter is 112)
+        self.sequence_counter = self._new_data_sequence_start - 1
 
         self.logger.debug(
             f"Reserved sequence numbers {self._deletion_sequence_start} to "
             f"{self._deletion_sequence_start + deletion_reservation_size - 1} "
-            f"for deletions. New data will start at "
-            f"{self._deletion_sequence_start + deletion_reservation_size}"
+            f"for deletions. New data will start at {self._new_data_sequence_start}"
         )
 
     async def _write_deletion_markers(self) -> None:
