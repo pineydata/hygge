@@ -184,6 +184,18 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
         ),
     )
 
+    # Optional: Timeout for deletion query operations
+    deletion_query_timeout: float = Field(
+        default=600.0,
+        ge=1.0,
+        description=(
+            "Timeout in seconds for deletion query operations during full_drop runs. "
+            "Used when querying target database for all keys before marking deletions. "
+            "Default: 600 seconds (10 minutes). Increase for very large tables that "
+            "require longer query times."
+        ),
+    )
+
     # Optional: Mirror hygge journal into Fabric as append-only table
     mirror_journal: bool = Field(
         default=False,
@@ -635,7 +647,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 retries=3,
                 delay=2,
                 exceptions=(StoreConnectionError, HomeConnectionError),
-                timeout=600,  # Increased timeout for large tables (10 minutes)
+                timeout=self.config.deletion_query_timeout,
                 logger_name="hygge.store.openmirroring",
             )(self._query_target_keys_impl)
 
