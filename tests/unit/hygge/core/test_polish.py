@@ -163,6 +163,49 @@ def test_polisher_hash_id_respects_existing_column():
     assert result["UserIdHash"].to_list() == ["existing", "values"]
 
 
+def test_polisher_hash_id_skips_silently_for_deletion_markers():
+    """
+    Test that hash ID rules skip silently when deletion markers already have
+    hash ID columns as key columns.
+
+    This prevents unnecessary warnings for deletion markers that already contain
+    hash ID columns (e.g., when key_columns includes a hash ID column).
+    """
+    # Deletion marker DataFrame with hash ID column already present as key column
+    df = pl.DataFrame(
+        {
+            "Id": [1, 2, 3],
+            "IstarDesignationHashId": [
+                "abc123",
+                "def456",
+                "ghi789",
+            ],  # Hash ID column already exists (as key column)
+            "__rowMarker__": [2, 2, 2],  # Delete marker
+        }
+    )
+
+    # Hash ID rule that would normally create this column
+    rule = HashIdRule(
+        name="IstarDesignationHashId",  # Same name as existing column
+        from_columns=["Id", "Designation"],  # Source columns (may not exist)
+        algo="sha256",
+        hex=True,
+    )
+    cfg = PolishConfig(hash_ids=[rule])
+    polisher = Polisher(cfg)
+
+    # Apply polish - should skip hash ID rule silently (no warnings)
+    result = polisher.apply(df)
+
+    # Existing hash ID column should be preserved
+    assert "IstarDesignationHashId" in result.columns
+    assert result["IstarDesignationHashId"].to_list() == ["abc123", "def456", "ghi789"]
+
+    # Other columns should remain unchanged
+    assert "Id" in result.columns
+    assert "__rowMarker__" in result.columns
+
+
 def test_polisher_constants_and_timestamps():
     df = pl.DataFrame({"value": [1, 2]})
 
