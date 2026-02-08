@@ -734,13 +734,6 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             if hasattr(self, "data_buffer") and self.data_buffer:
                 await self._flush_buffer()
 
-            # Log progress every 10 batches or for first/last batch
-            if batch_count % 10 == 0 or batch_count == 1:
-                self.logger.info(
-                    f"Streaming deletion markers: {total_keys:,} keys processed "
-                    f"({batch_count} batch(es))"
-                )
-
         # Track deletion file paths separately for ordered move in finish()
         paths_after = len(getattr(self, "saved_paths", []))
         if paths_after > paths_before:
