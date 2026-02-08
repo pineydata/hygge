@@ -1348,8 +1348,8 @@ class TestOpenMirroringStoreDeletionDetection:
             await store._query_target_keys()
 
     @pytest.mark.asyncio
-    async def test_query_target_keys_uses_600_second_timeout(self):
-        """Test that _query_target_keys() uses 600 second timeout for large tables."""
+    async def test_query_target_keys_uses_default_timeout(self):
+        """Test that _query_target_keys() uses default 600 second timeout."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -1362,6 +1362,7 @@ class TestOpenMirroringStoreDeletionDetection:
                 "schema": "dbo",
                 "table": "users",
             },
+            # deletion_query_timeout not specified - should use default 600
         )
 
         store = OpenMirroringStore("test_store", config, entity_name="users")
@@ -1389,18 +1390,74 @@ class TestOpenMirroringStoreDeletionDetection:
             mock_home.config.table = "dbo.users"
             mock_mssql_home_class.return_value = mock_home
 
-            # Call _query_target_keys which should call with_retry with timeout=600
+            # Call _query_target_keys which should call with_retry with default timeout
             await store._query_target_keys()
 
-        # Verify that timeout=600 was passed to with_retry
+        # Verify that default timeout=600 was passed to with_retry
         mock_with_retry.assert_called_once()
         call_kwargs = mock_with_retry.call_args[1]  # Get keyword arguments
         assert (
             "timeout" in call_kwargs
         ), "timeout parameter was not passed to with_retry"
         assert (
-            call_kwargs["timeout"] == 600
-        ), f"Expected timeout=600, but got timeout={call_kwargs['timeout']}"
+            call_kwargs["timeout"] == 600.0
+        ), f"Expected default timeout=600.0, but got timeout={call_kwargs['timeout']}"
+
+    @pytest.mark.asyncio
+    async def test_query_target_keys_uses_custom_timeout(self):
+        """Test that _query_target_keys() uses custom deletion_query_timeout."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            deletion_source={
+                "server": "test",
+                "database": "testdb",
+                "schema": "dbo",
+                "table": "users",
+            },
+            deletion_query_timeout=1200.0,  # Custom timeout: 20 minutes
+        )
+
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.configure_for_run("full_drop")
+
+        # Mock _query_target_keys_impl to avoid actual execution
+        async def mock_query_target_keys_impl(target_home):
+            pass
+
+        store._query_target_keys_impl = mock_query_target_keys_impl
+
+        # Patch with_retry and MssqlHome where they're imported
+        # (inside _query_target_keys method)
+        with patch("hygge.homes.mssql.MssqlHome") as mock_mssql_home_class, patch(
+            "hygge.utility.retry.with_retry"
+        ) as mock_with_retry:
+            # Make with_retry return a decorator that just calls the function
+            def mock_decorator(func):
+                return func
+
+            mock_with_retry.return_value = mock_decorator
+
+            mock_home = AsyncMock()
+            mock_home.config = AsyncMock()
+            mock_home.config.table = "dbo.users"
+            mock_mssql_home_class.return_value = mock_home
+
+            # Call _query_target_keys which should call with_retry with custom timeout
+            await store._query_target_keys()
+
+        # Verify that custom timeout=1200 was passed to with_retry
+        mock_with_retry.assert_called_once()
+        call_kwargs = mock_with_retry.call_args[1]  # Get keyword arguments
+        assert (
+            "timeout" in call_kwargs
+        ), "timeout parameter was not passed to with_retry"
+        assert (
+            call_kwargs["timeout"] == 1200.0
+        ), f"Expected custom timeout=1200.0, but got timeout={call_kwargs['timeout']}"
 
     @pytest.mark.asyncio
     async def test_write_deletion_markers_tracks_paths(self):
