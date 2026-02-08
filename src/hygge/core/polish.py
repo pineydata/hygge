@@ -402,6 +402,12 @@ class Polisher:
         self, df: pl.DataFrame, rules: Iterable[HashIdRule]
     ) -> pl.DataFrame:
         for rule in rules:
+            # Respect existing column; do not override silently.
+            # Check this FIRST to avoid unnecessary warnings for deletion markers
+            # that already have hash ID columns as key columns.
+            if rule.name in df.columns:
+                continue
+
             missing = [c for c in rule.from_columns if c not in df.columns]
             if missing:
                 # Try to find normalized versions of the missing columns
@@ -474,10 +480,6 @@ class Polisher:
                         f"Available columns: {df.columns}"
                     )
                     continue
-
-            # Respect existing column; do not override silently.
-            if rule.name in df.columns:
-                continue
 
             algo = rule.algo or "sha256"
 
