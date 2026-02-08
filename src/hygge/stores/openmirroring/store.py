@@ -711,7 +711,6 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         # Track metrics
         total_keys = 0
-        batch_count = 0
         paths_before = len(getattr(self, "saved_paths", []))
 
         # Initialize deletion paths tracking
@@ -723,7 +722,6 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             if len(batch_df) == 0:
                 continue
 
-            batch_count += 1
             total_keys += len(batch_df)
 
             # Mark batch as deleted
@@ -747,8 +745,8 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             self._target_keys_for_deletion = None
         else:
             self.logger.info(
-                f"Queried and wrote {total_keys:,} deletion marker(s) in {batch_count} "
-                f"batch(es) - will be moved to production after extraction succeeds"
+                f"Queried and wrote {total_keys:,} deletion marker(s) - "
+                f"will be moved to production after extraction succeeds"
             )
             # Track metrics for observability
             if not hasattr(self, "_deletion_metrics"):
