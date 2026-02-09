@@ -513,7 +513,13 @@ To get started, run:
 
         # Apply store defaults from entity config
         store_defaults = {}
-        store_default_keys = ["if_exists", "batch_size", "parallel_workers", "timeout"]
+        store_default_keys = [
+            "if_exists",
+            "batch_size",
+            "parallel_workers",
+            "timeout",
+            "deletion_query_timeout",  # OpenMirroringStore specific
+        ]
         for key in store_default_keys:
             if key in entity_config:
                 store_defaults[key] = entity_config[key]

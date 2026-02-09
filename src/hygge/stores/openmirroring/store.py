@@ -643,11 +643,17 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             )
             from hygge.utility.retry import with_retry
 
+            timeout_seconds = int(self.config.deletion_query_timeout)
+            self.logger.debug(
+                f"Using deletion_query_timeout: {timeout_seconds} seconds "
+                f"(configured: {self.config.deletion_query_timeout})"
+            )
+
             retry_decorated = with_retry(
                 retries=3,
                 delay=2,
                 exceptions=(StoreConnectionError, HomeConnectionError),
-                timeout=self.config.deletion_query_timeout,
+                timeout=timeout_seconds,
                 logger_name="hygge.store.openmirroring",
             )(self._query_target_keys_impl)
 
