@@ -136,8 +136,8 @@ class TestOpenMirroringStoreErrorHandling:
                 await store._write_schema_json(to_tmp=True)
 
     @pytest.mark.asyncio
-    async def test_delete_table_folder_raises_on_partial_deletion(self):
-        """Test folder deletion raises StoreError when only files are cleared."""
+    async def test_delete_table_folder_raises_after_retries_exhausted(self):
+        """Test folder deletion raises StoreError after all retry attempts fail."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -148,39 +148,89 @@ class TestOpenMirroringStoreErrorHandling:
         store = OpenMirroringStore("test_store", config, entity_name="users")
         store.base_path = "Files/LandingZone/users"
 
-        mock_adls = AsyncMock()
-        mock_adls.delete_directory = AsyncMock(return_value=False)  # Folder not deleted
+        # Mock directory client: exists but delete always fails (lock)
+        mock_dir_client = MagicMock()
+        mock_dir_client.exists.return_value = True
+        mock_dir_client.delete_directory.side_effect = Exception("DirectoryInUse")
 
-        with patch.object(store, "_get_adls_ops", return_value=mock_adls):
-            with pytest.raises(
-                StoreError, match="Could not delete the LandingZone folder"
-            ):
-                await store._delete_table_folder()
+        mock_fs_client = MagicMock()
+        mock_fs_client.get_directory_client.return_value = mock_dir_client
 
-        # Should have attempted deletion
-        mock_adls.delete_directory.assert_awaited_once()
+        with patch.object(
+            store, "_get_file_system_client", return_value=mock_fs_client
+        ):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with pytest.raises(
+                    StoreError, match="Could not delete the LandingZone folder"
+                ):
+                    await store._delete_table_folder()
+
+        # Should have retried 3 times
+        assert mock_dir_client.delete_directory.call_count == 3
 
     @pytest.mark.asyncio
-    async def test_delete_table_folder_raises_store_error_on_exception(self):
-        """Test folder deletion raises StoreError on unexpected exceptions."""
+    async def test_delete_table_folder_succeeds_on_retry(self):
+        """Test folder deletion succeeds after a transient lock clears."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
             mirror_name="MyMirror",
             key_columns=["id"],
             row_marker=0,
+            folder_deletion_wait_seconds=0,
         )
         store = OpenMirroringStore("test_store", config, entity_name="users")
         store.base_path = "Files/LandingZone/users"
 
-        mock_adls = AsyncMock()
-        mock_adls.delete_directory = AsyncMock(
-            side_effect=Exception("Unexpected error")
-        )
+        # First call fails (lock), second call succeeds
+        mock_dir_client = MagicMock()
+        mock_dir_client.exists.return_value = True
+        mock_dir_client.delete_directory.side_effect = [
+            Exception("ConflictError"),
+            None,  # Success on second attempt
+        ]
 
-        with patch.object(store, "_get_adls_ops", return_value=mock_adls):
-            with pytest.raises(StoreError, match="Failed to clear table folder"):
+        mock_fs_client = MagicMock()
+        mock_fs_client.get_directory_client.return_value = mock_dir_client
+
+        with patch.object(
+            store, "_get_file_system_client", return_value=mock_fs_client
+        ):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
                 await store._delete_table_folder()
+
+        # Should have tried twice
+        assert mock_dir_client.delete_directory.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_delete_table_folder_skips_when_not_found(self):
+        """Test folder deletion handles already-deleted folder gracefully."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+            folder_deletion_wait_seconds=0,
+        )
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+        store.base_path = "Files/LandingZone/users"
+
+        # Directory doesn't exist
+        mock_dir_client = MagicMock()
+        mock_dir_client.exists.return_value = False
+
+        mock_fs_client = MagicMock()
+        mock_fs_client.get_directory_client.return_value = mock_dir_client
+
+        with patch.object(
+            store, "_get_file_system_client", return_value=mock_fs_client
+        ):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                await store._delete_table_folder()
+
+        # Should not have tried to delete
+        mock_dir_client.delete_directory.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_finish_handles_move_errors_in_full_drop_mode(self):
@@ -200,14 +250,14 @@ class TestOpenMirroringStoreErrorHandling:
         store._schema_tmp_path = "Files/_tmp/users/_schema.json"
 
         mock_adls = AsyncMock()
-        mock_adls.delete_directory = AsyncMock(return_value=True)
         mock_adls.move_file = AsyncMock(side_effect=Exception("Move failed"))
 
-        with patch.object(store, "_get_adls_ops", return_value=mock_adls):
-            with pytest.raises(
-                StoreError, match="full_drop atomic operation partially failed"
-            ):
-                await store.finish()
+        with patch.object(store, "_delete_table_folder", new_callable=AsyncMock):
+            with patch.object(store, "_get_adls_ops", return_value=mock_adls):
+                with pytest.raises(
+                    StoreError, match="full_drop atomic operation partially failed"
+                ):
+                    await store.finish()
 
     def test_validate_key_columns_with_polish_normalization(self):
         """Test key column validation with polish column normalization."""
