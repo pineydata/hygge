@@ -1767,6 +1767,122 @@ store:
         ), f"Max concurrent was {max_concurrent_seen}, expected <= 3"
 
     @pytest.mark.asyncio
+    async def test_semaphore_released_early_via_extraction_callback(self, tmp_path):
+        """Test that semaphore is released when on_extraction_complete fires.
+
+        When a flow signals extraction is complete (before finish()),
+        the semaphore slot should be released so other entities can start.
+        """
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+options:
+  concurrency: 1
+"""
+        )
+
+        # Create a single flow config
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
+        flow_dir = flows_dir / "flow_0"
+        flow_dir.mkdir()
+
+        source_file = tmp_path / "source_0.parquet"
+        pl.DataFrame({"id": [1]}).write_parquet(source_file)
+
+        flow_file = flow_dir / "flow.yml"
+        flow_file.write_text(
+            f"""
+home:
+  type: "parquet"
+  path: "{source_file}"
+store:
+  type: "parquet"
+  path: "{tmp_path / 'dest_0'}"
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
+        coordinator._create_flows()
+
+        flow = coordinator.flows[0]
+        semaphore = asyncio.Semaphore(1)
+
+        # Track when semaphore is released
+        release_order = []
+
+        async def mock_start():
+            # Simulate extraction completing and callback firing
+            if flow.on_extraction_complete:
+                flow.on_extraction_complete()
+                release_order.append("callback_released")
+
+            # After callback, semaphore should be available for others
+            # Try to acquire without blocking (would deadlock if not released)
+            acquired = semaphore._value > 0
+            release_order.append("slot_available" if acquired else "slot_held")
+
+        flow.start = mock_start
+
+        await coordinator._run_flow_with_semaphore(flow, 1, 1, semaphore)
+
+        assert release_order == ["callback_released", "slot_available"]
+
+    @pytest.mark.asyncio
+    async def test_semaphore_released_on_error_without_callback(self, tmp_path):
+        """Test semaphore is released via finally when flow fails before callback."""
+        hygge_file = tmp_path / "hygge.yml"
+        hygge_file.write_text(
+            """
+name: "test_project"
+flows_dir: "flows"
+options:
+  concurrency: 1
+"""
+        )
+
+        flows_dir = tmp_path / "flows"
+        flows_dir.mkdir()
+        flow_dir = flows_dir / "flow_0"
+        flow_dir.mkdir()
+
+        source_file = tmp_path / "source_0.parquet"
+        pl.DataFrame({"id": [1]}).write_parquet(source_file)
+
+        flow_file = flow_dir / "flow.yml"
+        flow_file.write_text(
+            f"""
+home:
+  type: "parquet"
+  path: "{source_file}"
+store:
+  type: "parquet"
+  path: "{tmp_path / 'dest_0'}"
+"""
+        )
+
+        coordinator = Coordinator(str(hygge_file))
+        coordinator.config = coordinator._workspace.prepare()
+        coordinator._create_flows()
+
+        flow = coordinator.flows[0]
+        semaphore = asyncio.Semaphore(1)
+
+        # Flow fails during extraction (callback never fires)
+        async def mock_start_fail():
+            raise Exception("extraction failed")
+
+        flow.start = mock_start_fail
+
+        await coordinator._run_flow_with_semaphore(flow, 1, 1, semaphore)
+
+        # Semaphore should still be released via finally block
+        assert semaphore._value == 1, "Semaphore not released after error"
+
+    @pytest.mark.asyncio
     async def test_concurrency_string_conversion(self, tmp_path):
         """Test that concurrency string values are converted to int."""
         hygge_file = tmp_path / "hygge.yml"
