@@ -122,14 +122,16 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
 
     # Optional: Wait time after folder deletion (for full_drop runs)
     folder_deletion_wait_seconds: float = Field(
-        default=2.0,
+        default=120.0,
         ge=0.0,
-        le=60.0,
+        le=900.0,
         description=(
-            "Wait time in seconds after deleting the table folder during a "
-            "full_drop run. "
-            "Allows ADLS propagation and Open Mirroring to detect deletion "
-            "before recreating folder. Default: 2.0 seconds."
+            "Wait time in seconds after deleting the LandingZone folder during "
+            "a full_drop run. Open Mirroring needs ~1-2 minutes to detect "
+            "folder deletion and drop the table. "
+            "Can be configured at flow or entity level. "
+            "Default: 120 seconds (2 minutes). "
+            "Maximum: 900 seconds (15 minutes)."
         ),
     )
 
@@ -1027,23 +1029,30 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             if folder_deleted:
                 self.logger.success("Deleted table folder")
             else:
-                # Folder deletion failed but files were deleted (graceful fallback)
-                self.logger.debug(
-                    "Directory deletion failed but files were cleared. "
-                    "Open Mirroring may be using the folder."
+                raise StoreError(
+                    "Could not delete the LandingZone folder (only files were "
+                    "cleared). Open Mirroring requires the folder itself to be "
+                    "deleted to drop the table. Check if Open Mirroring has a "
+                    "lock on the folder, or if the table is in 'Failed' "
+                    "replication state (see Fabric portal for status)."
                 )
 
-            # Step 3: Wait briefly to allow:
-            # - ADLS propagation of deletion
-            # - Open Mirroring to detect folder deletion (if polling)
-            # - Reduce race conditions between delete and recreate
+            # Wait for Open Mirroring to detect folder deletion
+            # OM needs ~1-2 minutes to drop the table before new data arrives
             wait_time = self.config.folder_deletion_wait_seconds
             if wait_time > 0:
-                self.logger.debug(
-                    f"Waiting {wait_time}s after folder deletion "
-                    f"for propagation and Open Mirroring detection"
+                self.logger.info(
+                    f"Waiting {wait_time:.0f}s for Open Mirroring "
+                    f"to process folder deletion"
                 )
                 await asyncio.sleep(wait_time)
+                self.logger.success("Wait complete, proceeding with file move")
+            else:
+                self.logger.warning(
+                    "folder_deletion_wait_seconds is 0 — Open Mirroring may not "
+                    "detect deletion before new data arrives. "
+                    "Consider setting to at least 60."
+                )
 
         except StoreError:
             raise

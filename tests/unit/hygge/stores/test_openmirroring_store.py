@@ -38,7 +38,7 @@ class TestOpenMirroringStoreConfig:
         assert config.key_columns == ["id"]
         assert config.row_marker == 0
         assert config.file_detection == "timestamp"  # Default
-        assert config.folder_deletion_wait_seconds == 2.0  # Default
+        assert config.folder_deletion_wait_seconds == 120.0  # Default
         assert config.mirror_journal is False
         assert config.journal_table_name == "__hygge_journal"
         assert config.incremental is None
@@ -240,7 +240,8 @@ class TestOpenMirroringStoreConfig:
             )
 
     def test_config_validates_folder_deletion_wait_seconds(self):
-        """Test that folder_deletion_wait_seconds must be between 0 and 60."""
+        """Test that folder_deletion_wait_seconds must be between 0 and 900."""
+        # Minimum boundary
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -251,15 +252,26 @@ class TestOpenMirroringStoreConfig:
         )
         assert config.folder_deletion_wait_seconds == 0.0
 
+        # Maximum boundary
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
             mirror_name="MyMirror",
             key_columns=["id"],
             row_marker=0,
-            folder_deletion_wait_seconds=60.0,
+            folder_deletion_wait_seconds=900.0,
         )
-        assert config.folder_deletion_wait_seconds == 60.0
+        assert config.folder_deletion_wait_seconds == 900.0
+
+        # Default should be 120.0
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+        )
+        assert config.folder_deletion_wait_seconds == 120.0
 
         with pytest.raises(ValidationError):
             OpenMirroringStoreConfig(
@@ -278,7 +290,7 @@ class TestOpenMirroringStoreConfig:
                 mirror_name="MyMirror",
                 key_columns=["id"],
                 row_marker=0,
-                folder_deletion_wait_seconds=61.0,  # Invalid
+                folder_deletion_wait_seconds=901.0,  # Invalid
             )
 
 
