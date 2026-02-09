@@ -186,12 +186,12 @@ class OpenMirroringStoreConfig(OneLakeStoreConfig, config_type="open_mirroring")
 
     # Optional: Timeout for deletion query operations
     deletion_query_timeout: float = Field(
-        default=600.0,
+        default=1200.0,
         ge=1.0,
         description=(
             "Timeout in seconds for deletion query operations during full_drop runs. "
             "Used when querying target database for all keys before marking deletions. "
-            "Default: 600 seconds (10 minutes). Increase for very large tables that "
+            "Default: 1200 seconds (20 minutes). Increase for very large tables that "
             "require longer query times."
         ),
     )

@@ -1349,7 +1349,7 @@ class TestOpenMirroringStoreDeletionDetection:
 
     @pytest.mark.asyncio
     async def test_query_target_keys_uses_default_timeout(self):
-        """Test that _query_target_keys() uses default 600 second timeout."""
+        """Test that _query_target_keys() uses default 1200 second timeout."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -1362,7 +1362,7 @@ class TestOpenMirroringStoreDeletionDetection:
                 "schema": "dbo",
                 "table": "users",
             },
-            # deletion_query_timeout not specified - should use default 600
+            # deletion_query_timeout not specified - should use default 1200
         )
 
         store = OpenMirroringStore("test_store", config, entity_name="users")
@@ -1393,14 +1393,14 @@ class TestOpenMirroringStoreDeletionDetection:
             # Call _query_target_keys which should call with_retry with default timeout
             await store._query_target_keys()
 
-        # Verify that default timeout=600 was passed to with_retry (as int)
+        # Verify that default timeout=1200 was passed to with_retry (as int)
         mock_with_retry.assert_called_once()
         call_kwargs = mock_with_retry.call_args[1]  # Get keyword arguments
         assert (
             "timeout" in call_kwargs
         ), "timeout parameter was not passed to with_retry"
-        assert call_kwargs["timeout"] == 600, (
-            f"Expected default timeout=600 (int), "
+        assert call_kwargs["timeout"] == 1200, (
+            f"Expected default timeout=1200 (int), "
             f"but got timeout={call_kwargs['timeout']} "
             f"(type: {type(call_kwargs['timeout'])})"
         )
