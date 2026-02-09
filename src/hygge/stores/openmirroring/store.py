@@ -1000,64 +1000,90 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         """
         Delete table folder entirely for full_drop mode.
 
+        Follows the Microsoft Open Mirroring SDK pattern: a single
+        directory_client.delete_directory() call that removes the folder
+        and all its contents. No file-by-file cleanup needed.
+
         According to Open Mirroring spec:
         - Deleting the folder triggers Open Mirroring to drop the table
-        - Recreating the folder triggers Open Mirroring to drop and recreate the table
+        - Recreating the folder triggers Open Mirroring to drop and recreate
 
-        This method:
-        1. Deletes all files in the folder (including _metadata.json)
-        2. Deletes the directory itself
-        3. Waits for propagation (configurable via folder_deletion_wait_seconds)
-        4. Handles failures gracefully (Open Mirroring might be using the folder)
-
-        Note: The folder will be recreated when metadata files are written,
-        which triggers Open Mirroring's recreate cycle.
+        Includes retry logic for transient locks — Open Mirroring may
+        briefly hold the folder during processing.
         """
-        try:
-            table_path = self.base_path
+        table_path = self.base_path
 
+        self.logger.debug(
+            f"Deleting table folder {table_path} for full_drop mode "
+            f"(triggers Open Mirroring table drop/recreate)"
+        )
+
+        file_system_client = self._get_file_system_client()
+        directory_client = file_system_client.get_directory_client(table_path)
+
+        # If the folder doesn't exist, nothing to delete
+        if not directory_client.exists():
             self.logger.debug(
-                f"Deleting table folder {table_path} for full_drop mode "
-                f"(triggers Open Mirroring table drop/recreate)"
+                f"Table folder {table_path} does not exist, nothing to delete"
             )
+            await self._wait_for_folder_deletion_propagation()
+            return
 
-            # Use ADLSOperations for directory deletion
-            # (handles SDK version differences and parameter conflicts)
-            adls_ops = self._get_adls_ops()
-            folder_deleted = await adls_ops.delete_directory(table_path, recursive=True)
+        # Retry loop: Open Mirroring may hold a transient lock on the folder
+        max_retries = 3
+        retry_delay = 15  # seconds
+        last_error = None
 
-            if folder_deleted:
+        for attempt in range(1, max_retries + 1):
+            try:
+                # MS Open Mirroring SDK pattern: single delete call
+                directory_client.delete_directory()
                 self.logger.success("Deleted table folder")
-            else:
-                raise StoreError(
-                    "Could not delete the LandingZone folder (only files were "
-                    "cleared). Open Mirroring requires the folder itself to be "
-                    "deleted to drop the table. Check if Open Mirroring has a "
-                    "lock on the folder, or if the table is in 'Failed' "
-                    "replication state (see Fabric portal for status)."
-                )
+                await self._wait_for_folder_deletion_propagation()
+                return
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
 
-            # Wait for Open Mirroring to detect folder deletion
-            # OM needs ~1-2 minutes to drop the table before new data arrives
-            wait_time = self.config.folder_deletion_wait_seconds
-            if wait_time > 0:
-                self.logger.info(
-                    f"Waiting {wait_time:.0f}s for Open Mirroring "
-                    f"to process folder deletion"
-                )
-                await asyncio.sleep(wait_time)
-                self.logger.success("Wait complete, proceeding with file move")
-            else:
-                self.logger.warning(
-                    "folder_deletion_wait_seconds is 0 — Open Mirroring may not "
-                    "detect deletion before new data arrives. "
-                    "Consider setting to at least 60."
-                )
+                # Folder was deleted between our check and delete attempt
+                if "notfound" in error_str or "does not exist" in error_str:
+                    self.logger.debug("Table folder already deleted")
+                    await self._wait_for_folder_deletion_propagation()
+                    return
 
-        except StoreError:
-            raise
-        except Exception as e:
-            raise StoreError(f"Failed to clear table folder {table_path}: {str(e)}")
+                if attempt < max_retries:
+                    self.logger.info(
+                        f"Folder deletion attempt {attempt}/{max_retries} "
+                        f"failed (Open Mirroring may have a lock), "
+                        f"retrying in {retry_delay}s..."
+                    )
+                    await asyncio.sleep(retry_delay)
+
+        # All retries exhausted
+        raise StoreError(
+            f"Could not delete the LandingZone folder after "
+            f"{max_retries} attempts. Open Mirroring may have a persistent "
+            f"lock on the folder, or the table may be in 'Failed' "
+            f"replication state. Check the Fabric portal for table status. "
+            f"Last error: {last_error}"
+        )
+
+    async def _wait_for_folder_deletion_propagation(self) -> None:
+        """Wait for Open Mirroring to detect and process folder deletion."""
+        wait_time = self.config.folder_deletion_wait_seconds
+        if wait_time > 0:
+            self.logger.info(
+                f"Waiting {wait_time:.0f}s for Open Mirroring "
+                f"to process folder deletion"
+            )
+            await asyncio.sleep(wait_time)
+            self.logger.success("Wait complete, proceeding with file move")
+        else:
+            self.logger.warning(
+                "folder_deletion_wait_seconds is 0 — Open Mirroring may not "
+                "detect deletion before new data arrives. "
+                "Consider setting to at least 60."
+            )
 
     async def _prepare_table_folder(self) -> None:
         """
