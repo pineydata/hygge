@@ -128,6 +128,10 @@ class Flow:
         # Progress callback for coordinator-level tracking
         self.progress_callback = None
 
+        # Extraction-complete callback for early semaphore release
+        # Called after producer/consumer finish but before store.finish()
+        self.on_extraction_complete: Optional[Callable[[], None]] = None
+
         # Set up flow-scoped logging
         self.logger = get_logger(f"hygge.flow.{name}")
 
@@ -303,6 +307,11 @@ class Flow:
             # since the consumer failed and task_done() may not have been called
             if consumer_exception is None:
                 await queue.join()
+
+            # Extraction complete — signal coordinator to release concurrency slot
+            # This lets other entities start extracting during finish() wait
+            if consumer_exception is None and self.on_extraction_complete:
+                self.on_extraction_complete()
 
             # Ensure all data is written (only if no consumer error)
             if consumer_exception is None:

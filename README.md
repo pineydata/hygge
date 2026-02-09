@@ -401,6 +401,23 @@ store:
   key_columns: ["id"]
 ```
 
+For `full_drop` runs, hygge deletes the LandingZone folder to trigger Open Mirroring to drop the table, then waits for Open Mirroring to process the deletion before writing new data. The wait time is configurable:
+
+```yaml
+store:
+  type: open_mirroring
+  folder_deletion_wait_seconds: 180  # Wait 3 minutes (default: 120s)
+```
+
+This can also be set per entity for tables that need more time:
+
+```yaml
+entities:
+  - name: LargeTable
+    store:
+      folder_deletion_wait_seconds: 300  # 5 minutes for large table
+```
+
 **Azure Data Lake Storage (ADLS Gen2):**
 
 ```yaml
@@ -474,6 +491,20 @@ hygge go
 
 hygge automatically handles all the cozy details - metadata files, schema manifests, and atomic operations - so your data feels right at home in Fabric.
 
+For `full_drop` runs, hygge safely extracts data to a staging area first, then deletes the LandingZone folder (triggering Open Mirroring to drop the table), waits for Open Mirroring to process (~2 minutes by default), and moves the new data into place. If extraction fails, the existing table is untouched.
+
+```yaml
+# flows/my_flow/flow.yml
+run_type: full_drop
+store:
+  type: open_mirroring
+  account_url: https://onelake.dfs.fabric.microsoft.com
+  filesystem: my-workspace
+  mirror_name: my-mirror
+  key_columns: ["id"]
+  folder_deletion_wait_seconds: 120  # Default: 2 minutes
+```
+
 ## Extensibility
 
 Create your own cozy homes and stores by implementing the `Home` and `Store` interfaces. hygge automatically discovers and welcomes them, making them feel right at home in your YAML configurations.
@@ -501,6 +532,23 @@ store:
 | `full_drop` | `false` | Truncate (explicit opt-in) |
 
 This alignment keeps the flow, store, and journal in sync and prevents accidental mixes of append/truncate semantics.
+
+## Concurrency
+
+hygge runs multiple entity flows in parallel, controlled by the `concurrency` setting:
+
+```yaml
+# hygge.yml
+options:
+  concurrency: 8  # Up to 8 flows run simultaneously
+```
+
+```bash
+# Or override from CLI
+hygge go --concurrency 4
+```
+
+**Smart concurrency for `full_drop` flows:** When a `full_drop` flow finishes extracting data, it releases its concurrency slot immediately — even if it's still waiting for Open Mirroring to process a folder deletion. This means other entities can start extracting data during that wait time instead of sitting idle. For projects with many entities, this can save significant time per run.
 
 ## Development Philosophy
 

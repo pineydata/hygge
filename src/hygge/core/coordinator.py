@@ -555,9 +555,26 @@ class Coordinator:
         total_flows: int,
         semaphore: asyncio.Semaphore,
     ) -> None:
-        """Limit concurrent execution using a semaphore."""
-        async with semaphore:
+        """Limit concurrent execution using a semaphore.
+
+        The semaphore is released early when extraction completes (before
+        store.finish()), so other entities can start extracting while this
+        entity waits for Open Mirroring to process folder deletion (~120s).
+        """
+        released = False
+
+        def release_slot():
+            nonlocal released
+            if not released:
+                semaphore.release()
+                released = True
+
+        await semaphore.acquire()
+        flow.on_extraction_complete = release_slot
+        try:
             await self._run_flow(flow, flow_num, total_flows)
+        finally:
+            release_slot()  # Safety: always release if callback didn't fire
 
     async def _run_flow(self, flow: Flow, flow_num: int, total_flows: int) -> None:
         """Run a single flow with error handling and hygge-style logging."""
