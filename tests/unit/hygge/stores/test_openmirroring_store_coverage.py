@@ -136,8 +136,8 @@ class TestOpenMirroringStoreErrorHandling:
                 await store._write_schema_json(to_tmp=True)
 
     @pytest.mark.asyncio
-    async def test_delete_table_folder_handles_failure_gracefully(self):
-        """Test folder deletion handles failures gracefully."""
+    async def test_delete_table_folder_raises_on_partial_deletion(self):
+        """Test folder deletion raises StoreError when only files are cleared."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -149,11 +149,13 @@ class TestOpenMirroringStoreErrorHandling:
         store.base_path = "Files/LandingZone/users"
 
         mock_adls = AsyncMock()
-        mock_adls.delete_directory = AsyncMock(return_value=False)  # Deletion failed
+        mock_adls.delete_directory = AsyncMock(return_value=False)  # Folder not deleted
 
         with patch.object(store, "_get_adls_ops", return_value=mock_adls):
-            # Should handle gracefully (files cleared but directory deletion failed)
-            await store._delete_table_folder()
+            with pytest.raises(
+                StoreError, match="Could not delete the LandingZone folder"
+            ):
+                await store._delete_table_folder()
 
         # Should have attempted deletion
         mock_adls.delete_directory.assert_awaited_once()
