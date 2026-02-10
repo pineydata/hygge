@@ -21,8 +21,8 @@ class TestOpenMirroringStoreErrorHandling:
     """Test error handling paths in Open Mirroring Store."""
 
     @pytest.mark.asyncio
-    async def test_write_metadata_json_handles_directory_creation_failure(self):
-        """Test metadata write handles directory creation failures gracefully."""
+    async def test_write_metadata_json_handles_directory_already_exists(self):
+        """Test metadata write suppresses 'already exists' errors during directory creation."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",
@@ -40,17 +40,51 @@ class TestOpenMirroringStoreErrorHandling:
         mock_adls.file_system_client.get_directory_client = MagicMock()
         mock_dir_client = MagicMock()
         mock_dir_client.exists.return_value = False
+        # Simulate "already exists" error - should be suppressed
+        mock_dir_client.create_directory.side_effect = Exception(
+            "Directory already exists"
+        )
+        mock_adls.file_system_client.get_directory_client.return_value = mock_dir_client
+        mock_adls.timeout = 300
+
+        with patch.object(store, "_get_adls_ops", return_value=mock_adls):
+            # Should suppress "already exists" error and continue
+            await store._write_metadata_json()
+
+        # Should still attempt to write (directory already exists error was suppressed)
+        assert store._metadata_written is True
+
+    @pytest.mark.asyncio
+    async def test_write_metadata_json_fails_fast_on_unexpected_directory_error(self):
+        """Test metadata write fails fast on unexpected directory creation errors."""
+        config = OpenMirroringStoreConfig(
+            account_url="https://onelake.dfs.fabric.microsoft.com",
+            filesystem="MyLake",
+            mirror_name="MyMirror",
+            key_columns=["id"],
+            row_marker=0,
+        )
+        store = OpenMirroringStore("test_store", config, entity_name="users")
+
+        mock_adls = AsyncMock()
+        mock_adls.read_json = AsyncMock(return_value=None)  # File doesn't exist
+        mock_adls.file_system_client.get_directory_client = MagicMock()
+        mock_dir_client = MagicMock()
+        mock_dir_client.exists.return_value = False
+        # Simulate unexpected error - should raise StoreError
         mock_dir_client.create_directory.side_effect = Exception(
             "Directory creation failed"
         )
         mock_adls.file_system_client.get_directory_client.return_value = mock_dir_client
+        mock_adls.timeout = 300
 
         with patch.object(store, "_get_adls_ops", return_value=mock_adls):
-            # Should handle directory creation failure gracefully
-            await store._write_metadata_json()
+            # Should raise StoreError on unexpected directory creation failure
+            with pytest.raises(StoreError) as exc_info:
+                await store._write_metadata_json()
 
-        # Should still attempt to write (directory might already exist)
-        assert store._metadata_written is True
+            assert "Failed to create directory for metadata" in str(exc_info.value)
+            assert "Directory creation failed" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_write_metadata_json_validates_key_columns_mismatch(self):
