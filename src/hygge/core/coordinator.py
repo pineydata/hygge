@@ -94,6 +94,7 @@ class Coordinator:
         self.connection_pools: Dict[str, ConnectionPool] = {}  # Named connection pools
         self.flow_overrides = flow_overrides or {}  # CLI overrides for flow configs
         self.flow_filter = flow_filter or []  # List of flow names to execute
+        self._concurrency: Optional[int] = None  # Resolved once, used everywhere
         self.logger = get_logger("hygge.coordinator")
         # Workspace instance (for loading config)
         self._workspace: Optional[Workspace] = None
@@ -180,6 +181,9 @@ class Coordinator:
             self.config = self._workspace.prepare()
             self.project_config = self._workspace.config
 
+        # Resolve concurrency once — single source of truth for all parallelism
+        self._concurrency = self._resolve_concurrency()
+
         # Initialize connection pools (skip for dry-run preview)
         if not skip_connection_pools:
             await self._initialize_connection_pools()
@@ -253,26 +257,49 @@ class Coordinator:
             # Clean up connection pools
             await self._cleanup_connection_pools()
 
-    async def _initialize_connection_pools(self) -> None:
-        """Initialize connection pools and execution engines from configuration."""
-        # Initialize ThreadPoolEngine for MSSQL (and future synchronous DBs)
-        # Use default pool size of 8, or match max connection pool size if configured
-        from hygge.connections import ThreadPoolEngine
+    def _resolve_concurrency(self) -> int:
+        """
+        Resolve max concurrency from config. Single source of truth.
 
-        max_pool_size = 8  # Default
+        Priority:
+        1. Explicit options.concurrency from hygge.yml
+        2. Largest configured pool_size across all connections
+        3. Default: 8
+        """
+        max_concurrent = self.options.get("concurrency", None)
+
+        if max_concurrent is not None:
+            if isinstance(max_concurrent, str):
+                max_concurrent = int(max_concurrent)
+            return max_concurrent
+
+        # Fallback: match largest configured pool size
         if self.config and self.config.connections:
-            # Use the largest pool size as a hint for thread pool size
-            # int() handles strings, floats, and integers gracefully
-            max_pool_size = max(
+            resolved = max(
                 (
                     int(conn.get("pool_size", 5))
                     for conn in self.config.connections.values()
                 ),
                 default=8,
             )
+            self.logger.debug(
+                "No explicit concurrency set; "
+                f"derived {resolved} from largest pool_size"
+            )
+            return resolved
 
-        ThreadPoolEngine.initialize(pool_size=max_pool_size)
-        self.logger.debug(f"Initialized ThreadPoolEngine with {max_pool_size} workers")
+        self.logger.debug("No explicit concurrency set; using default of 8")
+        return 8
+
+    async def _initialize_connection_pools(self) -> None:
+        """Initialize connection pools and execution engines from configuration."""
+        from hygge.connections import ThreadPoolEngine
+
+        concurrency = self._concurrency
+
+        # Thread pool matches concurrency
+        ThreadPoolEngine.initialize(pool_size=concurrency)
+        self.logger.debug(f"Initialized ThreadPoolEngine with {concurrency} workers")
 
         if not self.config or not self.config.connections:
             self.logger.debug("No connections configured, skipping pool initialization")
@@ -308,11 +335,25 @@ class Coordinator:
                 else:
                     raise ConfigError(f"Unknown connection type: {conn_type}")
 
-                # Create pool
-                pool_size = conn_config.get("pool_size", 5)
-                # Convert to int if it's a string (from environment variables)
-                if isinstance(pool_size, str):
-                    pool_size = int(pool_size)
+                # Pool size: default to concurrency, cap at concurrency
+                configured_pool_size = conn_config.get("pool_size", concurrency)
+                if isinstance(configured_pool_size, str):
+                    configured_pool_size = int(configured_pool_size)
+
+                pool_size = min(configured_pool_size, concurrency)
+                if configured_pool_size > concurrency:
+                    self.logger.warning(
+                        f"Pool '{conn_name}' pool_size={configured_pool_size} "
+                        f"capped to concurrency={concurrency}. "
+                        f"Set options.concurrency to increase the limit."
+                    )
+                if configured_pool_size < concurrency:
+                    self.logger.warning(
+                        f"Pool '{conn_name}' pool_size={configured_pool_size} is less "
+                        f"than concurrency={concurrency}. Some flows may block waiting "
+                        f"for a connection."
+                    )
+
                 pool = ConnectionPool(
                     name=conn_name, connection_factory=factory, pool_size=pool_size
                 )
@@ -469,24 +510,8 @@ class Coordinator:
         # Start progress tracking
         self.progress.start(self.run_start_time)
 
-        # Determine max concurrent flows
-        # Limits how many flows run concurrently using a semaphore
-        # to prevent connection contention.
-        max_concurrent = self.options.get("concurrency", None)
-        if max_concurrent is None:
-            # Try to match pool size if we have connection pools
-            if self.connection_pools:
-                # Use the largest pool size as a hint
-                max_concurrent = max(
-                    (pool.size for pool in self.connection_pools.values()),
-                    default=8,
-                )
-            else:
-                max_concurrent = 8
-
-        # Convert to int if it's a string (from environment variables)
-        if isinstance(max_concurrent, str):
-            max_concurrent = int(max_concurrent)
+        # Use concurrency resolved once during _prepare_for_execution
+        max_concurrent = self._concurrency
 
         self.logger.info(
             f"Running {len(self.flows)} flows with max concurrency of {max_concurrent}"
@@ -536,9 +561,8 @@ class Coordinator:
         # This ensures the summary is always shown, even when flows fail
         self.summary.generate_summary(self.flow_results, self.run_start_time)
 
-        # Note: Mirror publishing happens per successful entity in Flow._execute_flow()
-        # No coordinator-level publish needed - each successful entity publishes
-        # its own snapshot
+        # Note: Mirror publishing happens per successful entity in _run_flow()
+        # after flow.start() returns — outside the flow's retry/timeout boundary
 
         # Check for failed flows based on continue_on_error setting
         # Since _run_flow no longer re-raises, we check flow_results instead
@@ -606,6 +630,12 @@ class Coordinator:
 
         try:
             await flow.start()
+
+            # Publish journal mirror outside flow timeout
+            # Journal publishing is serialized by an asyncio.Lock and may wait —
+            # doing it here means that wait can't cause a flow timeout
+            if flow.journal:
+                await flow.journal.publish_mirror()
 
             # Determine status
             if flow.total_rows == 0:

@@ -316,6 +316,8 @@ class Journal:
             "partner_name": getattr(store_config, "partner_name", None),
             "source_type": getattr(store_config, "source_type", None),
             "source_version": getattr(store_config, "source_version", None),
+            # Journal is upsert-only, no deletion wait needed
+            "folder_deletion_wait_seconds": 0,
         }
 
         # Remove None values to avoid Pydantic validation errors

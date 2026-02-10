@@ -246,15 +246,18 @@ class Flow:
         """
         Start the flow from Home to Store with automatic retry for transient errors.
 
-        Retries the entire flow (producer + consumer) on transient connection errors,
-        cleaning up staging/tmp directories before each retry to ensure a clean state.
+        The retry/timeout decorator wraps only the producer-consumer extraction.
+        Post-extraction steps (store.finish, journal recording) run outside the
+        timeout boundary since they include deterministic waits (e.g., 120s for
+        Open Mirroring folder deletion propagation) that shouldn't eat into the
+        extraction timeout.
         """
-        # Apply retry decorator with instance methods
+        # Apply retry decorator — timeout covers extraction only
         retry_decorated = with_retry(
             retries=3,
             delay=2,
             exceptions=(FlowError,),
-            timeout=3600,  # 1 hour for entire flow
+            timeout=3600,  # 1 hour for extraction
             logger_name="hygge.flow",
             retry_if_func=self._should_retry_flow_error,
             before_sleep_func=self._cleanup_before_retry,
@@ -262,8 +265,37 @@ class Flow:
 
         await retry_decorated()
 
+        # Post-extraction: runs outside timeout boundary
+        # store.finish() may include a 120s wait for Open Mirroring (full_drop only)
+        try:
+            await self.store.finish()
+
+            # Capture final timing
+            self.end_time = asyncio.get_event_loop().time()
+            self.duration = self.end_time - self.start_time if self.start_time else 0.0
+            rate = self.total_rows / self.duration if self.duration > 0 else 0
+            self.logger.debug(
+                f"Flow {self.name} completed: "
+                f"{self.total_rows:,} rows in {self.duration:.1f}s ({rate:.0f} rows/s)"
+            )
+
+            # Record entity run in journal (if enabled)
+            await self._record_entity_run(
+                status="success", message=self.watermark_message
+            )
+        except Exception as e:
+            # Capture duration even on post-extraction failure
+            if self.start_time:
+                self.end_time = asyncio.get_event_loop().time()
+                self.duration = self.end_time - self.start_time
+            self.logger.error(f"Flow post-extraction failed: {self.name}, error: {e}")
+            await self._record_entity_run(status="fail", message=str(e))
+            raise FlowExecutionError(
+                f"Flow post-extraction failed: {self.name}, error: {e}"
+            ) from e
+
     async def _execute_flow(self) -> None:
-        """Execute a single attempt of the flow (producer + consumer)."""
+        """Execute a single attempt of the extraction (producer + consumer only)."""
         # START line already logged by Coordinator (dbt-style)
         self.start_time = asyncio.get_event_loop().time()
         self.entity_start_time = datetime.now(timezone.utc)
@@ -313,31 +345,12 @@ class Flow:
             if consumer_exception is None and self.on_extraction_complete:
                 self.on_extraction_complete()
 
-            # Ensure all data is written (only if no consumer error)
-            if consumer_exception is None:
-                await self.store.finish()
-            else:
+            # If consumer had an error, raise it (will trigger retry)
+            if consumer_exception is not None:
                 raise consumer_exception
 
-            self.end_time = asyncio.get_event_loop().time()
-            self.duration = self.end_time - self.start_time if self.start_time else 0.0
-            rate = self.total_rows / self.duration if self.duration > 0 else 0
-            # Coordinator already logs OK line (dbt-style), so this is DEBUG
-            self.logger.debug(
-                f"Flow {self.name} completed: "
-                f"{self.total_rows:,} rows in {self.duration:.1f}s ({rate:.0f} rows/s)"
-            )
-
-            # Record entity run in journal (if enabled)
-            await self._record_entity_run(
-                status="success", message=self.watermark_message
-            )
-
-            # Publish mirrored journal snapshot after successful entity completion
-            # This batches entity runs within a flow, but publishes once per
-            # successful entity
-            if self.journal:
-                await self.journal.publish_mirror()
+            # NOTE: store.finish(), duration tracking, and _record_entity_run()
+            # have moved to start() — outside the retry/timeout boundary
 
         except FlowConnectionError:
             # Transient connection error - will be retried, preserve exception
