@@ -343,6 +343,10 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         # Track if table folder has been prepared (full_drop + metadata)
         self._table_folder_prepared = False
 
+        # Captured from first write() call so _schema.json uses the entity's
+        # actual columns, not a hardcoded default.
+        self._data_schema = None
+
         # Track sequence counter - will be initialized from existing files
         self.sequence_counter = None  # Will be set lazily from existing files
 
@@ -360,6 +364,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         self._partner_events_tmp_path = None
         self._schema_tmp_path = None
         self._table_folder_prepared = False
+        self._data_schema = None
         self.sequence_counter = None
 
         if hasattr(self, "saved_paths"):
@@ -383,6 +388,11 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         This ensures metadata files are written before Open Mirroring
         scans the folder, especially important for full_drop mode.
         """
+        # Capture the actual data schema from the first write so _schema.json
+        # reflects the entity's columns, not a hardcoded default.
+        if not hasattr(self, "_data_schema") or self._data_schema is None:
+            self._data_schema = data.schema
+
         # Prepare table folder ONCE before any data writes
         # This ensures metadata is available when Open Mirroring scans
         if not self._table_folder_prepared:
@@ -754,16 +764,11 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         if self.row_marker == 4:
             metadata["isUpsertDefaultRowMarker"] = True
 
-        # Build metadata file path
+        # Build metadata file path using _get_tmp_base_path() for consistency
         if to_tmp:
             # For full_drop mode: write to _tmp first (atomic operation)
-            # Replace LandingZone with _tmp in the path
-            if self.base_path and "LandingZone" in self.base_path:
-                tmp_base_path = self.base_path.replace(
-                    "/Files/LandingZone/", "/Files/_tmp/"
-                )
-                metadata_path = f"{tmp_base_path}/_metadata.json"
-            else:
+            tmp_base_path = self._get_tmp_base_path()
+            if not tmp_base_path:
                 # Cannot construct _tmp path - fail fast to preserve ACID guarantees
                 raise StoreError(
                     f"Cannot construct _tmp path for metadata: "
@@ -771,6 +776,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                     f"Atomic operation aborted to prevent writing metadata "
                     f"to production."
                 )
+            metadata_path = f"{tmp_base_path}/_metadata.json"
         else:
             metadata_path = f"{self.base_path}/_metadata.json"
 
@@ -794,12 +800,19 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                     f"To change, you must drop and recreate the table."
                 )
 
-            # File exists and keyColumns match - mark as written
+            # File exists and keyColumns match - mark as written but still
+            # track the tmp path so finish() moves it to production.
+            # This handles the case where metadata exists in _tmp from a
+            # previous failed run - we need to move it to production even
+            # though we didn't write it this time.
             self.logger.debug(
                 f"_metadata.json already exists with matching keyColumns: "
                 f"{sorted(new_keys)}"
             )
             self._metadata_written = True
+            if to_tmp:
+                self._metadata_tmp_path = metadata_path
+            await self._write_schema_json(to_tmp=to_tmp)
             return
 
         # Write metadata file (using upload_data directly for overwrite)
@@ -817,9 +830,16 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 directory_client.create_directory(timeout=adls_ops.timeout)
                 self.logger.debug(f"Created directory for metadata: {directory_path}")
         except Exception as e:
-            self.logger.debug(
-                f"Directory check/create failed (may already exist): {str(e)}"
-            )
+            # Only suppress if directory already exists
+            error_str = str(e).lower()
+            if "already exists" in error_str or "resourcealreadyexists" in error_str:
+                self.logger.debug(f"Directory already exists: {directory_path}")
+            else:
+                # Re-raise unexpected errors
+                raise StoreError(
+                    f"Failed to create directory for metadata: {directory_path}. "
+                    f"Error: {e}"
+                ) from e
 
         # Write metadata file with overwrite
         file_client.upload_data(json_data, overwrite=True, timeout=adls_ops.timeout)
@@ -837,25 +857,38 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
     async def _write_schema_json(self, to_tmp: bool = False) -> None:
         """
-        Write `_schema.json` file describing column order/types so Fabric mirrors
-        the journal parquet without relying on inference.
+        Write `_schema.json` file describing column order/types so Fabric
+        knows the table shape without relying on parquet inference.
+
+        Uses the actual data schema captured from the first write() call.
+        Falls back to Journal.JOURNAL_SCHEMA only for journal tables or
+        direct callers (with explicit warning).
         """
-        # Use shared helper so other Fabric destinations can reuse the same
-        # Polars → Fabric mapping without copy/paste.
-        schema_columns = build_fabric_schema_columns(Journal.JOURNAL_SCHEMA)
+        # Use actual data schema if available, otherwise fall back to journal schema
+        # This fallback is only acceptable for journal tables or direct callers
+        if not hasattr(self, "_data_schema") or self._data_schema is None:
+            self.logger.warning(
+                "_write_schema_json() called before any data written. "
+                "Falling back to Journal.JOURNAL_SCHEMA. This should only "
+                "happen for journal tables or direct callers. For entity tables, "
+                "ensure write() is called before _write_schema_json()."
+            )
+            schema = Journal.JOURNAL_SCHEMA
+        else:
+            schema = self._data_schema
+
+        schema_columns = build_fabric_schema_columns(schema)
         schema_payload = {"columns": schema_columns}
 
+        # Build schema file path using _get_tmp_base_path() for consistency
         if to_tmp:
-            if self.base_path and "LandingZone" in self.base_path:
-                tmp_base_path = self.base_path.replace(
-                    "/Files/LandingZone/", "/Files/_tmp/"
-                )
-                schema_path = f"{tmp_base_path}/_schema.json"
-            else:
+            tmp_base_path = self._get_tmp_base_path()
+            if not tmp_base_path:
                 raise StoreError(
                     "Cannot construct _tmp path for schema: "
                     f"base_path '{self.base_path}' does not contain 'LandingZone'."
                 )
+            schema_path = f"{tmp_base_path}/_schema.json"
         else:
             schema_path = f"{self.base_path}/_schema.json"
 
@@ -870,10 +903,17 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             if not directory_client.exists():
                 directory_client.create_directory(timeout=adls_ops.timeout)
                 self.logger.debug(f"Created directory for schema: {directory_path}")
-        except Exception as exc:
-            self.logger.debug(
-                f"Directory check/create failed (may already exist): {str(exc)}"
-            )
+        except Exception as e:
+            # Only suppress if directory already exists
+            error_str = str(e).lower()
+            if "already exists" in error_str or "resourcealreadyexists" in error_str:
+                self.logger.debug(f"Directory already exists: {directory_path}")
+            else:
+                # Re-raise unexpected errors
+                raise StoreError(
+                    f"Failed to create directory for schema: {directory_path}. "
+                    f"Error: {e}"
+                ) from e
 
         file_client = adls_ops.file_system_client.get_file_client(schema_path)
         file_client.upload_data(json_data, overwrite=True, timeout=adls_ops.timeout)
@@ -1085,6 +1125,50 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                 "Consider setting to at least 60."
             )
 
+    def _get_tmp_base_path(self) -> Optional[str]:
+        """
+        Derive the _tmp base path for this entity by replacing LandingZone
+        with _tmp in the production base_path.
+
+        Returns:
+            The _tmp path, or None if base_path doesn't contain LandingZone.
+        """
+        if self.base_path and "LandingZone" in self.base_path:
+            return self.base_path.replace(
+                "/Files/LandingZone/", "/Files/_tmp/"
+            )
+        return None
+
+    async def _clean_tmp_folder(self) -> None:
+        """
+        Delete the entity's _tmp folder to ensure a clean staging area.
+
+        Called at the start of full_drop preparation (to clear leftover
+        artifacts from previous failed runs) and after a successful
+        finish() (to tidy up after moves complete).
+        """
+        tmp_path = self._get_tmp_base_path()
+        if not tmp_path:
+            return
+
+        try:
+            adls_ops = self._get_adls_ops()
+            directory_client = (
+                adls_ops.file_system_client.get_directory_client(tmp_path)
+            )
+            if directory_client.exists():
+                directory_client.delete_directory(timeout=adls_ops.timeout)
+                self.logger.debug(
+                    f"Cleaned up _tmp folder: {tmp_path}"
+                )
+        except Exception as e:
+            # Best-effort cleanup — don't fail the run over _tmp cleanup
+            # Log as warning so failures are visible, but don't raise
+            self.logger.warning(
+                f"Could not clean _tmp folder {tmp_path}: {e}. "
+                f"This is non-fatal but may leave stale artifacts."
+            )
+
     async def _prepare_table_folder(self) -> None:
         """
         Prepare table folder for writing.
@@ -1104,6 +1188,12 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         # Production folder will be deleted in finish() after all data is written
         # This ensures atomic operation: all data written before deletion
         if self.full_drop_mode:
+            # Clean _tmp first to remove leftover artifacts from previous failed runs.
+            # Without this, stale metadata in _tmp triggers an early-return in
+            # _write_metadata_json and _metadata_tmp_path never gets set, causing
+            # finish() to skip the metadata move to production.
+            await self._clean_tmp_folder()
+
             # Write metadata files to _tmp (atomic operation - data must succeed first)
             await self._write_metadata_json(to_tmp=True)
             await self._write_partner_events_json(to_tmp=True)
@@ -1370,6 +1460,9 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
                         f"Errors: {'; '.join(move_errors)}"
                     )
                     raise StoreError(error_summary)
+
+                # Clean up the now-empty _tmp folder after successful moves
+                await self._clean_tmp_folder()
 
                 self.logger.debug(
                     "Atomic full_drop operation completed: "
