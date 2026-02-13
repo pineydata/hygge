@@ -6,6 +6,7 @@ Following hygge's testing principles:
 - Focus on reliability and error handling
 - Keep tests clear and maintainable
 """
+
 import asyncio
 
 import pytest

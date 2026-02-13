@@ -19,6 +19,7 @@ Polisher handles:
 All behavior is configured via `PolishConfig` and applied per-Store, so
 you can customize transformations for each destination.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -39,7 +40,7 @@ class ColumnRules(BaseModel):
     remove_special: bool = Field(
         default=False,
         description=(
-            "Remove parentheses (and contents) and non-alnum chars " "except spaces/_/-"
+            "Remove parentheses (and contents) and non-alnum chars except spaces/_/-"
         ),
     )
     remove_spaces: bool = Field(

@@ -4,6 +4,7 @@ Unit tests for Workspace class.
 Tests workspace discovery, configuration loading, and flow preparation.
 Following hygge's testing philosophy: test real behavior with actual configurations.
 """
+
 import os
 from pathlib import Path
 

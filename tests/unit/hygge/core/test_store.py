@@ -7,6 +7,7 @@ Following hygge's testing principles:
 - Keep tests clear and maintainable
 - Test the actual Store API as implemented
 """
+
 import asyncio
 from pathlib import Path
 

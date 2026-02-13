@@ -3,6 +3,7 @@ Simple integration test: Parquet → MSSQL (write only).
 
 This test validates MssqlStore can write data to Azure SQL Server.
 """
+
 import os
 
 import polars as pl

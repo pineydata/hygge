@@ -4,6 +4,7 @@ MS SQL Server store implementation.
 Writes data to MS SQL Server databases using connection pooling,
 parallel batch writes, and efficient bulk loading patterns.
 """
+
 import asyncio
 import re
 from typing import Any, Dict, Optional
@@ -559,7 +560,7 @@ CREATE TABLE {target_table} (
                 safe_table = self._quote_table_name(table_name)
                 for col_name, sql_type in column_defs:
                     alter_sql = (
-                        f"ALTER TABLE {safe_table} " f"ADD [{col_name}] {sql_type} NULL"
+                        f"ALTER TABLE {safe_table} ADD [{col_name}] {sql_type} NULL"
                     )
                     cursor.execute(alter_sql)
                 conn.commit()
@@ -862,8 +863,7 @@ CREATE TABLE {target_table} (
             try:
                 # INSERT INTO production SELECT * FROM temp
                 sql = (
-                    f"INSERT INTO {prod_table_quoted} "
-                    f"SELECT * FROM {temp_table_quoted}"
+                    f"INSERT INTO {prod_table_quoted} SELECT * FROM {temp_table_quoted}"
                 )
                 cursor.execute(sql)
                 conn.commit()
@@ -1074,7 +1074,7 @@ class MssqlStoreConfig(BaseModel, StoreConfig, config_type="mssql"):
         valid_policies = ["fail", "append", "replace"]
         if self.if_exists not in valid_policies:
             raise ValueError(
-                f"if_exists must be one of {valid_policies}, " f"got '{self.if_exists}'"
+                f"if_exists must be one of {valid_policies}, got '{self.if_exists}'"
             )
         return self
 

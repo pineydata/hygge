@@ -13,6 +13,7 @@ Following hygge's testing philosophy:
 - Verify end-to-end orchestration works
 - Focus on user experience and configuration validation
 """
+
 import asyncio
 import shutil
 import tempfile
@@ -116,10 +117,10 @@ flows_dir: "flows"
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['users']}"
+  path: "{sample_data_files["users"]}"
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'users'}"
+  path: "{temp_config_dir / "lake" / "users"}"
 """
     )
 
@@ -132,10 +133,10 @@ store:
 name: "orders_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['orders']}"
+  path: "{sample_data_files["orders"]}"
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'orders'}"
+  path: "{temp_config_dir / "lake" / "orders"}"
 """
     )
 
@@ -169,12 +170,12 @@ flows_dir: "flows"
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['users']}"
+  path: "{sample_data_files["users"]}"
   options:
     batch_size: 500
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'users'}"
+  path: "{temp_config_dir / "lake" / "users"}"
   options:
     batch_size: 1000
     compression: "snappy"
@@ -194,12 +195,12 @@ options:
 name: "orders_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['orders']}"
+  path: "{sample_data_files["orders"]}"
   options:
     batch_size: 800
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'orders'}"
+  path: "{temp_config_dir / "lake" / "orders"}"
   options:
     batch_size: 1500
     compression: "gzip"
@@ -219,10 +220,10 @@ options:
 name: "products_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['products']}"
+  path: "{sample_data_files["products"]}"
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'lake' / 'products'}"
+  path: "{temp_config_dir / "lake" / "products"}"
 options:
   queue_size: 2
 """
@@ -438,10 +439,10 @@ flows_dir: "flows"
 name: "valid_flow"
 home:
   type: "parquet"
-  path: "{sample_data_files['users']}"
+  path: "{sample_data_files["users"]}"
 store:
   type: "parquet"
-  path: "{temp_config_dir / 'valid_output'}"
+  path: "{temp_config_dir / "valid_output"}"
 """
         )
 

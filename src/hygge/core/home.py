@@ -22,6 +22,7 @@ Example:
             pass
     ```
 """
+
 import asyncio
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator, Dict, Optional, Type, Union
@@ -224,7 +225,7 @@ class BaseHomeConfig(BaseModel):
     @classmethod
     def validate_type(cls, v):
         """Validate home type."""
-        valid_types = ["parquet", "sql", "mssql"]
+        valid_types = ["parquet", "local", "sql", "mssql"]
         if v not in valid_types:
             raise ValueError(f"Home type must be one of {valid_types}, got '{v}'")
         return v
@@ -232,9 +233,9 @@ class BaseHomeConfig(BaseModel):
     @model_validator(mode="after")
     def validate_required_fields(self):
         """Validate that required fields are present based on type."""
-        if self.type == "parquet":
+        if self.type in ("parquet", "local"):
             if self.path is None:  # Only fail if explicitly None, not empty string
-                raise ValueError("Path is required for parquet homes")
+                raise ValueError("Path is required for parquet/local homes")
         elif self.type == "sql":
             if self.connection is None:  # Only fail if explicitly None, not empty
                 raise ValueError("Connection is required for SQL homes")

@@ -5,6 +5,7 @@ Uses Polars native SQLite support for efficient data writing.
 Simple, file-based database store - perfect for local development
 and small-scale deployments.
 """
+
 import asyncio
 from pathlib import Path
 from typing import Any, Dict, Optional

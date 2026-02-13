@@ -19,6 +19,7 @@ The workspace handles:
 This cleanly separates workspace discovery and loading from the Coordinator's
 orchestration responsibilities, keeping each component focused and maintainable.
 """
+
 import os
 import re
 from pathlib import Path

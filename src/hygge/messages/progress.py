@@ -5,6 +5,7 @@ Progress tracking makes it easy to see how your flows are progressing across
 multiple flows. It provides milestone-based logging that feels natural and
 informative without being overwhelming.
 """
+
 import asyncio
 from typing import Optional
 

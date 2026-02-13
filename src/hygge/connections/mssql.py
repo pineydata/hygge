@@ -7,6 +7,7 @@ Ports proven pattern from elk2 with improvements:
 - Implements BaseConnection interface
 - Cleaner API (no env var dependencies, direct parameters)
 """
+
 import asyncio
 import struct
 import time
@@ -143,9 +144,7 @@ class MssqlConnection(BaseConnection):
             raise HomeError(f"Database connection failed: {error_msg}") from e
         except Exception as e:
             # CRITICAL: Use 'from e' to preserve exception context
-            raise HomeError(
-                f"Failed to create MSSQL connection: {str(e)}"
-            ) from e
+            raise HomeError(f"Failed to create MSSQL connection: {str(e)}") from e
 
     async def close_connection(self, conn: pyodbc.Connection) -> None:
         """

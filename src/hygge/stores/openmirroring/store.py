@@ -8,6 +8,7 @@ Extends OneLakeStore to add Open Mirroring specific requirements:
 - Initial load / replace mode support
 - _partnerEvents.json at database level (optional)
 """
+
 import asyncio
 import io
 import json
@@ -649,8 +650,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
         marker_name = marker_names.get(self.row_marker, "Unknown")
 
         self.logger.debug(
-            f"Added __rowMarker__ column with value: "
-            f"{self.row_marker} ({marker_name})"
+            f"Added __rowMarker__ column with value: {self.row_marker} ({marker_name})"
         )
 
         # CRITICAL: Ensure correct column order:
@@ -1134,9 +1134,7 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
             The _tmp path, or None if base_path doesn't contain LandingZone.
         """
         if self.base_path and "LandingZone" in self.base_path:
-            return self.base_path.replace(
-                "/Files/LandingZone/", "/Files/_tmp/"
-            )
+            return self.base_path.replace("/Files/LandingZone/", "/Files/_tmp/")
         return None
 
     async def _clean_tmp_folder(self) -> None:
@@ -1153,14 +1151,12 @@ class OpenMirroringStore(OneLakeStore, store_type="open_mirroring"):
 
         try:
             adls_ops = self._get_adls_ops()
-            directory_client = (
-                adls_ops.file_system_client.get_directory_client(tmp_path)
+            directory_client = adls_ops.file_system_client.get_directory_client(
+                tmp_path
             )
             if directory_client.exists():
                 directory_client.delete_directory(timeout=adls_ops.timeout)
-                self.logger.debug(
-                    f"Cleaned up _tmp folder: {tmp_path}"
-                )
+                self.logger.debug(f"Cleaned up _tmp folder: {tmp_path}")
         except Exception as e:
             # Best-effort cleanup — don't fail the run over _tmp cleanup
             # Log as warning so failures are visible, but don't raise

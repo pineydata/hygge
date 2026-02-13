@@ -4,6 +4,7 @@ Additional comprehensive tests for Journal to improve coverage.
 Focuses on error handling, edge cases, and complex methods that are currently
 under-tested. This file supplements test_journal.py.
 """
+
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 

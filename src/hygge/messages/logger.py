@@ -5,6 +5,7 @@ HyggeLogger provides human-readable, color-coded logging that makes it easy
 to see what's happening in your flows. It follows hygge's philosophy of comfort
 and clarity, providing informative output without overwhelming you with details.
 """
+
 import asyncio
 import logging
 import sys

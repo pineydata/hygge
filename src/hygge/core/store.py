@@ -34,6 +34,7 @@ Example:
             pass
     ```
 """
+
 import asyncio
 from abc import ABC, abstractmethod
 from pathlib import Path
@@ -583,7 +584,7 @@ class BaseStoreConfig(BaseModel):
     @classmethod
     def validate_type(cls, v):
         """Validate store type."""
-        valid_types = ["parquet"]
+        valid_types = ["parquet", "local"]
         if v not in valid_types:
             raise ValueError(f"Store type must be one of {valid_types}, got '{v}'")
         return v

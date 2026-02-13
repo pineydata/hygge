@@ -6,6 +6,7 @@ This module provides shared fixtures and utilities following hygge's testing phi
 - Provide comfortable defaults for tests
 - Keep fixtures simple and maintainable
 """
+
 import logging
 import shutil
 import sys

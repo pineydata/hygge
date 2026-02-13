@@ -4,6 +4,7 @@ Additional comprehensive tests for ADLS Store to improve coverage.
 Focuses on error handling, edge cases, and complex methods that are currently
 under-tested. This file supplements test_adls_store_unit.py.
 """
+
 from unittest.mock import AsyncMock, patch
 
 import polars as pl

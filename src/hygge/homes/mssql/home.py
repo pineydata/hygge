@@ -4,6 +4,7 @@ MS SQL Server home implementation.
 Reads data from MS SQL Server databases using connection pooling
 and efficient batching with Polars.
 """
+
 import asyncio
 import re
 from typing import Any, AsyncIterator, Dict, Optional

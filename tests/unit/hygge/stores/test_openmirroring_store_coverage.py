@@ -4,6 +4,7 @@ Additional comprehensive tests for Open Mirroring Store to improve coverage.
 Focuses on error handling, edge cases, and complex methods that are currently
 under-tested. This file supplements test_openmirroring_store.py.
 """
+
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -22,7 +23,7 @@ class TestOpenMirroringStoreErrorHandling:
 
     @pytest.mark.asyncio
     async def test_write_metadata_json_handles_directory_already_exists(self):
-        """Test metadata write suppresses 'already exists' errors during directory creation."""
+        """Test metadata write suppresses 'already exists' during dir creation."""
         config = OpenMirroringStoreConfig(
             account_url="https://onelake.dfs.fabric.microsoft.com",
             filesystem="MyLake",

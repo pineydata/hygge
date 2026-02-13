@@ -7,6 +7,7 @@ Following hygge's testing principles:
 - Test error scenarios (entity mismatches, invalid inputs)
 - Verify edge cases (empty paths, None values, various path structures)
 """
+
 from pathlib import Path
 
 import pytest

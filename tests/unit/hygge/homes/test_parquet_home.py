@@ -7,6 +7,7 @@ Following hygge's testing principles:
 - Test error scenarios and edge cases
 - Verify configuration system integration
 """
+
 import os
 import tempfile
 from pathlib import Path

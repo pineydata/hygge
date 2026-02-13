@@ -3,6 +3,7 @@ Unit tests for narrative progress message improvements.
 
 Tests that progress messages include narrative details like file paths and emojis.
 """
+
 from hygge.messages.logger import HyggeLogger
 from hygge.messages.progress import Progress
 

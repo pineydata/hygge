@@ -4,6 +4,7 @@ Azure Data Lake Storage Gen2 store implementation.
 Generic ADLS Gen2 store that works with any Azure Data Lake Storage account.
 For Fabric OneLake-specific path conventions, see OneLakeStore which extends this.
 """
+
 import io
 from datetime import datetime
 from pathlib import Path
@@ -52,8 +53,7 @@ class ADLSStoreConfig(BaseModel, StoreConfig, config_type="adls"):
     credential: str = Field(
         default="managed_identity",
         description=(
-            "Authentication method: managed_identity, "
-            "service_principal, or storage_key"
+            "Authentication method: managed_identity, service_principal, or storage_key"
         ),
     )
 

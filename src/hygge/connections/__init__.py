@@ -9,6 +9,7 @@ Key components:
 - ConnectionPool: Async connection pool using asyncio.Queue
 - MssqlConnection: MS SQL Server connection factory (Azure AD support)
 """
+
 from .base import BaseConnection
 from .constants import (
     MSSQL_BATCHING_DEFAULTS,

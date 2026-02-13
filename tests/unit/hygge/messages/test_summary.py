@@ -4,6 +4,7 @@ Tests for Summary generation class.
 Tests focus on behavior (does it call the right methods? handle edge cases?)
 rather than exact message wording, making them maintainable.
 """
+
 import time
 from unittest.mock import Mock
 

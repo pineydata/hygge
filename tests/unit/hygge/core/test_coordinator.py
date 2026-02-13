@@ -259,10 +259,10 @@ journal:
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{tmp_path / 'source.parquet'}"
+  path: "{tmp_path / "source.parquet"}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest'}"
+  path: "{tmp_path / "dest"}"
 run_type: "incremental"
 watermark:
   primary_key: "id"
@@ -320,10 +320,10 @@ flows_dir: "flows"
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{tmp_path / 'source.parquet'}"
+  path: "{tmp_path / "source.parquet"}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest'}"
+  path: "{tmp_path / "dest"}"
 """
         )
 
@@ -380,10 +380,10 @@ flows_dir: "flows"
 name: "users_flow"
 home:
   type: "parquet"
-  path: "{tmp_path / 'source.parquet'}"
+  path: "{tmp_path / "source.parquet"}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest'}"
+  path: "{tmp_path / "dest"}"
 entities:
   - "users"
   - "orders"
@@ -1563,10 +1563,10 @@ flows_dir: "flows"
 name: "flow_{i}"
 home:
   type: "parquet"
-  path: "{tmp_path / f'source_{i}.parquet'}"
+  path: "{tmp_path / f"source_{i}.parquet"}"
 store:
   type: "parquet"
-  path: "{tmp_path / f'dest_{i}'}"
+  path: "{tmp_path / f"dest_{i}"}"
 """
             )
 
@@ -1613,10 +1613,10 @@ options:
 name: "flow_{i}"
 home:
   type: "parquet"
-  path: "{tmp_path / f'source_{i}.parquet'}"
+  path: "{tmp_path / f"source_{i}.parquet"}"
 store:
   type: "parquet"
-  path: "{tmp_path / f'dest_{i}'}"
+  path: "{tmp_path / f"dest_{i}"}"
 """
             )
 
@@ -1656,10 +1656,10 @@ connections:
 name: "flow_{i}"
 home:
   type: "parquet"
-  path: "{tmp_path / f'source_{i}.parquet'}"
+  path: "{tmp_path / f"source_{i}.parquet"}"
 store:
   type: "parquet"
-  path: "{tmp_path / f'dest_{i}'}"
+  path: "{tmp_path / f"dest_{i}"}"
 """
             )
 
@@ -1715,10 +1715,10 @@ options:
 name: "flow_{i}"
 home:
   type: "parquet"
-  path: "{tmp_path / f'source_{i}.parquet'}"
+  path: "{tmp_path / f"source_{i}.parquet"}"
 store:
   type: "parquet"
-  path: "{tmp_path / f'dest_{i}'}"
+  path: "{tmp_path / f"dest_{i}"}"
 """
             )
 
@@ -1800,7 +1800,7 @@ home:
   path: "{source_file}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest_0'}"
+  path: "{tmp_path / "dest_0"}"
 """
         )
 
@@ -1860,7 +1860,7 @@ home:
   path: "{source_file}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest_0'}"
+  path: "{tmp_path / "dest_0"}"
 """
         )
 
@@ -1907,10 +1907,10 @@ options:
 name: "flow_1"
 home:
   type: "parquet"
-  path: "{tmp_path / 'source.parquet'}"
+  path: "{tmp_path / "source.parquet"}"
 store:
   type: "parquet"
-  path: "{tmp_path / 'dest'}"
+  path: "{tmp_path / "dest"}"
 """
         )
 

@@ -6,6 +6,7 @@ for Lakehouse tables: Files/{entity}/ or Files/{schema_name}.schema/{entity}/
 
 For Mirrored Databases (Open Mirroring), use OpenMirroringStore instead.
 """
+
 from typing import Optional
 
 from pydantic import ConfigDict, Field, model_validator

@@ -14,6 +14,7 @@ Following hygge's philosophy, the journal prioritizes:
     making incremental loads feel natural and reliable. It supports both
     local filesystem and remote ADLS/OneLake storage for flexibility.
 """
+
 import asyncio
 import io
 from datetime import datetime
@@ -41,13 +42,13 @@ class JournalConfig(BaseModel):
     path: Optional[str] = Field(
         default=None,
         description=(
-            "Explicit path to journal directory " "(overrides location inference)"
+            "Explicit path to journal directory (overrides location inference)"
         ),
     )
     location: Optional[str] = Field(
         default="store",
         description=(
-            "Location inference: 'store' (default), 'home', " "or None (requires path)"
+            "Location inference: 'store' (default), 'home', or None (requires path)"
         ),
     )
 

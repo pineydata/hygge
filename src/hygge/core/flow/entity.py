@@ -9,6 +9,7 @@ Following hygge's philosophy, entities make it comfortable to work with multiple
 datasets using the same flow template. Each entity gets its own configuration
 while sharing the common flow pattern.
 """
+
 from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field

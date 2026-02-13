@@ -5,6 +5,7 @@ Provides efficient connection reuse across multiple concurrent
 operations to avoid connection overhead and hitting database
 connection limits.
 """
+
 import asyncio
 from typing import Any, Optional
 
@@ -100,9 +101,9 @@ class ConnectionPool:
             try:
                 conn = await self.connection_factory.get_connection()
                 await self._connections.put(conn)
-                self.logger.debug(f"Created connection {i+1}/{self.pool_size}")
+                self.logger.debug(f"Created connection {i + 1}/{self.pool_size}")
             except Exception as e:
-                self.logger.error(f"Failed to create connection {i+1}: {str(e)}")
+                self.logger.error(f"Failed to create connection {i + 1}: {str(e)}")
                 # Clean up any connections we did create
                 await self._cleanup_partial_initialization()
                 raise

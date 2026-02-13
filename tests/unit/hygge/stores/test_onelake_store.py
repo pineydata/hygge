@@ -5,6 +5,7 @@ Tests configuration, path management, and authentication setup.
 Note: These are unit tests - integration tests with actual OneLake
 should be in the integration test directory.
 """
+
 from pathlib import Path
 from unittest.mock import patch
 

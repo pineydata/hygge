@@ -5,6 +5,7 @@ Tests configuration, path management, row marker handling, metadata files,
 and Open Mirroring specific features without requiring an actual OneLake account.
 Integration tests should be in tests/integration/.
 """
+
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
