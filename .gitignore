@@ -9,7 +9,6 @@ logs/
 data/
 
 # Working directories (not part of the package)
-.issues/
 .llm/
 .progress/
 
