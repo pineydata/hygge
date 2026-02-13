@@ -15,6 +15,7 @@ Following hygge's testing philosophy:
 
 Run with: pytest tests/integration/test_parquet_to_parquet_stress.py -v -s
 """
+
 import asyncio
 import shutil
 import tempfile
@@ -58,7 +59,7 @@ def _create_large_parquet_file(
                 "category": [f"cat_{i % 5}" for i in range(chunk_start, chunk_end)],
                 "score": [i * 0.1 for i in range(chunk_start, chunk_end)],
                 "timestamp": [
-                    f"2024-01-01T{i%86400:05d}" for i in range(chunk_start, chunk_end)
+                    f"2024-01-01T{i % 86400:05d}" for i in range(chunk_start, chunk_end)
                 ],
             }
         )

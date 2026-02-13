@@ -5,6 +5,7 @@ This test validates MssqlHome can read data from Azure SQL Server tables.
 
 Uses existing tables in Azure SQL.
 """
+
 import os
 from pathlib import Path
 

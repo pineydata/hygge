@@ -7,6 +7,7 @@ Following hygge's testing principles:
 - Keep tests clear and maintainable
 - Test the actual Home API as implemented
 """
+
 import asyncio
 from typing import AsyncIterator
 

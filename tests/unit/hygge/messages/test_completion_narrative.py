@@ -3,6 +3,7 @@ Unit tests for narrative completion message improvements.
 
 Tests that completion summaries are warm and celebratory.
 """
+
 from hygge.messages.logger import HyggeLogger
 from hygge.messages.summary import Summary
 

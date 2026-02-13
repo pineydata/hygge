@@ -7,6 +7,7 @@ Simulates two flow executions:
 
 Uses the filesystem-backed journal so no cloud dependencies are required.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

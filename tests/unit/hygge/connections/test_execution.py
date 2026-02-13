@@ -4,6 +4,7 @@ Unit tests for execution engines.
 Tests focus on execution strategies, streaming behavior, and parallelism
 without requiring actual database connections.
 """
+
 import asyncio
 from typing import Iterator
 

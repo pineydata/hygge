@@ -6,6 +6,7 @@ Works with both standard ADLS Gen2 accounts and Microsoft Fabric OneLake.
 
 Refactored from utils2/onelake_ops.py for integration into hygge core.
 """
+
 import json
 from pathlib import Path
 from typing import BinaryIO, Dict, Optional, Union

@@ -9,6 +9,7 @@ This test demonstrates:
 
 This validates both MSSQL home and store functionality in a real workflow.
 """
+
 import os
 from pathlib import Path
 

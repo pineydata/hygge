@@ -12,6 +12,7 @@ Following hygge's testing philosophy:
 - Test behavior that matters to users
 - Verify complete workflows work correctly
 """
+
 import asyncio
 import shutil
 import tempfile

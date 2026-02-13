@@ -4,6 +4,7 @@ Unit tests for MssqlHome - logic only, no database required.
 Tests focus on configuration validation and query building logic
 without requiring actual database connections or mocking.
 """
+
 import pytest
 
 from hygge.connections.constants import (
@@ -228,7 +229,7 @@ class TestMssqlHomeQueryBuilding:
 
         query = home._build_query()
         expected = (
-            "SELECT a.*, b.* FROM sales_main a " "JOIN sales_detail b ON a.id = b.id"
+            "SELECT a.*, b.* FROM sales_main a JOIN sales_detail b ON a.id = b.id"
         )
         assert query == expected
         assert "{entity}" not in query

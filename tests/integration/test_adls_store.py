@@ -30,6 +30,7 @@ export ADLS_CREDENTIAL="storage_key"
 export ADLS_STORAGE_KEY="your-key"
 ```
 """
+
 import os
 
 import polars as pl

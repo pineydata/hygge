@@ -4,6 +4,7 @@ Additional comprehensive tests for MssqlHome to improve coverage.
 Focuses on error handling, edge cases, and complex methods that are currently
 under-tested. This file supplements test_mssql_home.py.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import polars as pl

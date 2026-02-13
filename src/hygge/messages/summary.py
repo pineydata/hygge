@@ -5,6 +5,7 @@ Summaries that feel cozy and helpful, not just informative. They reflect
 hygge's values of comfort, clarity, and natural flow, making it easy to
 understand what happened in your flows at a glance.
 """
+
 from typing import Any, Dict, List, Optional
 
 from hygge.messages.logger import HyggeLogger, _get_event_loop_time

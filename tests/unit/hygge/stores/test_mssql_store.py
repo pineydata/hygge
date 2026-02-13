@@ -1,6 +1,7 @@
 """
 Unit tests for MS SQL Server store implementation.
 """
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import polars as pl

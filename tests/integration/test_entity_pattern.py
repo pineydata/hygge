@@ -30,6 +30,7 @@ Following hygge's philosophy:
 - DRY (don't repeat paths)
 - Opinionated structure (entity directories)
 """
+
 import shutil
 import tempfile
 from pathlib import Path
@@ -204,10 +205,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{setup["landing_zone"]}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{setup["data_lake"]}"
 entities:
   - users
   - orders
@@ -271,12 +272,12 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{setup["landing_zone"]}"
   options:
     batch_size: 500
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{setup["data_lake"]}"
   options:
     batch_size: 1000
     compression: "gzip"
@@ -326,10 +327,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{setup["landing_zone"]}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{setup["data_lake"]}"
 entities:
   - users
   - orders
@@ -370,10 +371,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{setup["landing_zone"]}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{setup["data_lake"]}"
 entities:
   - users
   - nonexistent_entity
@@ -418,10 +419,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{setup["landing_zone"]}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{setup["data_lake"]}"
 entities:
   - users
   - orders
@@ -440,7 +441,7 @@ home:
   path: "{standalone_file}"
 store:
   type: "parquet"
-  path: "{setup['data_lake'] / 'standalone'}"
+  path: "{setup["data_lake"] / "standalone"}"
 """
         )
 
@@ -482,10 +483,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{setup["landing_zone"]}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{setup["data_lake"]}"
 entities:
   - users
 """
@@ -531,10 +532,10 @@ flows_dir: "flows"
 name: "landing_to_lake"
 home:
   type: "parquet"
-  path: "{setup['landing_zone']}"
+  path: "{setup["landing_zone"]}"
 store:
   type: "parquet"
-  path: "{setup['data_lake']}"
+  path: "{setup["data_lake"]}"
 entities:
   - users.parquet
   - orders.parquet

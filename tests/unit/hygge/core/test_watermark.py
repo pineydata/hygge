@@ -7,6 +7,7 @@ Following hygge's testing principles:
 - Keep tests clear and maintainable
 - Test isolated watermark logic
 """
+
 from datetime import datetime, timezone
 
 import polars as pl

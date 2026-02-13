@@ -10,6 +10,7 @@ Following hygge's philosophy:
 - **Reliability**: Fail fast on configuration errors
 - **Natural flow**: Simple API that feels natural to use
 """
+
 from typing import Any, Optional
 
 import polars as pl

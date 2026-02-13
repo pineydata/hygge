@@ -4,6 +4,7 @@ Unit tests for MssqlConnection.
 Note: These tests mock Azure credentials and pyodbc to avoid
 requiring actual database connections or Azure authentication.
 """
+
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 

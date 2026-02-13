@@ -7,6 +7,7 @@ Following hygge's testing principles:
 - Test watermark queries (primary use case)
 - Verify run recording and aggregation
 """
+
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path

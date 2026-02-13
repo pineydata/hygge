@@ -7,6 +7,7 @@ Provides flexible execution strategies for different database types:
 
 hygge philosophy: Simple, focused abstraction with smart defaults.
 """
+
 import asyncio
 import concurrent.futures
 from abc import ABC, abstractmethod

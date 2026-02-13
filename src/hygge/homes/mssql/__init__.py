@@ -7,6 +7,7 @@ Provides data reading from MS SQL Server databases with:
 - Efficient batching with Polars
 - Entity support for multiple tables
 """
+
 from .home import MssqlHome, MssqlHomeConfig
 
 __all__ = [

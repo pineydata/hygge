@@ -1,6 +1,7 @@
 """
 Unit tests for ConnectionPool.
 """
+
 import asyncio
 
 import pytest

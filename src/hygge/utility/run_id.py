@@ -10,6 +10,7 @@ Following hygge's philosophy, run IDs prioritize:
 - **Reliability**: Hash-based IDs ensure uniqueness and consistency
 - **Natural flow**: IDs are generated automatically, you don't need to think about them
 """
+
 import hashlib
 from typing import List
 

@@ -1,6 +1,7 @@
 """
 Tests for Progress tracking class.
 """
+
 import asyncio
 import time
 from unittest.mock import Mock, patch

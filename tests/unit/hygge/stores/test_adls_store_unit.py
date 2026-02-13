@@ -4,6 +4,7 @@ Unit tests for ADLS Gen2 store implementation.
 Tests configuration, path management, and authentication setup without
 requiring an actual ADLS account. Integration tests are in tests/integration/.
 """
+
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 

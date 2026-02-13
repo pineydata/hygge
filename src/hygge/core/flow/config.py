@@ -8,6 +8,7 @@ smart defaults, while advanced configs give you full control when needed.
 FlowConfig includes home/store definitions, entity configurations, and flow-level
 settings, all designed to feel natural and comfortable to use.
 """
+
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator

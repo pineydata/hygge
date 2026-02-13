@@ -10,6 +10,7 @@ Following hygge's philosophy, connections prioritize:
 - **Reliability**: Health checks, proper cleanup, error handling
 - **Natural flow**: Connections work smoothly without manual management
 """
+
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
 

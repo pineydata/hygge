@@ -10,6 +10,7 @@ Following hygge's philosophy, the factory prioritizes:
 - **Reliability**: Proper validation, connection pool injection, journal wiring
 - **Natural flow**: Handles entity merging and config resolution automatically
 """
+
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 from hygge.homes.mssql import MssqlHome

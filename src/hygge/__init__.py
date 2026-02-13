@@ -9,6 +9,7 @@ hygge is built on Polars + PyArrow for efficient data movement, with a
 simple, intuitive API that makes it easy to move data from any source
 (Home) to any destination (Store) with confidence.
 """
+
 from .core import Coordinator, Flow, Home, HomeConfig, Store, StoreConfig
 
 # IMPORTANT: Registry Initialization

@@ -1,6 +1,7 @@
 """
 Utility functions and classes for hygge.
 """
+
 from .exceptions import (
     ConfigError,
     FlowConnectionError,

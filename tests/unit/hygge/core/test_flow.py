@@ -7,6 +7,7 @@ Following hygge's testing principles:
 - Keep tests clear and maintainable
 - Test the simplified Flow orchestration
 """
+
 import asyncio
 from pathlib import Path
 from typing import AsyncIterator, List, Optional

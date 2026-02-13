@@ -14,6 +14,7 @@ Following hygge's philosophy, PathHelper prioritizes:
 Uses pathlib internally for reliable path operations while working with strings
 for compatibility with local filesystem and cloud storage.
 """
+
 from pathlib import Path, PurePath
 from typing import Optional, Union
 
