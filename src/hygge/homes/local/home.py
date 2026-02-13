@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator, Dict, Optional
 import polars as pl
 from pydantic import Field, field_validator
 
-from hygge.core.formats import format_to_suffix
+from hygge.core.formats import VALID_FORMATS, format_to_suffix
 from hygge.core.formats import read as format_read
 from hygge.core.home import BaseHomeConfig, Home, HomeConfig
 from hygge.utility.exceptions import HomeError, HomeReadError
@@ -83,8 +83,7 @@ class LocalHome(Home, home_type="local"):
                     batch_size=batch_size,
                     **self._format_options,
                 ):
-                    if len(batch_df) > 0:
-                        yield batch_df
+                    yield batch_df
 
         except HomeError:
             raise
@@ -126,8 +125,8 @@ class LocalHomeConfig(HomeConfig, BaseHomeConfig, config_type="local"):
     @field_validator("format")
     @classmethod
     def validate_format(cls, v: str) -> str:
-        if v.lower() not in ("parquet", "csv", "ndjson"):
-            raise ValueError("Format must be one of: parquet, csv, ndjson")
+        if v.lower() not in VALID_FORMATS:
+            raise ValueError(f"Format must be one of: {', '.join(VALID_FORMATS)}")
         return v.lower()
 
     def get_merged_options(self) -> Dict[str, Any]:

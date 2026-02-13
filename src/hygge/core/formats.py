@@ -18,13 +18,23 @@ FORMAT_SUFFIX: dict[str, str] = {
     "ndjson": ".ndjson",
 }
 
+# Single source of truth for valid format names (used by config validators)
+VALID_FORMATS: tuple[str, ...] = tuple(FORMAT_SUFFIX.keys())
+
 
 def format_to_suffix(format_name: str) -> str:
     """Return the file extension for a format (e.g. parquet -> .parquet)."""
     suffix = FORMAT_SUFFIX.get(format_name.lower())
     if suffix is None:
-        raise ValueError(f"Unknown format: {format_name}. Known: {list(FORMAT_SUFFIX)}")
+        raise ValueError(
+            f"Unknown format: {format_name}. Known: {', '.join(VALID_FORMATS)}"
+        )
     return suffix
+
+
+def default_file_pattern(format_name: str) -> str:
+    """Default output file naming pattern (e.g. {sequence:020d}.parquet)."""
+    return "{sequence:020d}" + format_to_suffix(format_name)
 
 
 def read(
@@ -50,7 +60,27 @@ def read(
     elif fmt == "ndjson":
         yield from _read_ndjson(path, batch_size, **options)
     else:
-        raise ValueError(f"Unknown format: {format_name}. Known: {list(FORMAT_SUFFIX)}")
+        raise ValueError(
+            f"Unknown format: {format_name}. Known: {', '.join(VALID_FORMATS)}"
+        )
+
+
+def _read_scanned(
+    path: Path,
+    batch_size: int,
+    scan_fn,  # callable returning LazyFrame, e.g. lambda: pl.scan_parquet(path, **opts)
+) -> Iterator[pl.DataFrame]:
+    """Stream batches from LazyFrame via slice + collect(engine='streaming')."""
+    lf = scan_fn()
+    total_rows = lf.select(pl.len()).collect().item()
+    if total_rows == 0:
+        return
+    num_batches = (total_rows + batch_size - 1) // batch_size
+    for batch_idx in range(num_batches):
+        offset = batch_idx * batch_size
+        batch_df = lf.slice(offset, batch_size).collect(engine="streaming")
+        if len(batch_df) > 0:
+            yield batch_df
 
 
 def _read_parquet(
@@ -59,16 +89,7 @@ def _read_parquet(
     **options: Any,
 ) -> Iterator[pl.DataFrame]:
     """Parquet: streaming via scan_parquet + slice + collect(engine='streaming')."""
-    lf = pl.scan_parquet(path, **options)
-    total_rows = lf.select(pl.len()).collect().item()
-    if total_rows == 0:
-        return
-    num_batches = (total_rows + batch_size - 1) // batch_size
-    for batch_idx in range(num_batches):
-        offset = batch_idx * batch_size
-        batch_df = lf.slice(offset, batch_size).collect(engine="streaming")
-        if len(batch_df) > 0:
-            yield batch_df
+    yield from _read_scanned(path, batch_size, lambda: pl.scan_parquet(path, **options))
 
 
 def _read_csv(
@@ -77,16 +98,7 @@ def _read_csv(
     **options: Any,
 ) -> Iterator[pl.DataFrame]:
     """CSV: streaming via scan_csv + slice + collect(engine='streaming')."""
-    lf = pl.scan_csv(path, **options)
-    total_rows = lf.select(pl.len()).collect().item()
-    if total_rows == 0:
-        return
-    num_batches = (total_rows + batch_size - 1) // batch_size
-    for batch_idx in range(num_batches):
-        offset = batch_idx * batch_size
-        batch_df = lf.slice(offset, batch_size).collect(engine="streaming")
-        if len(batch_df) > 0:
-            yield batch_df
+    yield from _read_scanned(path, batch_size, lambda: pl.scan_csv(path, **options))
 
 
 def _read_ndjson(
@@ -131,4 +143,6 @@ def write(
     elif fmt == "ndjson":
         df.write_ndjson(path, **options)
     else:
-        raise ValueError(f"Unknown format: {format_name}. Known: {list(FORMAT_SUFFIX)}")
+        raise ValueError(
+            f"Unknown format: {format_name}. Known: {', '.join(VALID_FORMATS)}"
+        )

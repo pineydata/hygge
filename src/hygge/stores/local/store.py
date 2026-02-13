@@ -8,8 +8,14 @@ from typing import Any, Dict, Optional
 import polars as pl
 from pydantic import Field, field_validator
 
-from hygge.core.formats import format_to_suffix
-from hygge.core.formats import write as format_write
+from hygge.core.formats import (
+    VALID_FORMATS,
+    default_file_pattern,
+    format_to_suffix,
+)
+from hygge.core.formats import (
+    write as format_write,
+)
 from hygge.core.polish import PolishConfig, Polisher
 from hygge.core.store import BaseStoreConfig, Store, StoreConfig
 from hygge.utility.exceptions import StoreError, StoreWriteError
@@ -51,10 +57,10 @@ class LocalStore(Store, store_type="local"):
         else:
             self.base_path = Path(config.path)
 
-        # Default file_pattern uses format extension if not set
+        # Default file_pattern from single source (formats.default_file_pattern)
         self.file_pattern = self.options.get("file_pattern")
         if not self.file_pattern:
-            self.file_pattern = "{sequence:020d}" + format_to_suffix(self._format)
+            self.file_pattern = default_file_pattern(self._format)
 
         self.sequence_counter = 0
         self.saved_paths: list[str] = []
@@ -130,7 +136,7 @@ class LocalStore(Store, store_type="local"):
             if p.exists():
                 p.unlink()
                 self.logger.debug(f"Cleaned up staging file: {p}")
-        except Exception as e:
+        except OSError as e:
             self.logger.warning(f"Failed to cleanup staging file {staging_path}: {e}")
 
     async def _move_to_final(self, staging_path: str, final_path: str) -> None:
@@ -154,7 +160,7 @@ class LocalStore(Store, store_type="local"):
                     if f.is_file():
                         f.unlink()
                 self.logger.debug(f"Cleaned up staging directory: {staging_dir}")
-        except Exception as e:
+        except OSError as e:
             self.logger.warning(f"Failed to cleanup staging directory: {e}")
 
     async def reset_retry_sensitive_state(self) -> None:
@@ -208,13 +214,12 @@ class LocalStoreConfig(StoreConfig, BaseStoreConfig, config_type="local"):
     @field_validator("format")
     @classmethod
     def validate_format(cls, v: str) -> str:
-        if v.lower() not in ("parquet", "csv", "ndjson"):
-            raise ValueError("Format must be one of: parquet, csv, ndjson")
+        if v.lower() not in VALID_FORMATS:
+            raise ValueError(f"Format must be one of: {', '.join(VALID_FORMATS)}")
         return v.lower()
 
     def get_merged_options(self, flow_name: str = "") -> Dict[str, Any]:
-        suffix = format_to_suffix(self.format)
-        pattern = self.file_pattern or f"{{sequence:020d}}{suffix}"
+        pattern = self.file_pattern or default_file_pattern(self.format)
         options = {
             "batch_size": self.batch_size,
             "file_pattern": pattern,
