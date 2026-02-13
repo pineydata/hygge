@@ -174,7 +174,7 @@ class ParquetStore(Store, store_type="parquet"):
             if staging_path.exists():
                 staging_path.unlink()
                 self.logger.debug(f"Cleaned up staging file: {staging_path}")
-        except Exception as e:
+        except OSError as e:
             self.logger.warning(
                 f"Failed to cleanup staging file {staging_path}: {str(e)}"
             )
@@ -215,7 +215,7 @@ class ParquetStore(Store, store_type="parquet"):
                     if file.is_file():
                         file.unlink()
                 self.logger.debug(f"Cleaned up staging directory: {staging_dir}")
-        except Exception as e:
+        except OSError as e:
             self.logger.warning(f"Failed to cleanup staging directory: {str(e)}")
 
     async def reset_retry_sensitive_state(self) -> None:
